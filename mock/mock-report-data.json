@@ -1,0 +1,179 @@
+{
+  "reportDetails": {
+    "reportId": "AL-20260418-QH-001",
+    "date": "2026-04-18",
+    "client": "QuickHealth",
+    "project": "QuickHealth Web App (Next.js + Supabase + Stripe)",
+    "confidentiality": "STRICTLY CONFIDENTIAL"
+  },
+  "executiveSummary": {
+    "grade": "C",
+    "score": 62,
+    "riskLevel": "High",
+    "keyStats": {
+      "totalFilesScanned": 1420,
+      "findings": 9,
+      "criticalRisks": 4,
+      "pass": 2,
+      "fail": 2,
+      "unknown": 5
+    },
+    "topRisks": [
+      "Hardcoded Supabase service role key granting full database access.",
+      "SQL injection vulnerability in patient data retrieval.",
+      "Missing Row Level Security (RLS) on patients table."
+    ]
+  },
+  "appChecklist": [
+    { "id": "APP 1", "name": "Open & Transparent Management", "status": "PASS", "findings": 0 },
+    { "id": "APP 3", "name": "Collection of Personal Info", "status": "UNKNOWN", "findings": 0, "note": "questionnaire required" },
+    { "id": "APP 5", "name": "Notification of Collection", "status": "UNKNOWN", "findings": 0, "note": "questionnaire required" },
+    { "id": "APP 6", "name": "Use or Disclosure", "status": "FAIL", "findings": 2 },
+    { "id": "APP 8", "name": "Cross-Border Disclosure", "status": "UNKNOWN", "findings": 0, "note": "questionnaire required" },
+    { "id": "APP 10", "name": "Quality of Personal Info", "status": "UNKNOWN", "findings": 0, "note": "questionnaire required" },
+    { "id": "APP 11", "name": "Security of Personal Info", "status": "FAIL", "findings": 7 },
+    { "id": "APP 12", "name": "Access to Personal Info", "status": "PASS", "findings": 0 },
+    { "id": "NDB s26WE", "name": "Data Breach Notification", "status": "UNKNOWN", "findings": 0, "note": "questionnaire required" }
+  ],
+  "technicalFindings": {
+    "APP 6": [
+      {
+        "id": "F-001",
+        "title": "CORS wildcard (Access-Control-Allow-Origin: *)",
+        "description": "Supabase API exposed without authentication restrictions.",
+        "scanner": "GuardVibe VG-SEC-004",
+        "timestamp": "2026-04-18T10:14:22Z",
+        "snippet": "export const corsHeaders = {\n  'Access-Control-Allow-Origin': '*',\n  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',\n}",
+        "confidence": "High",
+        "severity": "Medium",
+        "location": "supabase/functions/_shared/cors.ts:2"
+      },
+      {
+        "id": "F-002",
+        "title": "Missing auth guard on /api/admin/users endpoint",
+        "description": "Endpoint exposes user data without verifying admin session.",
+        "scanner": "mcp-scan CR-012",
+        "timestamp": "2026-04-18T10:15:01Z",
+        "snippet": "export async function GET(req: NextRequest) {\n  const users = await db.select().from(Users);\n  return NextResponse.json(users);\n}",
+        "confidence": "High",
+        "severity": "High",
+        "location": "src/app/api/admin/users/route.ts:5"
+      }
+    ],
+    "APP 11": [
+      {
+        "id": "F-003",
+        "title": "Hardcoded Supabase service role key",
+        "description": "Service role key embedded directly in source code.",
+        "scanner": "TruffleHog TH-001",
+        "timestamp": "2026-04-18T10:12:45Z",
+        "snippet": "const supabaseUrl = 'https://xyzcompany.supabase.co'\nconst supabaseServiceKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...'\nexport const supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey)",
+        "confidence": "Critical",
+        "severity": "Critical",
+        "location": "src/lib/supabase.ts:12"
+      },
+      {
+        "id": "F-004",
+        "title": "SQL injection via string interpolation",
+        "description": "Patient data queried using unsafe string interpolation instead of parameterized queries.",
+        "scanner": "mcp-scan CR-002",
+        "timestamp": "2026-04-18T10:16:30Z",
+        "snippet": "export async function getPatientRecords(patientId: string) {\n  // VULNERABLE\n  const query = `SELECT * FROM patients WHERE id = '${patientId}'`;\n  const { data } = await supabase.rpc('execute_sql', { query });\n  return data;\n}",
+        "confidence": "High",
+        "severity": "Critical",
+        "location": "src/db/patients.ts:47"
+      },
+      {
+        "id": "F-005",
+        "title": "Missing Row Level Security on patients table",
+        "description": "Database table 'patients' lacks RLS policies, allowing any authenticated user to read all rows.",
+        "scanner": "Supabase-Lint SL-009",
+        "timestamp": "2026-04-18T10:17:15Z",
+        "snippet": "-- Table: public.patients\n-- RLS is disabled",
+        "confidence": "High",
+        "severity": "Critical",
+        "location": "supabase/migrations/20251012_init.sql"
+      },
+      {
+        "id": "F-006",
+        "title": ".env file not in .gitignore",
+        "description": "Environment variables file containing secrets was committed to repository.",
+        "scanner": "GitGuardian GG-101",
+        "timestamp": "2026-04-18T10:11:10Z",
+        "snippet": "NEXT_PUBLIC_SUPABASE_URL=...\nNEXT_PUBLIC_SUPABASE_ANON_KEY=...\nSTRIPE_SECRET_KEY=sk_test_51Nx...",
+        "confidence": "Critical",
+        "severity": "Critical",
+        "location": ".env"
+      },
+      {
+        "id": "F-007",
+        "title": "dangerouslySetInnerHTML without DOMPurify",
+        "description": "React component renders raw HTML from user input without sanitization.",
+        "scanner": "mcp-scan CR-088",
+        "timestamp": "2026-04-18T10:18:22Z",
+        "snippet": "export default function Comment({ content }: { content: string }) {\n  return <div dangerouslySetInnerHTML={{ __html: content }} />;\n}",
+        "confidence": "High",
+        "severity": "High",
+        "location": "src/components/Comment.tsx:28"
+      },
+      {
+        "id": "F-008",
+        "title": "Stripe secret key hardcoded",
+        "description": "Stripe API secret key present in source code.",
+        "scanner": "TruffleHog TH-002",
+        "timestamp": "2026-04-18T10:13:05Z",
+        "snippet": "import Stripe from 'stripe';\nexport const stripe = new Stripe('sk_test_51NxO...', {\n  apiVersion: '2023-10-16',\n});",
+        "confidence": "Critical",
+        "severity": "Critical",
+        "location": "src/services/stripe.ts:12"
+      },
+      {
+        "id": "F-009",
+        "title": "Debug mode enabled in production",
+        "description": "Next.js application is exposing debug information.",
+        "scanner": "GuardVibe VG-SEC-015",
+        "timestamp": "2026-04-18T10:19:40Z",
+        "snippet": "module.exports = {\n  reactStrictMode: true,\n  productionBrowserSourceMaps: true,\n}",
+        "confidence": "High",
+        "severity": "Medium",
+        "location": "next.config.js:3"
+      }
+    ]
+  },
+  "remediationPlaybook": {
+    "quickWins": [
+      { "task": "Remove .env from repository and add to .gitignore", "effort": "< 5 min", "app": "APP 11" },
+      { "task": "Remove hardcoded Supabase service role key and move to env vars", "effort": "< 5 min", "app": "APP 11" },
+      { "task": "Remove hardcoded Stripe secret key and move to env vars", "effort": "< 5 min", "app": "APP 11" },
+      { "task": "Disable productionBrowserSourceMaps in next.config.js", "effort": "< 5 min", "app": "APP 11" }
+    ],
+    "mediumEffort": [
+      { "task": "Implement DOMPurify for dangerouslySetInnerHTML in Comment.tsx", "effort": "1-2 hours", "app": "APP 11" },
+      { "task": "Add auth guard wrapper to /api/admin/users route", "effort": "1-2 hours", "app": "APP 6" },
+      { "task": "Update CORS headers in Supabase functions to restrict origins", "effort": "1-2 hours", "app": "APP 6" }
+    ],
+    "structuralChanges": [
+      { "task": "Refactor patients DB queries to use parameterization (remove string interpolation)", "effort": "1+ days", "app": "APP 11" },
+      { "task": "Design and enforce Row Level Security (RLS) policies on patients table", "effort": "1+ days", "app": "APP 11" }
+    ]
+  },
+  "questionnairePreview": [
+    {
+      "app": "APP 5",
+      "question": "Are individuals notified before or at the time their personal information is collected?",
+      "type": "Yes/No",
+      "context": "Required because your app collects patient data via web forms."
+    },
+    {
+      "app": "NDB s26WE",
+      "question": "Do you have a documented Data Breach Response Plan in place?",
+      "type": "Yes/No",
+      "context": "Required because you store sensitive health information."
+    }
+  ],
+  "appendix": {
+    "methodology": "Automated static analysis (SAST), secret scanning, and configuration review mapped to Australian Privacy Principles.",
+    "scanners": ["GuardVibe 2.4.1", "mcp-scan 1.0.5", "TruffleHog 3.63.1", "Supabase-Lint 0.4.0", "GitGuardian CLI"],
+    "disclaimer": "This report is generated by AttestLens AI and does not constitute formal legal advice. Findings reflect technical state at time of scan."
+  }
+}

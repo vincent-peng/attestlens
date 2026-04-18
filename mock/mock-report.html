@@ -1,0 +1,797 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AttestLens Compliance Report - QuickHealth</title>
+    <style>
+        :root {
+            --dark-navy: #1a2332;
+            --teal-accent: #00b4d8;
+            --fail-red: #e63946;
+            --unknown-amber: #f4a261;
+            --pass-green: #2a9d8f;
+            --light-bg: #f8fafc;
+            --border-color: #e2e8f0;
+            --text-main: #334155;
+            --text-light: #64748b;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            color: var(--text-main);
+            line-height: 1.6;
+            background: #e2e8f0;
+        }
+
+        /* A4 Page Setup */
+        .page {
+            width: 210mm;
+            min-height: 297mm;
+            background: white;
+            margin: 20px auto;
+            padding: 20mm;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+            position: relative;
+            page-break-after: always;
+        }
+
+        @media print {
+            body {
+                background: white;
+            }
+            .page {
+                margin: 0;
+                box-shadow: none;
+                page-break-after: always;
+            }
+            @page {
+                size: A4;
+                margin: 0;
+            }
+        }
+
+        /* Typography */
+        h1, h2, h3, h4 {
+            color: var(--dark-navy);
+            margin-bottom: 12px;
+        }
+
+        h1 { font-size: 28pt; margin-bottom: 24px; font-weight: 700; }
+        h2 { font-size: 18pt; margin-top: 24px; border-bottom: 2px solid var(--teal-accent); padding-bottom: 8px; }
+        h3 { font-size: 14pt; margin-top: 16px; }
+
+        p { margin-bottom: 12px; }
+
+        /* Cover Page */
+        .cover-page {
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            height: calc(297mm - 40mm);
+        }
+
+        .logo-placeholder {
+            width: 80px;
+            height: 80px;
+            background: var(--dark-navy);
+            color: var(--teal-accent);
+            border-radius: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 32px;
+            font-weight: bold;
+            margin-bottom: 40px;
+            letter-spacing: -2px;
+        }
+
+        .cover-title {
+            font-size: 36pt;
+            line-height: 1.2;
+            color: var(--dark-navy);
+            margin-bottom: 10px;
+        }
+        
+        .cover-subtitle {
+            font-size: 18pt;
+            color: var(--text-light);
+            margin-bottom: 60px;
+        }
+
+        .meta-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-bottom: 40px;
+        }
+
+        .meta-table th {
+            text-align: left;
+            color: var(--text-light);
+            padding: 8px 0;
+            font-weight: 600;
+            width: 30%;
+        }
+
+        .meta-table td {
+            padding: 8px 0;
+            font-weight: 500;
+        }
+
+        .confidential-badge {
+            display: inline-block;
+            background: var(--fail-red);
+            color: white;
+            padding: 6px 12px;
+            border-radius: 4px;
+            font-weight: bold;
+            font-size: 12px;
+            letter-spacing: 1px;
+            margin-top: auto;
+        }
+
+        /* Executive Summary */
+        .exec-grid {
+            display: grid;
+            grid-template-columns: 1fr 2fr;
+            gap: 20px;
+            margin-bottom: 30px;
+        }
+
+        .grade-box {
+            background: var(--dark-navy);
+            color: white;
+            border-radius: 8px;
+            padding: 30px;
+            text-align: center;
+        }
+
+        .grade-letter {
+            font-size: 48pt;
+            font-weight: bold;
+            color: var(--unknown-amber);
+            line-height: 1;
+            margin-bottom: 10px;
+        }
+
+        .grade-score {
+            font-size: 16pt;
+            color: var(--teal-accent);
+        }
+
+        .stats-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 15px;
+        }
+
+        .stat-card {
+            background: var(--light-bg);
+            border: 1px solid var(--border-color);
+            border-radius: 6px;
+            padding: 15px;
+        }
+
+        .stat-value {
+            font-size: 24pt;
+            font-weight: bold;
+            color: var(--dark-navy);
+        }
+
+        .stat-label {
+            font-size: 10pt;
+            color: var(--text-light);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .top-risks {
+            background: #fef2f2;
+            border-left: 4px solid var(--fail-red);
+            padding: 15px 20px;
+            margin-top: 20px;
+        }
+
+        .top-risks ul {
+            padding-left: 20px;
+            margin-top: 10px;
+        }
+
+        /* Status Badges */
+        .status {
+            display: inline-block;
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 12px;
+            font-weight: bold;
+            color: white;
+        }
+        .status.pass { background: var(--pass-green); }
+        .status.fail { background: var(--fail-red); }
+        .status.unknown { background: var(--unknown-amber); color: var(--dark-navy); }
+
+        /* Checklist */
+        .checklist {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 20px;
+        }
+
+        .checklist th, .checklist td {
+            padding: 12px 15px;
+            border-bottom: 1px solid var(--border-color);
+            text-align: left;
+        }
+
+        .checklist th {
+            background: var(--light-bg);
+            font-weight: 600;
+            color: var(--dark-navy);
+        }
+
+        .checklist tr:last-child td { border-bottom: none; }
+
+        .finding-count {
+            font-weight: bold;
+            color: var(--dark-navy);
+        }
+        
+        .finding-note {
+            font-size: 11px;
+            color: var(--text-light);
+            display: block;
+            margin-top: 4px;
+        }
+
+        /* Findings */
+        .finding-card {
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            margin-bottom: 20px;
+            overflow: hidden;
+            page-break-inside: avoid;
+        }
+
+        .finding-header {
+            background: var(--light-bg);
+            padding: 15px;
+            border-bottom: 1px solid var(--border-color);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .finding-title {
+            font-weight: 600;
+            color: var(--dark-navy);
+            font-size: 12pt;
+        }
+
+        .finding-body {
+            padding: 15px;
+        }
+
+        .finding-meta {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 10px;
+            margin-bottom: 15px;
+            font-size: 11px;
+            color: var(--text-light);
+        }
+
+        .meta-item strong {
+            display: block;
+            color: var(--dark-navy);
+        }
+
+        .code-snippet {
+            background: #1e293b;
+            color: #e2e8f0;
+            padding: 15px;
+            border-radius: 6px;
+            font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+            font-size: 11px;
+            overflow-x: auto;
+            white-space: pre-wrap;
+            margin-top: 10px;
+            border-left: 3px solid var(--fail-red);
+        }
+
+        /* Remediation Playbook */
+        .playbook-section {
+            margin-bottom: 20px;
+        }
+
+        .playbook-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 11pt;
+        }
+
+        .playbook-table th, .playbook-table td {
+            padding: 10px;
+            border: 1px solid var(--border-color);
+            text-align: left;
+        }
+
+        .playbook-table th {
+            background: var(--light-bg);
+            width: 15%;
+        }
+
+        .effort-quick { color: var(--pass-green); font-weight: bold; }
+        .effort-medium { color: var(--unknown-amber); font-weight: bold; }
+        .effort-struct { color: var(--fail-red); font-weight: bold; }
+
+        /* Questionnaire Preview */
+        .q-card {
+            background: var(--light-bg);
+            border-left: 4px solid var(--unknown-amber);
+            padding: 15px;
+            margin-bottom: 15px;
+            border-radius: 0 6px 6px 0;
+        }
+
+        .q-app {
+            font-weight: bold;
+            color: var(--dark-navy);
+            font-size: 10pt;
+            margin-bottom: 5px;
+        }
+
+        .q-text {
+            font-size: 12pt;
+            margin-bottom: 8px;
+        }
+
+        .q-context {
+            font-size: 10pt;
+            color: var(--text-light);
+            font-style: italic;
+        }
+
+        /* Footer */
+        .page-footer {
+            position: absolute;
+            bottom: 20mm;
+            left: 20mm;
+            right: 20mm;
+            display: flex;
+            justify-content: space-between;
+            font-size: 9pt;
+            color: var(--text-light);
+            border-top: 1px solid var(--border-color);
+            padding-top: 10px;
+        }
+    </style>
+</head>
+<body>
+
+    <!-- Cover Page -->
+    <div class="page">
+        <div class="cover-page">
+            <div class="logo-placeholder">AL</div>
+            <h1 class="cover-title">AI Compliance Scan Report</h1>
+            <div class="cover-subtitle">Australian Privacy Principles (APP) & NDB Mapping</div>
+            
+            <table class="meta-table">
+                <tr>
+                    <th>Client / Target</th>
+                    <td>QuickHealth Web App (Next.js + Supabase + Stripe)</td>
+                </tr>
+                <tr>
+                    <th>Report ID</th>
+                    <td>AL-20260418-QH-001</td>
+                </tr>
+                <tr>
+                    <th>Date Generated</th>
+                    <td>April 18, 2026</td>
+                </tr>
+                <tr>
+                    <th>Scanner Version</th>
+                    <td>AttestLens Core v1.4.2</td>
+                </tr>
+            </table>
+
+            <div>
+                <span class="confidential-badge">STRICTLY CONFIDENTIAL</span>
+            </div>
+        </div>
+        <div class="page-footer">
+            <span>AttestLens Security</span>
+            <span>Page 1</span>
+        </div>
+    </div>
+
+    <!-- Executive Summary & Checklist -->
+    <div class="page">
+        <h2>Executive Summary</h2>
+        <div class="exec-grid">
+            <div class="grade-box">
+                <div style="font-size: 12pt; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 10px;">Overall Grade</div>
+                <div class="grade-letter">C</div>
+                <div class="grade-score">62 / 100</div>
+                <div style="margin-top: 15px; color: #cbd5e1; font-size: 10pt;">Risk Level: HIGH</div>
+            </div>
+            <div class="stats-grid">
+                <div class="stat-card">
+                    <div class="stat-value">1,420</div>
+                    <div class="stat-label">Files Scanned</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-value" style="color: var(--fail-red);">9</div>
+                    <div class="stat-label">Total Findings</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-value" style="color: var(--fail-red);">3</div>
+                    <div class="stat-label">Critical Risks</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-value" style="color: var(--unknown-amber);">5</div>
+                    <div class="stat-label">Unknowns (Requires QA)</div>
+                </div>
+            </div>
+        </div>
+
+        <div class="top-risks">
+            <strong style="color: var(--fail-red);">Top 3 Critical Risks Identified:</strong>
+            <ul>
+                <li>Hardcoded Supabase service role key granting full database access.</li>
+                <li>SQL injection vulnerability in patient data retrieval.</li>
+                <li>Missing Row Level Security (RLS) on patients table.</li>
+            </ul>
+        </div>
+
+        <h2>APP Control Checklist</h2>
+        <table class="checklist">
+            <thead>
+                <tr>
+                    <th>Obligation</th>
+                    <th>Status</th>
+                    <th>Technical Findings</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td>APP 1 — Open & Transparent Management</td>
+                    <td><span class="status pass">✅ PASS</span></td>
+                    <td class="finding-count">0</td>
+                </tr>
+                <tr>
+                    <td>APP 3 — Collection of Personal Info</td>
+                    <td><span class="status unknown">⚠️ UNKNOWN</span></td>
+                    <td>0 <span class="finding-note">(questionnaire required)</span></td>
+                </tr>
+                <tr>
+                    <td>APP 5 — Notification of Collection</td>
+                    <td><span class="status unknown">⚠️ UNKNOWN</span></td>
+                    <td>0 <span class="finding-note">(questionnaire required)</span></td>
+                </tr>
+                <tr>
+                    <td>APP 6 — Use or Disclosure</td>
+                    <td><span class="status fail">❌ FAIL</span></td>
+                    <td class="finding-count" style="color: var(--fail-red);">2 findings</td>
+                </tr>
+                <tr>
+                    <td>APP 8 — Cross-Border Disclosure</td>
+                    <td><span class="status unknown">⚠️ UNKNOWN</span></td>
+                    <td>0 <span class="finding-note">(questionnaire required)</span></td>
+                </tr>
+                <tr>
+                    <td>APP 10 — Quality of Personal Info</td>
+                    <td><span class="status unknown">⚠️ UNKNOWN</span></td>
+                    <td>0 <span class="finding-note">(questionnaire required)</span></td>
+                </tr>
+                <tr>
+                    <td>APP 11 — Security of Personal Info</td>
+                    <td><span class="status fail">❌ FAIL</span></td>
+                    <td class="finding-count" style="color: var(--fail-red);">7 findings</td>
+                </tr>
+                <tr>
+                    <td>APP 12 — Access to Personal Info</td>
+                    <td><span class="status pass">✅ PASS</span></td>
+                    <td class="finding-count">0</td>
+                </tr>
+                <tr>
+                    <td>NDB s26WE — Data Breach Notification</td>
+                    <td><span class="status unknown">⚠️ UNKNOWN</span></td>
+                    <td>0 <span class="finding-note">(questionnaire required)</span></td>
+                </tr>
+            </tbody>
+        </table>
+        <div class="page-footer">
+            <span>AttestLens Security</span>
+            <span>Page 2</span>
+        </div>
+    </div>
+
+    <!-- Findings: APP 6 -->
+    <div class="page">
+        <h2>Technical Findings by Obligation</h2>
+        
+        <h3 style="color: var(--fail-red);">APP 6 failures (2 findings)</h3>
+        <p style="font-size: 10pt; color: var(--text-light); margin-bottom: 20px;">Use or disclosure of personal information</p>
+
+        <div class="finding-card">
+            <div class="finding-header">
+                <span class="finding-title">CORS wildcard (Access-Control-Allow-Origin: *)</span>
+                <span class="status fail">Severity: Medium</span>
+            </div>
+            <div class="finding-body">
+                <p>Supabase API exposed without authentication restrictions.</p>
+                <div class="finding-meta">
+                    <div class="meta-item"><strong>Scanner Source</strong> GuardVibe VG-SEC-004</div>
+                    <div class="meta-item"><strong>Location</strong> supabase/functions/_shared/cors.ts:2</div>
+                    <div class="meta-item"><strong>Confidence</strong> High</div>
+                </div>
+                <div class="code-snippet">export const corsHeaders = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+}</div>
+            </div>
+        </div>
+
+        <div class="finding-card">
+            <div class="finding-header">
+                <span class="finding-title">Missing auth guard on /api/admin/users endpoint</span>
+                <span class="status fail" style="background: darkred;">Severity: High</span>
+            </div>
+            <div class="finding-body">
+                <p>Endpoint exposes user data without verifying admin session.</p>
+                <div class="finding-meta">
+                    <div class="meta-item"><strong>Scanner Source</strong> mcp-scan CR-012</div>
+                    <div class="meta-item"><strong>Location</strong> src/app/api/admin/users/route.ts:5</div>
+                    <div class="meta-item"><strong>Confidence</strong> High</div>
+                </div>
+                <div class="code-snippet">export async function GET(req: NextRequest) {
+  const users = await db.select().from(Users);
+  return NextResponse.json(users);
+}</div>
+            </div>
+        </div>
+
+        <div class="page-footer">
+            <span>AttestLens Security</span>
+            <span>Page 3</span>
+        </div>
+    </div>
+
+    <!-- Findings: APP 11 (Part 1) -->
+    <div class="page">
+        <h3 style="color: var(--fail-red);">APP 11 failures (7 findings)</h3>
+        <p style="font-size: 10pt; color: var(--text-light); margin-bottom: 20px;">Security of personal information</p>
+
+        <div class="finding-card">
+            <div class="finding-header">
+                <span class="finding-title">Hardcoded Supabase service role key</span>
+                <span class="status fail" style="background: #7f1d1d;">Severity: Critical</span>
+            </div>
+            <div class="finding-body">
+                <p>Service role key embedded directly in source code. This grants full administrative database access, bypassing Row Level Security.</p>
+                <div class="finding-meta">
+                    <div class="meta-item"><strong>Scanner Source</strong> TruffleHog TH-001</div>
+                    <div class="meta-item"><strong>Location</strong> src/lib/supabase.ts:12</div>
+                    <div class="meta-item"><strong>Confidence</strong> Critical</div>
+                </div>
+                <div class="code-snippet">const supabaseUrl = 'https://xyzcompany.supabase.co'
+const supabaseServiceKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...'
+export const supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey)</div>
+            </div>
+        </div>
+
+        <div class="finding-card">
+            <div class="finding-header">
+                <span class="finding-title">SQL injection via string interpolation</span>
+                <span class="status fail" style="background: #7f1d1d;">Severity: Critical</span>
+            </div>
+            <div class="finding-body">
+                <p>Patient data queried using unsafe string interpolation instead of parameterized queries.</p>
+                <div class="finding-meta">
+                    <div class="meta-item"><strong>Scanner Source</strong> mcp-scan CR-002</div>
+                    <div class="meta-item"><strong>Location</strong> src/db/patients.ts:47</div>
+                    <div class="meta-item"><strong>Confidence</strong> High</div>
+                </div>
+                <div class="code-snippet">export async function getPatientRecords(patientId: string) {
+  // VULNERABLE
+  const query = `SELECT * FROM patients WHERE id = '${patientId}'`;
+  const { data } = await supabase.rpc('execute_sql', { query });
+  return data;
+}</div>
+            </div>
+        </div>
+
+        <div class="finding-card">
+            <div class="finding-header">
+                <span class="finding-title">Missing Row Level Security on patients table</span>
+                <span class="status fail" style="background: #7f1d1d;">Severity: Critical</span>
+            </div>
+            <div class="finding-body">
+                <p>Database table 'patients' lacks RLS policies, allowing any authenticated user to read all rows.</p>
+                <div class="finding-meta">
+                    <div class="meta-item"><strong>Scanner Source</strong> Supabase-Lint SL-009</div>
+                    <div class="meta-item"><strong>Location</strong> supabase/migrations/20251012_init.sql</div>
+                    <div class="meta-item"><strong>Confidence</strong> High</div>
+                </div>
+                <div class="code-snippet">-- Table: public.patients
+-- RLS is disabled</div>
+            </div>
+        </div>
+
+        <div class="page-footer">
+            <span>AttestLens Security</span>
+            <span>Page 4</span>
+        </div>
+    </div>
+
+    <!-- Findings: APP 11 (Part 2) -->
+    <div class="page">
+        <div class="finding-card">
+            <div class="finding-header">
+                <span class="finding-title">.env file not in .gitignore</span>
+                <span class="status fail" style="background: #7f1d1d;">Severity: Critical</span>
+            </div>
+            <div class="finding-body">
+                <p>Environment variables file containing secrets was committed to repository.</p>
+                <div class="finding-meta">
+                    <div class="meta-item"><strong>Scanner Source</strong> GitGuardian GG-101</div>
+                    <div class="meta-item"><strong>Location</strong> .env</div>
+                    <div class="meta-item"><strong>Confidence</strong> Critical</div>
+                </div>
+                <div class="code-snippet">NEXT_PUBLIC_SUPABASE_URL=...
+NEXT_PUBLIC_SUPABASE_ANON_KEY=...
+STRIPE_SECRET_KEY=sk_test_51Nx...</div>
+            </div>
+        </div>
+
+        <div class="finding-card">
+            <div class="finding-header">
+                <span class="finding-title">Stripe secret key hardcoded</span>
+                <span class="status fail" style="background: #7f1d1d;">Severity: Critical</span>
+            </div>
+            <div class="finding-body">
+                <p>Stripe API secret key present in source code.</p>
+                <div class="finding-meta">
+                    <div class="meta-item"><strong>Scanner Source</strong> TruffleHog TH-002</div>
+                    <div class="meta-item"><strong>Location</strong> src/services/stripe.ts:12</div>
+                    <div class="meta-item"><strong>Confidence</strong> Critical</div>
+                </div>
+                <div class="code-snippet">import Stripe from 'stripe';
+export const stripe = new Stripe('sk_test_51NxO...', {
+  apiVersion: '2023-10-16',
+});</div>
+            </div>
+        </div>
+
+        <div class="finding-card">
+            <div class="finding-header">
+                <span class="finding-title">dangerouslySetInnerHTML without DOMPurify</span>
+                <span class="status fail" style="background: darkred;">Severity: High</span>
+            </div>
+            <div class="finding-body">
+                <p>React component renders raw HTML from user input without sanitization (XSS risk).</p>
+                <div class="finding-meta">
+                    <div class="meta-item"><strong>Scanner Source</strong> mcp-scan CR-088</div>
+                    <div class="meta-item"><strong>Location</strong> src/components/Comment.tsx:28</div>
+                    <div class="meta-item"><strong>Confidence</strong> High</div>
+                </div>
+                <div class="code-snippet">export default function Comment({ content }: { content: string }) {
+  return <div dangerouslySetInnerHTML={{ __html: content }} />;
+}</div>
+            </div>
+        </div>
+
+        <div class="finding-card">
+            <div class="finding-header">
+                <span class="finding-title">Debug mode enabled in production</span>
+                <span class="status fail">Severity: Medium</span>
+            </div>
+            <div class="finding-body">
+                <p>Next.js application is exposing debug information (source maps) in production environment.</p>
+                <div class="finding-meta">
+                    <div class="meta-item"><strong>Scanner Source</strong> GuardVibe VG-SEC-015</div>
+                    <div class="meta-item"><strong>Location</strong> next.config.js:3</div>
+                    <div class="meta-item"><strong>Confidence</strong> High</div>
+                </div>
+                <div class="code-snippet">module.exports = {
+  reactStrictMode: true,
+  productionBrowserSourceMaps: true,
+}</div>
+            </div>
+        </div>
+
+        <div class="page-footer">
+            <span>AttestLens Security</span>
+            <span>Page 5</span>
+        </div>
+    </div>
+
+    <!-- Remediation, Attestation, Appendix -->
+    <div class="page">
+        <h2>Remediation Playbook</h2>
+        <p>Prioritized fix list mapped to APP obligations.</p>
+        
+        <h3 class="effort-quick">Quick Wins (&lt; 5 mins)</h3>
+        <table class="playbook-table" style="margin-bottom: 20px;">
+            <tr>
+                <th>APP 11</th>
+                <td>Remove .env from repository, rotate keys, and add to .gitignore</td>
+            </tr>
+            <tr>
+                <th>APP 11</th>
+                <td>Remove hardcoded Supabase service role key and move to env vars</td>
+            </tr>
+            <tr>
+                <th>APP 11</th>
+                <td>Remove hardcoded Stripe secret key and move to env vars</td>
+            </tr>
+            <tr>
+                <th>APP 11</th>
+                <td>Disable productionBrowserSourceMaps in next.config.js</td>
+            </tr>
+        </table>
+
+        <h3 class="effort-medium">Medium Effort (1-2 hours)</h3>
+        <table class="playbook-table" style="margin-bottom: 20px;">
+            <tr>
+                <th>APP 11</th>
+                <td>Implement DOMPurify for dangerouslySetInnerHTML in Comment.tsx</td>
+            </tr>
+            <tr>
+                <th>APP 6</th>
+                <td>Add auth guard wrapper to /api/admin/users route</td>
+            </tr>
+            <tr>
+                <th>APP 6</th>
+                <td>Update CORS headers in Supabase functions to restrict origins</td>
+            </tr>
+        </table>
+
+        <h3 class="effort-struct">Structural Changes (1+ days)</h3>
+        <table class="playbook-table" style="margin-bottom: 30px;">
+            <tr>
+                <th>APP 11</th>
+                <td>Refactor patients DB queries to use parameterization (remove string interpolation)</td>
+            </tr>
+            <tr>
+                <th>APP 11</th>
+                <td>Design and enforce Row Level Security (RLS) policies on patients table</td>
+            </tr>
+        </table>
+
+        <h2>Attestation Questionnaire Preview</h2>
+        <p style="margin-bottom: 15px;">The following principles could not be verified automatically and require human attestation.</p>
+        
+        <div class="q-card">
+            <div class="q-app">APP 5 — Notification of Collection</div>
+            <div class="q-text">Are individuals notified before or at the time their personal information is collected?</div>
+            <div class="q-context">Required because your app collects patient data via web forms.</div>
+        </div>
+
+        <div class="q-card">
+            <div class="q-app">NDB s26WE — Data Breach Notification</div>
+            <div class="q-text">Do you have a documented Data Breach Response Plan in place?</div>
+            <div class="q-context">Required because you store sensitive health information.</div>
+        </div>
+
+        <h2>Appendix</h2>
+        <div style="font-size: 10pt; color: var(--text-light); margin-top: 15px;">
+            <p><strong>Methodology:</strong> Automated static analysis (SAST), secret scanning, and configuration review mapped to Australian Privacy Principles.</p>
+            <p><strong>Scanner Versions:</strong> GuardVibe 2.4.1, mcp-scan 1.0.5, TruffleHog 3.63.1, Supabase-Lint 0.4.0, GitGuardian CLI.</p>
+            <p><strong>Disclaimer:</strong> This report is generated by AttestLens AI and does not constitute formal legal advice. Findings reflect the technical state of the repository at the time of scan. Additional manual review is recommended for comprehensive compliance.</p>
+        </div>
+
+        <div class="page-footer">
+            <span>AttestLens Security</span>
+            <span>Page 6</span>
+        </div>
+    </div>
+
+</body>
+</html>

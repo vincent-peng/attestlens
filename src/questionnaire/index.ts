@@ -1,0 +1,352 @@
+/**
+ * AttestLens — Attestation Questionnaire Module
+ * 
+ * Converts UNKNOWN APP control statuses to PASS/FAIL through
+ * guided attestation questions based on Australian Privacy Act obligations.
+ * 
+ * This is a hard moat — the question logic reflects actual statutory
+ * requirements, not generic compliance checkboxes.
+ */
+
+import { z } from 'zod';
+import {
+  APPPrinciple,
+  APPInfo,
+  QuestionType,
+  type Question,
+  type QuestionnaireResponse,
+  type ControlStatus,
+} from '../schema/index.js';
+
+// ─── Question Bank ────────────────────────────────────────────────────────────
+
+export const QUESTION_BANK: Question[] = [
+  // ─── APP 1: Open & Transparent Management ────────────────────────────
+  {
+    id: 'Q-APP1-001',
+    appPrinciple: 'APP_1',
+    question: 'Do you have a publicly available privacy policy that explains how you collect, use, disclose, and store personal information?',
+    type: 'yes_no',
+    required: true,
+    helpText: 'APP 1.4 requires APP entities to have a clearly expressed, up-to-date privacy policy. It must include the kinds of personal information collected, how it is collected, the purposes of collection, use and disclosure, and how individuals can access and correct their information.',
+    relatedFindings: [],
+  },
+  {
+    id: 'Q-APP1-002',
+    appPrinciple: 'APP_1',
+    question: 'Is your privacy policy accessible from every page or screen where personal information is collected?',
+    type: 'yes_no',
+    required: true,
+    helpText: 'APP 1.5 requires the privacy policy to be available in a form that is convenient and readily accessible.',
+  },
+  {
+    id: 'Q-APP1-003',
+    appPrinciple: 'APP_1',
+    question: 'Have you appointed a designated contact person or position for privacy complaints and enquiries?',
+    type: 'yes_no',
+    required: false,
+    helpText: 'APP 1.4(d) requires the privacy policy to include how the individual can contact the entity about privacy matters.',
+  },
+
+  // ─── APP 3: Collection of Personal Info ───────────────────────────────
+  {
+    id: 'Q-APP3-001',
+    appPrinciple: 'APP_3',
+    question: 'Is all personal information collected through this application collected for a lawful purpose that is directly related to your organisation\'s functions or activities?',
+    type: 'yes_no',
+    required: true,
+    helpText: 'APP 3.1 requires that personal information must only be collected for a lawful purpose that is directly related to a function or activity of the entity.',
+  },
+  {
+    id: 'Q-APP3-002',
+    appPrinciple: 'APP_3',
+    question: 'Do you only collect personal information that is reasonably necessary for your organisation\'s functions or activities?',
+    type: 'yes_no',
+    required: true,
+    helpText: 'APP 3.2 requires that only information reasonably necessary for the entity\'s functions or activities is collected. Data minimisation is a statutory requirement.',
+  },
+  {
+    id: 'Q-APP3-003',
+    appPrinciple: 'APP_3',
+    question: 'Do you collect personal information only by lawful and fair means (not in an unreasonably intrusive way)?',
+    type: 'yes_no',
+    required: true,
+    helpText: 'APP 3.3 requires collection to be by lawful and fair means, and not unreasonably intrusive upon the individual\'s personal affairs.',
+  },
+  {
+    id: 'Q-APP3-004',
+    appPrinciple: 'APP_3',
+    question: 'At or before the time of collection, do you make the individual aware of: (a) your identity, (b) how to contact you, (c) the purpose of collection, (d) any law requiring collection, (e) consequences of not providing the information, and (f) any disclosure to overseas recipients?',
+    type: 'yes_no',
+    required: true,
+    helpText: 'APP 3.4 requires specific notifications at or before collection. This is a comprehensive requirement covering all six mandatory disclosures.',
+  },
+
+  // ─── APP 5: Notification ──────────────────────────────────────────────
+  {
+    id: 'Q-APP5-001',
+    appPrinciple: 'APP_5',
+    question: 'When collecting personal information directly from an individual, do you take reasonable steps to notify them of: (a) your identity and contact details, (b) the fact and purpose of collection, (c) any law requiring collection, (d) consequences of not providing, and (e) any overseas disclosure?',
+    type: 'yes_no',
+    required: true,
+    helpText: 'APP 5.1 requires notification at or before the time of collection. All five mandatory elements must be communicated.',
+  },
+  {
+    id: 'Q-APP5-002',
+    appPrinciple: 'APP_5',
+    question: 'When collecting personal information indirectly (not from the individual), do you take reasonable steps to notify the individual of the collection and related matters?',
+    type: 'yes_no',
+    required: false,
+    helpText: 'APP 5.2 requires notification when personal information is collected from a source other than the individual themselves, unless an exception applies.',
+  },
+
+  // ─── APP 8: Cross-Border Disclosure ───────────────────────────────────
+  {
+    id: 'Q-APP8-001',
+    appPrinciple: 'APP_8',
+    question: 'Do you disclose personal information to any overseas recipients (including cloud service providers, third-party APIs, or analytics services hosted outside Australia)?',
+    type: 'yes_no',
+    required: true,
+    helpText: 'APP 8.1 applies whenever personal information is disclosed to an overseas recipient, including cloud services (e.g., AWS us-east-1, Stripe, Google Analytics).',
+  },
+  {
+    id: 'Q-APP8-002',
+    appPrinciple: 'APP_8',
+    question: 'If yes, have you taken reasonable steps to ensure the overseas recipient does not breach the APPs in relation to that information?',
+    type: 'yes_no_na',
+    required: false,
+    helpText: 'APP 8.1 requires reasonable steps. This includes contractual obligations, due diligence on the recipient, and binding the recipient to comply with the APPs.',
+    relatedFindings: ['Q-APP8-001'],
+  },
+  {
+    id: 'Q-APP8-003',
+    appPrinciple: 'APP_8',
+    question: 'If you have taken steps, what steps have you taken? (Select all that apply)',
+    type: 'multi_choice',
+    options: [
+      'Contractual obligation to comply with APPs',
+      'Due diligence on recipient\'s privacy practices',
+      'Binding the recipient to handle information consistently with the APPs',
+      'Regular audits of recipient\'s compliance',
+      'None of the above',
+    ],
+    required: false,
+    helpText: 'APP 8.1 requires reasonable steps. Documenting these steps is important for demonstrating compliance.',
+    relatedFindings: ['Q-APP8-001'],
+  },
+
+  // ─── APP 10: Quality of Personal Info ─────────────────────────────────
+  {
+    id: 'Q-APP10-001',
+    appPrinciple: 'APP_10',
+    question: 'Do you take reasonable steps to ensure the personal information you collect is accurate, up-to-date, and complete, having regard to the purpose of collection?',
+    type: 'yes_no',
+    required: true,
+    helpText: 'APP 10.1 requires that the quality of personal information is maintained. This includes data validation, regular updates, and completeness checks.',
+  },
+  {
+    id: 'Q-APP10-002',
+    appPrinciple: 'APP_10',
+    question: 'Do you have processes in place to ensure personal information is accurate, up-to-date, and complete before using or disclosing it?',
+    type: 'yes_no',
+    required: true,
+    helpText: 'APP 10.2 requires steps before use or disclosure. This includes verifying data quality at the point of use.',
+  },
+
+  // ─── APP 13: Correction ───────────────────────────────────────────────
+  {
+    id: 'Q-APP13-001',
+    appPrinciple: 'APP_13',
+    question: 'Do you provide individuals with a mechanism to request correction of their personal information?',
+    type: 'yes_no',
+    required: true,
+    helpText: 'APP 13.1 requires that individuals can request correction of personal information. This includes online forms, email, or other accessible channels.',
+  },
+  {
+    id: 'Q-APP13-002',
+    appPrinciple: 'APP_13',
+    question: 'When a correction is made, do you notify third parties to whom you previously disclosed the incorrect information?',
+    type: 'yes_no',
+    required: false,
+    helpText: 'APP 13.4 requires notification to third parties if practicable. This is an important but often overlooked obligation.',
+  },
+
+  // ─── NDB: Data Breach Notification ────────────────────────────────────
+  {
+    id: 'Q-NDB-001',
+    appPrinciple: 'NDB',
+    question: 'Do you have a documented data breach response plan?',
+    type: 'yes_no',
+    required: true,
+    helpText: 'NDB s26WE requires entities to prepare and maintain a data breach response plan. The plan should include procedures for assessing breaches, containing breaches, and notifying affected individuals and the OAIC.',
+  },
+  {
+    id: 'Q-NDB-002',
+    appPrinciple: 'NDB',
+    question: 'Does your data breach response plan include procedures for: (a) assessing whether a breach is an eligible data breach, (b) containing the breach, (c) notifying affected individuals, and (d) notifying the OAIC?',
+    type: 'multi_choice',
+    options: [
+      'Assessing eligible data breaches',
+      'Containing breaches',
+      'Notifying affected individuals',
+      'Notifying the OAIC',
+      'None of the above',
+    ],
+    required: true,
+    helpText: 'A comprehensive data breach response plan should cover all four key areas: assessment, containment, individual notification, and OAIC notification.',
+  },
+  {
+    id: 'Q-NDB-003',
+    appPrinciple: 'NDB',
+    question: 'Have you designated a responsible person or position for assessing and responding to data breaches?',
+    type: 'yes_no',
+    required: true,
+    helpText: 'OAIC recommends having a designated privacy officer or data breach response coordinator.',
+  },
+  {
+    id: 'Q-NDB-004',
+    appPrinciple: 'NDB',
+    question: 'Can you assess and respond to a suspected data breach within 30 days of becoming aware of it?',
+    type: 'yes_no',
+    required: true,
+    helpText: 'The NDB scheme requires entities to assess whether a data breach is an eligible data breach within 30 days. Failure to meet this timeframe may itself constitute a breach.',
+  },
+];
+
+// ─── Questionnaire Logic ─────────────────────────────────────────────────────
+
+/**
+ * Get relevant questions for a set of APP controls with UNKNOWN status.
+ */
+export function getQuestionsForUnknownControls(unknownPrinciples: APPPrinciple[]): Question[] {
+  return QUESTION_BANK.filter(q => unknownPrinciples.includes(q.appPrinciple));
+}
+
+/**
+ * Evaluate a questionnaire response and convert UNKNOWN → PASS/FAIL.
+ */
+export function evaluateResponse(
+  question: Question,
+  answer: QuestionnaireResponse
+): { status: ControlStatus; confidence: number; rationale: string } {
+  const { answer: value } = answer;
+
+  switch (question.type) {
+    case 'yes_no': {
+      if (value === true || value === 'yes') {
+        return {
+          status: 'pass',
+          confidence: 0.80, // Self-reported, moderate confidence
+          rationale: `Affirmative response to: "${question.question}"`,
+        };
+      } else {
+        return {
+          status: 'fail',
+          confidence: 0.85, // Negative response = higher confidence in failure
+          rationale: `Negative response to: "${question.question}"`,
+        };
+      }
+    }
+
+    case 'yes_no_na': {
+      if (value === 'na' || value === 'N/A') {
+        return {
+          status: 'pass', // N/A means the obligation doesn't apply
+          confidence: 0.70,
+          rationale: `Not applicable: "${question.question}"`,
+        };
+      }
+      // Treat as yes_no
+      if (value === true || value === 'yes') {
+        return {
+          status: 'pass',
+          confidence: 0.80,
+          rationale: `Affirmative response to: "${question.question}"`,
+        };
+      }
+      return {
+        status: 'fail',
+        confidence: 0.85,
+        rationale: `Negative response to: "${question.question}"`,
+      };
+    }
+
+    case 'multi_choice': {
+      const choices = value as string[];
+      if (choices.includes('None of the above')) {
+        return {
+          status: 'fail',
+          confidence: 0.90,
+          rationale: `No compliance steps selected for: "${question.question}"`,
+        };
+      }
+      if (choices.length >= 2) {
+        return {
+          status: 'pass',
+          confidence: 0.75,
+          rationale: `${choices.length} compliance steps selected for: "${question.question}"`,
+        };
+      }
+      if (choices.length === 1) {
+        return {
+          status: 'pass',
+          confidence: 0.60, // Only one step — borderline
+          rationale: `Only one compliance step selected for: "${question.question}"`,
+        };
+      }
+      return {
+        status: 'unknown',
+        confidence: 0.30,
+        rationale: `No response provided for: "${question.question}"`,
+      };
+    }
+
+    case 'text': {
+      // Free text requires manual review
+      return {
+        status: 'unknown',
+        confidence: 0.20,
+        rationale: `Free text response requires manual review for: "${question.question}"`,
+      };
+    }
+
+    default:
+      return {
+        status: 'unknown',
+        confidence: 0.10,
+        rationale: 'Unsupported question type',
+      };
+  }
+}
+
+/**
+ * Process all questionnaire responses and update control statuses.
+ */
+export function processQuestionnaire(
+  responses: QuestionnaireResponse[]
+): Map<APPPrinciple, { status: ControlStatus; confidence: number; rationale: string }> {
+  const results = new Map<APPPrinciple, { status: ControlStatus; confidence: number; rationale: string }>();
+
+  for (const response of responses) {
+    const question = QUESTION_BANK.find(q => q.id === response.questionId);
+    if (!question) continue;
+
+    const evaluation = evaluateResponse(question, response);
+    
+    // For each principle, take the worst status across all questions
+    const existing = results.get(question.appPrinciple);
+    if (!existing) {
+      results.set(question.appPrinciple, evaluation);
+    } else {
+      // FAIL overrides PASS, PASS overrides UNKNOWN
+      const priority: Record<ControlStatus, number> = { fail: 3, unknown: 2, pass: 1 };
+      if (priority[evaluation.status] > priority[existing.status]) {
+        results.set(question.appPrinciple, evaluation);
+      }
+    }
+  }
+
+  return results;
+}
+
+export default { QUESTION_BANK, getQuestionsForUnknownControls, evaluateResponse, processQuestionnaire };

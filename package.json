@@ -1,0 +1,39 @@
+{
+  "name": "attestlens",
+  "version": "0.1.0",
+  "description": "AI Compliance Scanner & Privacy Act Attestation Tool — Maps security findings to Australian Privacy Act (APP/NDB) obligations",
+  "type": "module",
+  "main": "dist/index.js",
+  "bin": {
+    "attestlens": "dist/cli/index.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsx src/cli/index.ts",
+    "lint": "eslint src/",
+    "test": "vitest run",
+    "scan": "tsx src/cli/index.ts scan",
+    "audit": "tsx src/cli/index.ts audit",
+    "report": "tsx src/cli/index.ts report"
+  },
+  "keywords": ["compliance", "privacy", "app", "ndb", "attestation", "security", "scanner", "mcp"],
+  "author": "Vincent Peng",
+  "license": "UNLICENSED",
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.12.0",
+    "zod": "^3.24.0",
+    "commander": "^13.1.0",
+    "chalk": "^5.4.0",
+    "ora": "^8.2.0",
+    "pdfkit": "^0.17.0",
+    "puppeteer": "^24.4.0",
+    "yaml": "^2.7.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.8.0",
+    "@types/node": "^22.0.0",
+    "tsx": "^4.19.0",
+    "vitest": "^3.1.0",
+    "eslint": "^9.22.0"
+  }
+}
