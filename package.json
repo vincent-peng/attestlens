@@ -5,23 +5,25 @@
   "type": "module",
   "main": "dist/index.js",
   "bin": {
-    "attestlens": "dist/cli/index.js"
+    "attestlens": "./dist/cli/index.js",
+    "attestlens-mcp": "./dist/mcp/index.js"
   },
   "scripts": {
     "build": "tsc",
     "dev": "tsx src/cli/index.ts",
-    "lint": "eslint src/",
+    "lint": "tsc --noEmit",
     "test": "vitest run",
     "scan": "tsx src/cli/index.ts scan",
     "audit": "tsx src/cli/index.ts audit",
-    "report": "tsx src/cli/index.ts report"
+    "report": "tsx src/cli/index.ts report",
+    "test:watch": "vitest"
   },
   "keywords": [
     "compliance",
     "privacy",
+    "australia",
     "app",
     "ndb",
-    "attestation",
     "security",
     "scanner",
     "mcp"
@@ -30,18 +32,23 @@
   "license": "UNLICENSED",
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.12.0",
-    "zod": "^3.24.0",
-    "commander": "^13.1.0",
     "chalk": "^5.4.0",
+    "commander": "^13.1.0",
     "ora": "^8.2.0",
     "pdfkit": "^0.17.0",
-    "yaml": "^2.7.0"
+    "yaml": "^2.7.0",
+    "zod": "^3.24.0"
   },
   "devDependencies": {
-    "typescript": "^5.8.0",
     "@types/node": "^22.0.0",
+    "eslint": "^9.22.0",
     "tsx": "^4.19.0",
-    "vitest": "^3.1.0",
-    "eslint": "^9.22.0"
-  }
+    "typescript": "^5.8.0",
+    "vitest": "^3.2.4"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ]
 }

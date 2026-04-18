@@ -1,1 +1,186 @@
-# AttestLens
+# AttestLens ⚡️
+
+**AI Compliance Scanner & Privacy Act Attestation Tool**
+
+AttestLens scans your project for Australian Privacy Act (APP/NDB) compliance issues, maps findings to specific statutory obligations, and generates consultant-grade compliance reports.
+
+## Quick Start
+
+```bash
+# Install
+npm install -g attestlens
+
+# Scan a project
+npx attestlens scan ./my-project
+
+# Full compliance audit (scan + report)
+npx attestlens audit ./my-project -n "MyApp"
+
+# Generate report from existing scan data
+npx attestlens report ./scan-results.json -f html
+```
+
+## How It Works
+
+1. **Scan** — Multi-engine scanner checks for security patterns (hardcoded secrets, XSS, SQLi, CORS, debug logging, env var exposure) and MCP configuration issues
+2. **Map** — Findings are mapped to specific APP obligations using a rule engine with confidence scoring
+3. **Report** — Generate HTML, JSON, or Markdown reports with weighted APP scoring, remediation playbooks, and executive summaries
+
+## CLI Commands
+
+### `attestlens scan <path>`
+
+Scan a project directory for privacy compliance findings.
+
+```bash
+npx attestlens scan ./my-project
+npx attestlens scan ./my-project --no-guardvibe  # Skip GuardVibe scanner
+npx attestlens scan ./my-project --no-mcp-scan   # Skip MCP config scanner
+```
+
+### `attestlens audit <path>`
+
+Full compliance audit — scan + APP mapping + report generation.
+
+```bash
+npx attestlens audit ./my-project -n "MyApp"
+npx attestlens audit ./my-project -n "MyApp" -f html,json,markdown
+npx attestlens audit ./my-project -n "MyApp" -o ./reports --strict
+```
+
+Options:
+- `-n, --name <name>` — Project name for the report
+- `-f, --format <formats>` — Output formats: json, html, markdown (default: json)
+- `-o, --output <dir>` — Output directory (default: `./attestlens-reports`)
+- `--strict` — Treat UNKNOWN controls as FAIL
+- `--no-guardvibe` — Disable GuardVibe scanner
+- `--no-mcp-scan` — Disable MCP config scanner
+
+### `attestlens report <file>`
+
+Generate a report from an existing scan JSON file.
+
+```bash
+npx attestlens report ./scan-results.json -f html
+```
+
+## MCP Server
+
+AttestLens can run as an MCP server for AI editor integration (Cursor, Windsurf, etc.):
+
+```json
+{
+  "mcpServers": {
+    "attestlens": {
+      "command": "npx",
+      "args": ["attestlens-mcp"]
+    }
+  }
+}
+```
+
+### MCP Tools
+
+- **`attestlens_scan`** — Scan a project for privacy findings
+- **`attestlens_audit`** — Full APP/NDB compliance audit
+- **`attestlens_map`** — Map findings to APP obligations
+
+## APP Principles Covered
+
+| Principle | Name | Weight |
+|-----------|------|--------|
+| APP_1 | Open & Transparent | 5 |
+| APP_2 | Anonymity | 2 |
+| APP_3 | Collection | 8 |
+| APP_4 | Unsolicited Info | 3 |
+| APP_5 | Notification | 6 |
+| APP_6 | Use & Disclosure | 8 |
+| APP_7 | Direct Marketing | 4 |
+| APP_8 | Cross-Border | 10 |
+| APP_9 | Gov Identifiers | 3 |
+| APP_10 | Data Quality | 6 |
+| APP_11 | Security | 15 |
+| APP_12 | Access | 4 |
+| APP_13 | Correction | 4 |
+| NDB | Data Breach Notification | 15 |
+
+## Grading
+
+| Grade | Score Range |
+|-------|-------------|
+| A | ≥ 85 |
+| B | ≥ 70 |
+| C | ≥ 55 |
+| D | ≥ 40 |
+| F | < 40 |
+
+## Risk Levels
+
+- **CRITICAL** — Any critical findings
+- **HIGH** — 3+ high-severity findings
+- **MEDIUM** — 1+ high-severity findings
+- **LOW** — No high or critical findings
+
+## Scanner Rules
+
+### Static Scanner (GuardVibe fallback)
+
+| Rule ID | Severity | Pattern |
+|---------|----------|---------|
+| VG-SEC-001 | Critical | Exposed Supabase credentials |
+| VG-SEC-002 | Critical | Service role key in client code |
+| VS-HARDKEY | Critical | Hardcoded secret keys |
+| VS-SQLI | High | SQL injection vectors |
+| VS-RLS | High | Missing Row Level Security |
+| VS-XSS | Medium | XSS vectors (dangerouslySetInnerHTML, v-html) |
+| VS-DEBUG | Medium | Debug logging of sensitive data |
+| VS-ENV | Critical | Sensitive env vars exposed to client |
+| VS-CORS | Medium | Wildcard CORS configuration |
+
+### MCP Config Scanner (mcp-scan)
+
+Checks MCP server configurations for:
+- Insecure transport (non-HTTPS)
+- Missing authentication
+- Overly broad permissions
+- Unencrypted secrets in config
+
+## Architecture
+
+```
+attestlens/
+├── src/
+│   ├── schema/         # Core data types (AttestLensFinding, APPMapping, etc.)
+│   ├── mapping/        # APP/NDB mapping engine with confidence scoring
+│   ├── scanner/        # Scanner adapters (GuardVibe, mcp-scan, orchestrator)
+│   ├── questionnaire/  # Interactive attestation questionnaire (Phase 2)
+│   ├── report/         # Report generation (HTML, JSON, Markdown)
+│   ├── cli/            # CLI entry point
+│   └── mcp/            # MCP server for AI editor integration
+├── mock/               # Mock report templates
+└── package.json
+```
+
+## Development
+
+```bash
+# Install dependencies
+npm install
+
+# Build
+npm run build
+
+# Run tests
+npm test
+
+# Run locally
+npx tsx src/cli/index.ts audit ./my-project
+```
+
+## License
+
+MIT
+
+## Disclaimer
+
+Reports generated by AttestLens do **not** constitute legal advice. Always consult a qualified privacy professional for formal compliance assessment under the Australian Privacy Act 1988.

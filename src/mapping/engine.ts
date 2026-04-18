@@ -479,7 +479,7 @@ function matchRule(finding: AttestLensFinding, rule: MappingRule): boolean {
 /**
  * Map all findings and produce APP control assessments.
  */
-export function mapAllFindings(findings: AttestLensFinding[]): {
+export function mapAllFindings(findings: AttestLensFinding[], strictMode = false): {
   controls: APPControl[];
   unmapped: AttestLensFinding[];
 } {
@@ -540,17 +540,25 @@ export function mapAllFindings(findings: AttestLensFinding[]): {
     }
   }
 
-  // Controls with no findings default to UNKNOWN (questionnaire required)
-  // unless they have a pass mapping
+  // Apply strict mode: UNKNOWN controls become FAIL
+  if (strictMode) {
+    for (const [principle, control] of controlMap) {
+      if (control.status === 'unknown') {
+        control.status = 'fail';
+        control.score = 0;
+        control.questionnaireRequired = false; // No point asking if it's already failed
+      }
+    }
+  }
+
+  // Final pass: set questionnaire requirements
   for (const [principle, control] of controlMap) {
     if (control.findings.length === 0 && control.status === 'unknown') {
-      // No findings at all — could be pass (no issues found) or unknown (not scanned)
-      // Default to unknown with questionnaire required
       control.questionnaireRequired = true;
     } else if (control.status === 'fail') {
-      control.questionnaireRequired = false; // We have evidence of failure
+      control.questionnaireRequired = false;
     } else if (control.findings.length > 0) {
-      control.questionnaireRequired = false; // We have findings, no questionnaire needed
+      control.questionnaireRequired = false;
     }
   }
 

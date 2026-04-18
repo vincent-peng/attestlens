@@ -46,7 +46,7 @@ export function buildComplianceReport(
   durationMs: number,
 ): ComplianceReport {
   // Step 1: Map findings to APP obligations
-  const { controls: appControls, unmapped } = mapAllFindings(findings);
+  const { controls: appControls, unmapped } = mapAllFindings(findings, options.strictMode);
   const mappedFindings = findings; // findings now have appMappings populated by mapAllFindings
 
   // Step 2: Use the controls from mapping engine (already computed)
