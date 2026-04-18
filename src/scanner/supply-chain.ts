@@ -459,19 +459,39 @@ export class SupplyChainAdapter implements ScannerAdapter {
 
   /**
    * Run npm audit for known vulnerabilities.
+   * Uses async execFile to avoid blocking the event loop.
    */
   private async runNpmAudit(
     safePath: string,
     findings: AttestLensFinding[],
     errors: ScannerError[],
   ): Promise<void> {
+    // Skip npm audit if node_modules doesn't exist (won't work on fresh clones)
     try {
-      const { execFileSync } = await import('node:child_process');
-      const result = execFileSync('npm', ['audit', '--json'], {
-        cwd: safePath,
-        stdio: 'pipe' as const,
-        timeout: 30000,
-      }).toString();
+      await fs.access(path.join(safePath, 'node_modules'));
+    } catch {
+      // No node_modules — npm audit won't work, skip silently
+      return;
+    }
+
+    try {
+      const { execFile: execFileCb } = await import('node:child_process');
+      const { promisify } = await import('node:util');
+      const execFileAsync = promisify(execFileCb);
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 30000);
+
+      let result: string;
+      try {
+        const { stdout } = await execFileAsync('npm', ['audit', '--json'], {
+          cwd: safePath,
+          signal: controller.signal,
+          maxBuffer: 10 * 1024 * 1024, // 10MB buffer for large projects
+        });
+        result = stdout;
+      } finally {
+        clearTimeout(timeout);
+      }
 
       const audit = JSON.parse(result);
       
