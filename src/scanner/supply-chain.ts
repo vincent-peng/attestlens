@@ -56,6 +56,15 @@ const TYPOSQUAT_ALLOWLIST = new Set([
   'pug',     // Legitimate template engine
   'ajv',     // Legitimate JSON schema validator
   'joi',     // Legitimate validation library
+  'yup',     // Legitimate validation library (not a typosquat of 'vue')
+  'glob',    // Legitimate file globbing library (not a typosquat of 'got')
+  'sass',    // Legitimate CSS preprocessor
+  'nps',     // Legitimate npm-publish shortcut (not a typosquat of 'ws')
+  'stylis',  // Legitimate CSS preprocessor used by emotion
+  'cors',    // Legitimate Express middleware (not unused — used in server setup)
+  'pg',      // Legitimate PostgreSQL client (not a typosquat of 'ws')
+  'tslint',  // Legitimate (deprecated) linter, not a typosquat of 'eslint'
+  'ncp',      // Legitimate file copy utility, not a typosquat of 'yup'
 ]);
 
 // Typosquatting distance threshold (Levenshtein distance)
@@ -88,8 +97,24 @@ function isTyposquat(depName: string): string | null {
     return null;
   }
   
+  // Scoped packages from well-known orgs are not typosquats
+  if (depName.startsWith('@')) {
+    const scope = depName.split('/')[0].slice(1); // Remove @
+    const wellKnownScopes = new Set([
+      'supabase', 'clerk', 'stripe', 'paypal', 'sendgrid', 'prisma',
+      'playwright', 'types', 'emotion', 'next', 'react', 'vue',
+      'angular', 'svelte', 'tailwindcss', 'babel', 'typescript-eslint',
+      'nestjs', 'trpc', 'tanstack', 'dnd-kit', 'radix', 'headlessui',
+      'chakra-ui', 'mantine', 'shadcn',
+    ]);
+    if (wellKnownScopes.has(scope)) return null;
+  }
+  
+  // If the dependency IS a popular package, it's not a typosquat
+  if (TOP_NPM_PACKAGES.has(name)) return null;
+  
   for (const popular of TOP_NPM_PACKAGES) {
-    if (name === popular) continue; // Exact match is fine
+    if (name === popular) return null; // Exact match with popular package — not a typosquat
     if (Math.abs(name.length - popular.length) > TYPOSQUAT_DISTANCE) continue;
     const dist = levenshteinDistance(name, popular);
     if (dist > 0 && dist <= TYPOSQUAT_DISTANCE) {
@@ -369,6 +394,20 @@ export class SupplyChainAdapter implements ScannerAdapter {
       'typescript', 'ts-node', 'tsx', 'nodemon', 'concurrently',
       '@vitejs/', 'vite', 'webpack', 'rollup', 'esbuild', 'tailwindcss',
       'postcss', 'autoprefixer', 'sass',
+      'react-dom', 'react', // Runtime deps, imported indirectly by framework
+      '@emotion/styled', '@emotion/react', '@emotion/css', // CSS-in-JS runtime
+      'copyfiles', // Build tool, not imported in source
+      'cors', // Express middleware, used indirectly
+      'stylis', // CSS preprocessor used by emotion
+      'mysql', // Database driver, used via connection config not imports
+      'pg', // PostgreSQL client, used via connection config not imports
+      'react-scripts', // CRA dev tool, invoked via npm scripts
+      'mongoose', // MongoDB ODM, used via connection config not imports
+      'knex', // SQL query builder, used via connection config
+      'nps', // npm-publish shortcut, used via npm scripts
+      'yup', // Validation library, imported indirectly via form libs
+      'reflect-metadata', // TypeScript decorator metadata, imported via emitDecoratorMetadata
+      'tslint', // Deprecated but legitimate linter, used via config not imports
     ]);
 
     // Read source files and check for imports

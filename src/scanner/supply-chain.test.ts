@@ -75,6 +75,25 @@ describe('SupplyChainAdapter', () => {
     await fs.rm(allowDir, { recursive: true }).catch(() => {});
   });
 
+  it('should not flag popular packages as typosquats of other popular packages', async () => {
+    const popularDir = await fs.mkdtemp(path.join(os.tmpdir(), 'attestlens-popular-'));
+    
+    // jest is a popular package, should NOT be flagged as a typosquat of 'next'
+    const pkgJson = {
+      name: 'test-project',
+      version: '1.0.0',
+      dependencies: { jest: '^29.0.0', next: '^14.0.0' },
+    };
+    await fs.writeFile(path.join(popularDir, 'package.json'), JSON.stringify(pkgJson, null, 2));
+    await fs.writeFile(path.join(popularDir, 'package-lock.json'), '{}');
+
+    const result = await adapter.scan(popularDir);
+    const jestFindings = result.findings.filter(f => f.sourceRule === 'VS-SC-004' && f.title.includes('jest'));
+    expect(jestFindings.length).toBe(0);
+
+    await fs.rm(popularDir, { recursive: true }).catch(() => {});
+  });
+
   it('should detect install scripts in project package.json', async () => {
     const scriptDir = await fs.mkdtemp(path.join(os.tmpdir(), 'attestlens-script-'));
     
