@@ -7,6 +7,8 @@
  */
 
 import crypto from 'node:crypto';
+import path from 'node:path';
+import fs from 'node:fs/promises';
 import type { AttestLensFinding, ScanSource } from '../schema/index.js';
 import type { ScannerAdapter, ScannerResult, ScannerError, McpScanResult } from './types.js';
 
@@ -32,25 +34,53 @@ export class McpScanAdapter implements ScannerAdapter {
 
   async getVersion(): Promise<string> {
     try {
-      const { execSync } = await import('node:child_process');
-      return execSync('npx mcp-scan --version', { stdio: 'pipe', timeout: 10000 }).toString().trim();
+      const { execFileSync } = await import('node:child_process');
+      return execFileSync('npx', ['mcp-scan', '--version'], { stdio: 'pipe', timeout: 10000 }).toString().trim();
     } catch {
       return 'unknown';
     }
   }
 
   async scan(targetPath: string): Promise<ScannerResult> {
+    // Validate and resolve path
+    const resolvedPath = path.resolve(targetPath);
+    let stat;
+    try {
+      stat = await fs.stat(resolvedPath);
+    } catch {
+      return {
+        source: this.name,
+        findings: [],
+        errors: [{ source: this.name, message: `Invalid path: ${targetPath}`, code: 'INVALID_PATH', recoverable: false }],
+        durationMs: 0,
+        version: this.version,
+        timestamp: new Date().toISOString(),
+      };
+    }
+    if (!stat.isDirectory()) {
+      return {
+        source: this.name,
+        findings: [],
+        errors: [{ source: this.name, message: `Path is not a directory: ${targetPath}`, code: 'NOT_DIRECTORY', recoverable: false }],
+        durationMs: 0,
+        version: this.version,
+        timestamp: new Date().toISOString(),
+      };
+    }
+    const safePath = resolvedPath;
     const startTime = Date.now();
     const errors: ScannerError[] = [];
     const findings: AttestLensFinding[] = [];
 
     try {
-      const { execSync } = await import('node:child_process');
+      const { execFileSync } = await import('node:child_process');
       
       // mcp-scan checks MCP server configurations for security issues
-      const result = execSync(
-        `npx mcp-scan scan --path "${targetPath}" --format json`,
-        { stdio: 'pipe', timeout: 60000 }
+      // Use execFileSync to prevent command injection
+      const result = execFileSync(
+        'npx',
+        ['mcp-scan', 'scan', '--path', safePath, '--format', 'json'],
+        { stdio: 'pipe' as const, timeout: 60000 }
       ).toString();
 
       const scanResult: McpScanResult = JSON.parse(result);

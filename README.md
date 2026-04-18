@@ -1,8 +1,16 @@
 # AttestLens ⚡️
 
-**AI Compliance Scanner & Privacy Act Attestation Tool**
+**AI-Powered Australian Privacy Act Compliance Scanner**
 
-AttestLens scans your project for Australian Privacy Act (APP/NDB) compliance issues, maps findings to specific statutory obligations, and generates consultant-grade compliance reports.
+AttestLens automatically scans your codebase for Australian Privacy Act (APP/NDB) compliance issues, maps findings to specific statutory obligations, and generates Big 4-grade compliance reports — in seconds, not weeks.
+
+## Why AttestLens?
+
+- **Hard moat**: Questionnaire questions reflect actual *statutory requirements* from the Australian Privacy Act, not generic compliance checkboxes
+- **Automated mapping**: Security findings → APP obligations with confidence scoring
+- **Consultant-grade reports**: HTML/JSON/Markdown output that looks like a Big 4 deliverable
+- **Strict mode**: Treat all UNKNOWN controls as FAIL — no hiding behind "we don't know"
+- **AI-native**: MCP server for Cursor/Windsurf integration, so your editor can run compliance checks in-context
 
 ## Quick Start
 
@@ -11,62 +19,66 @@ AttestLens scans your project for Australian Privacy Act (APP/NDB) compliance is
 npm install -g attestlens
 
 # Scan a project
-npx attestlens scan ./my-project
+attestlens scan ./my-project
 
 # Full compliance audit (scan + report)
-npx attestlens audit ./my-project -n "MyApp"
+attestlens audit ./my-project -n "MyApp"
+
+# Strict mode — UNKNOWN controls become FAIL
+attestlens audit ./my-project -n "MyApp" --strict
 
 # Generate report from existing scan data
-npx attestlens report ./scan-results.json -f html
+attestlens report ./scan-results.json -f html
 ```
 
-## How It Works
-
-1. **Scan** — Multi-engine scanner checks for security patterns (hardcoded secrets, XSS, SQLi, CORS, debug logging, env var exposure) and MCP configuration issues
-2. **Map** — Findings are mapped to specific APP obligations using a rule engine with confidence scoring
-3. **Report** — Generate HTML, JSON, or Markdown reports with weighted APP scoring, remediation playbooks, and executive summaries
-
-## CLI Commands
+## CLI Reference
 
 ### `attestlens scan <path>`
 
-Scan a project directory for privacy compliance findings.
+Scan a project for privacy compliance findings.
 
 ```bash
-npx attestlens scan ./my-project
-npx attestlens scan ./my-project --no-guardvibe  # Skip GuardVibe scanner
-npx attestlens scan ./my-project --no-mcp-scan   # Skip MCP config scanner
+attestlens scan ./my-project
+attestlens scan ./my-project --no-guardvibe   # Skip GuardVibe scanner
+attestlens scan ./my-project --no-mcp-scan     # Skip MCP config scanner
 ```
+
+Output: List of findings with severity, rule ID, file location, and affected APP principles.
 
 ### `attestlens audit <path>`
 
-Full compliance audit — scan + APP mapping + report generation.
+Full compliance audit — scan + APP mapping + weighted scoring + report.
 
 ```bash
-npx attestlens audit ./my-project -n "MyApp"
-npx attestlens audit ./my-project -n "MyApp" -f html,json,markdown
-npx attestlens audit ./my-project -n "MyApp" -o ./reports --strict
+attestlens audit ./my-project -n "MyApp"
+attestlens audit ./my-project -n "MyApp" -f html,json,markdown
+attestlens audit ./my-project -n "MyApp" -o ./reports --strict
 ```
 
-Options:
-- `-n, --name <name>` — Project name for the report
-- `-f, --format <formats>` — Output formats: json, html, markdown (default: json)
-- `-o, --output <dir>` — Output directory (default: `./attestlens-reports`)
-- `--strict` — Treat UNKNOWN controls as FAIL
-- `--no-guardvibe` — Disable GuardVibe scanner
-- `--no-mcp-scan` — Disable MCP config scanner
+| Option | Description | Default |
+|--------|-------------|---------|
+| `-n, --name <name>` | Project name for the report | Directory name |
+| `-f, --format <formats>` | Output formats: json, html, markdown | `json` |
+| `-o, --output <dir>` | Output directory | `./attestlens-reports` |
+| `--strict` | Treat UNKNOWN controls as FAIL | `false` |
+| `--no-guardvibe` | Disable GuardVibe scanner | — |
+| `--no-mcp-scan` | Disable MCP config scanner | — |
 
 ### `attestlens report <file>`
 
 Generate a report from an existing scan JSON file.
 
 ```bash
-npx attestlens report ./scan-results.json -f html
+attestlens report ./scan-results.json -f html
 ```
 
-## MCP Server
+## MCP Server (AI Editor Integration)
 
-AttestLens can run as an MCP server for AI editor integration (Cursor, Windsurf, etc.):
+AttestLens runs as an MCP server so AI editors like Cursor and Windsurf can run compliance scans in-context.
+
+### Configuration
+
+Add to your editor's MCP settings:
 
 ```json
 {
@@ -79,108 +91,158 @@ AttestLens can run as an MCP server for AI editor integration (Cursor, Windsurf,
 }
 ```
 
-### MCP Tools
+### Available Tools
 
-- **`attestlens_scan`** — Scan a project for privacy findings
-- **`attestlens_audit`** — Full APP/NDB compliance audit
-- **`attestlens_map`** — Map findings to APP obligations
+| Tool | Description |
+|------|-------------|
+| `attestlens_scan` | Scan a project for privacy findings. Returns findings with APP mappings. |
+| `attestlens_audit` | Full APP/NDB audit. Returns a complete compliance report. |
+| `attestlens_map` | Map a list of findings to APP obligations. Useful for custom scanners. |
 
-## APP Principles Covered
+## APP Principles & Scoring
 
-| Principle | Name | Weight |
-|-----------|------|--------|
-| APP_1 | Open & Transparent | 5 |
-| APP_2 | Anonymity | 2 |
-| APP_3 | Collection | 8 |
-| APP_4 | Unsolicited Info | 3 |
-| APP_5 | Notification | 6 |
-| APP_6 | Use & Disclosure | 8 |
-| APP_7 | Direct Marketing | 4 |
-| APP_8 | Cross-Border | 10 |
-| APP_9 | Gov Identifiers | 3 |
-| APP_10 | Data Quality | 6 |
-| APP_11 | Security | 15 |
-| APP_12 | Access | 4 |
-| APP_13 | Correction | 4 |
-| NDB | Data Breach Notification | 15 |
+AttestLens evaluates compliance against all 14 Australian Privacy Principles and the Notifiable Data Breaches scheme, with weighted scoring that reflects real-world risk:
 
-## Grading
+| Principle | Name | Weight | Rationale |
+|-----------|------|--------|-----------|
+| APP_1 | Open & Transparent | 5 | Fundamental but procedural |
+| APP_2 | Anonymity | 2 | Lower enforcement focus |
+| APP_3 | Collection | 8 | Core data handling |
+| APP_4 | Unsolicited Info | 3 | Narrow scope |
+| APP_5 | Notification | 6 | Compliance-critical |
+| APP_6 | Use & Disclosure | 8 | High-risk area |
+| APP_7 | Direct Marketing | 4 | Moderate risk |
+| APP_8 | Cross-Border | 10 | Major risk for AU businesses |
+| APP_9 | Gov Identifiers | 3 | Narrow scope |
+| APP_10 | Data Quality | 6 | Important but less enforced |
+| **APP_11** | **Security** | **15** | **Highest weight — most breached** |
+| APP_12 | Access | 4 | Moderate risk |
+| APP_13 | Correction | 4 | Moderate risk |
+| **NDB** | **Data Breach Notification** | **15** | **Highest weight — regulatory focus** |
 
-| Grade | Score Range |
-|-------|-------------|
-| A | ≥ 85 |
-| B | ≥ 70 |
-| C | ≥ 55 |
-| D | ≥ 40 |
-| F | < 40 |
+### Grade Thresholds
 
-## Risk Levels
+| Grade | Score | Meaning |
+|-------|-------|---------|
+| **A** | ≥ 85 | Strong compliance posture |
+| **B** | ≥ 70 | Minor gaps, addressable |
+| **C** | ≥ 55 | Notable deficiencies |
+| **D** | ≥ 40 | Significant risk |
+| **F** | < 40 | Critical non-compliance |
 
-- **CRITICAL** — Any critical findings
-- **HIGH** — 3+ high-severity findings
-- **MEDIUM** — 1+ high-severity findings
-- **LOW** — No high or critical findings
+### Risk Levels
+
+| Level | Condition |
+|-------|-----------|
+| **CRITICAL** | Any critical-severity findings |
+| **HIGH** | 3+ high-severity findings |
+| **MEDIUM** | 1+ high-severity findings |
+| **LOW** | No high or critical findings |
 
 ## Scanner Rules
 
 ### Static Scanner (GuardVibe fallback)
 
-| Rule ID | Severity | Pattern |
-|---------|----------|---------|
-| VG-SEC-001 | Critical | Exposed Supabase credentials |
-| VG-SEC-002 | Critical | Service role key in client code |
-| VS-HARDKEY | Critical | Hardcoded secret keys |
-| VS-SQLI | High | SQL injection vectors |
-| VS-RLS | High | Missing Row Level Security |
-| VS-XSS | Medium | XSS vectors (dangerouslySetInnerHTML, v-html) |
-| VS-DEBUG | Medium | Debug logging of sensitive data |
-| VS-ENV | Critical | Sensitive env vars exposed to client |
-| VS-CORS | Medium | Wildcard CORS configuration |
+Runs when the GuardVibe MCP server is unavailable. Scans source files for common security patterns:
+
+| Rule ID | Severity | What It Detects |
+|---------|----------|----------------|
+| `VG-SEC-001` | Critical | Exposed Supabase credentials |
+| `VG-SEC-002` | Critical | Service role key in client code |
+| `VS-HARDKEY` | Critical | Hardcoded API keys, secret keys, private keys |
+| `VS-SQLI` | High | SQL injection via string interpolation |
+| `VS-RLS` | High | Missing Row Level Security policies |
+| `VS-XSS` | Medium | XSS vectors (`dangerouslySetInnerHTML`, `v-html`) |
+| `VS-DEBUG` | Medium | Debug logging of sensitive data |
+| `VS-ENV` | Critical | Sensitive env vars exposed to client (`NEXT_PUBLIC_`) |
+| `VS-CORS` | Medium | Wildcard CORS (`origin: '*'`) |
 
 ### MCP Config Scanner (mcp-scan)
 
 Checks MCP server configurations for:
-- Insecure transport (non-HTTPS)
+- Insecure transport (non-HTTPS endpoints)
 - Missing authentication
 - Overly broad permissions
-- Unencrypted secrets in config
+- Unencrypted secrets in config files
+
+## Strict Mode
+
+By default, controls with no findings are marked **UNKNOWN** (questionnaire required). With `--strict`, all UNKNOWN controls become **FAIL** — this is the conservative approach for formal audits where the absence of evidence is evidence of absence.
+
+```bash
+# Default: UNKNOWN controls stay UNKNOWN
+attestlens audit ./my-project -n "MyApp"
+
+# Strict: UNKNOWN controls become FAIL (score 0)
+attestlens audit ./my-project -n "MyApp" --strict
+```
 
 ## Architecture
 
 ```
-attestlens/
-├── src/
-│   ├── schema/         # Core data types (AttestLensFinding, APPMapping, etc.)
-│   ├── mapping/        # APP/NDB mapping engine with confidence scoring
-│   ├── scanner/        # Scanner adapters (GuardVibe, mcp-scan, orchestrator)
-│   ├── questionnaire/  # Interactive attestation questionnaire (Phase 2)
-│   ├── report/         # Report generation (HTML, JSON, Markdown)
-│   ├── cli/            # CLI entry point
-│   └── mcp/            # MCP server for AI editor integration
-├── mock/               # Mock report templates
-└── package.json
+src/
+├── schema/             # Core types (AttestLensFinding, APPMapping, etc.)
+├── mapping/            # APP/NDB mapping engine with confidence scoring
+├── scanner/            # Scanner adapters + orchestrator
+│   ├── guardvibe.ts    # GuardVibe adapter (MCP + static fallback)
+│   ├── mcp-scan.ts     # MCP config scanner adapter
+│   ├── orchestrator.ts # Parallel execution + dedup
+│   └── types.ts        # Scanner interfaces
+├── questionnaire/       # Interactive attestation (Phase 2)
+├── report/             # Report generation (HTML, JSON, Markdown)
+├── cli/               # CLI entry point (scan, audit, report)
+└── mcp/               # MCP server (AI editor tools)
 ```
 
 ## Development
 
 ```bash
-# Install dependencies
+# Install
 npm install
 
 # Build
 npm run build
 
-# Run tests
+# Test (40 tests)
 npm test
 
 # Run locally
-npx tsx src/cli/index.ts audit ./my-project
+npx tsx src/cli/index.ts audit ./my-project -n "MyApp"
+
+# Type check
+npm run lint
 ```
 
-## License
+## Roadmap
 
-MIT
+### Phase 1 ✅ (Current)
+- Core schema + APP/NDB mapping engine
+- Scanner adapters (GuardVibe static + mcp-scan)
+- Scanner orchestrator (parallel + dedup)
+- CLI (scan, audit, report)
+- Report generation (HTML, JSON, Markdown)
+- MCP server (3 tools)
+- 40 tests
+- Strict mode
+
+### Phase 2 (Next)
+- Interactive attestation questionnaire (UNKNOWN → PASS/FAIL)
+- Web dashboard (React + real-time scan progress)
+- PDF report generation
+- GuardVibe MCP integration (live scanner, not just fallback)
+- Additional framework support (GDPR, SOC 2, HIPAA)
+
+### Phase 3 (Future)
+- CI/CD integration (GitHub Actions, GitLab CI)
+- Team collaboration features
+- Historical trend tracking
+- OAIC alignment updates
+- API gateway for SaaS deployment
 
 ## Disclaimer
 
 Reports generated by AttestLens do **not** constitute legal advice. Always consult a qualified privacy professional for formal compliance assessment under the Australian Privacy Act 1988.
+
+## License
+
+MIT

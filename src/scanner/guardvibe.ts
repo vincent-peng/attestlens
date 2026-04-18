@@ -9,6 +9,7 @@
  */
 
 import crypto from 'node:crypto';
+import path from 'node:path';
 import type { AttestLensFinding, ScanSource } from '../schema/index.js';
 import type { ScannerAdapter, ScannerResult, ScannerError, GuardVibeFinding, GuardVibeAuditResult } from './types.js';
 
@@ -29,9 +30,9 @@ export class GuardVibeAdapter implements ScannerAdapter {
 
   async getVersion(): Promise<string> {
     try {
-      const { execSync } = await import('node:child_process');
-      return execSync('npx @guardvibe/cli --version', { 
-        stdio: 'pipe', 
+      const { execFileSync } = await import('node:child_process');
+      return execFileSync('npx', ['@guardvibe/cli', '--version'], {
+        stdio: 'pipe',
         timeout: 10000,
       }).toString().trim();
     } catch {
@@ -40,32 +41,52 @@ export class GuardVibeAdapter implements ScannerAdapter {
   }
 
   async scan(targetPath: string): Promise<ScannerResult> {
+    // Validate and normalize path to prevent traversal
+    const resolvedPath = path.resolve(targetPath);
+    const { stat } = await import('node:fs/promises');
+    let pathStat;
+    try {
+      pathStat = await stat(resolvedPath);
+    } catch {
+      pathStat = null;
+    }
+    if (!pathStat || !pathStat.isDirectory()) {
+      return {
+        source: this.name,
+        findings: [],
+        errors: [{ source: this.name, message: `Invalid path: ${targetPath}`, code: 'INVALID_PATH', recoverable: false }],
+        durationMs: 0,
+        version: await this.getVersion(),
+        timestamp: new Date().toISOString(),
+      };
+    }
+    const safePath = resolvedPath;
     const startTime = Date.now();
     const errors: ScannerError[] = [];
     const findings: AttestLensFinding[] = [];
 
     try {
-      const { execSync } = await import('node:child_process');
+      const { execFileSync } = await import('node:child_process');
       
       // Run GuardVibe full_audit tool via CLI
-      // In production, this would use MCP protocol directly
-      const result = execSync(
-        `npx @guardvibe/cli full_audit --path "${targetPath}" --format json`,
+      // Use execFileSync to prevent command injection (args are not shell-interpolated)
+      const result = execFileSync(
+        'npx',
+        ['@guardvibe/cli', 'full_audit', '--path', safePath, '--format', 'json'],
         { 
-          stdio: 'pipe', 
+          stdio: 'pipe' as const, 
           timeout: 120000,
-          cwd: targetPath,
+          cwd: safePath,
         }
       ).toString();
 
       const auditResult: GuardVibeAuditResult = JSON.parse(result);
       
       for (const finding of auditResult.findings) {
-        findings.push(this.normalizeFinding(finding, targetPath));
+        findings.push(this.normalizeFinding(finding, safePath));
       }
     } catch (error: any) {
       // If GuardVibe is not available, we fall back to static analysis
-      // For MVP, we simulate findings from the target directory
       errors.push({
         source: 'guardvibe',
         message: `GuardVibe scan failed: ${error.message}. Using static fallback.`,
@@ -74,12 +95,12 @@ export class GuardVibeAdapter implements ScannerAdapter {
       });
 
       // Static fallback: scan for common patterns
-      const staticFindings = await this.staticFallback(targetPath);
+      const staticFindings = await this.staticFallback(safePath);
       findings.push(...staticFindings);
     }
 
     return {
-      source: 'guardvibe',
+      source: this.name,
       version: this.version,
       timestamp: new Date().toISOString(),
       findings,
@@ -124,7 +145,7 @@ export class GuardVibeAdapter implements ScannerAdapter {
   private async staticFallback(targetPath: string): Promise<AttestLensFinding[]> {
     const findings: AttestLensFinding[] = [];
     const fs = await import('node:fs/promises');
-    const path = await import('node:path');
+    const pathModule = await import('node:path');
 
     // Pattern definitions for static scanning
     const patterns: Array<{
@@ -227,7 +248,7 @@ export class GuardVibeAdapter implements ScannerAdapter {
         try {
           const content = await fs.readFile(file, 'utf-8');
           const lines = content.split('\n');
-          const relativePath = path.relative(targetPath, file);
+          const relativePath = pathModule.relative(targetPath, file);
 
           for (const pattern of patterns) {
             for (let i = 0; i < lines.length; i++) {
@@ -272,7 +293,7 @@ export class GuardVibeAdapter implements ScannerAdapter {
    */
   private async findRelevantFiles(targetPath: string): Promise<string[]> {
     const fs = await import('node:fs/promises');
-    const path = await import('node:path');
+    const pathModule = await import('node:path');
     
     const extensions = ['.ts', '.tsx', '.js', '.jsx', '.env', '.env.local', '.env.production'];
     const excludeDirs = ['node_modules', '.git', '.next', 'dist', 'build', 'coverage', '.venv', '__pycache__'];
@@ -281,7 +302,7 @@ export class GuardVibeAdapter implements ScannerAdapter {
     async function walk(dir: string): Promise<void> {
       const entries = await fs.readdir(dir, { withFileTypes: true });
       for (const entry of entries) {
-        const fullPath = path.join(dir, entry.name);
+        const fullPath = pathModule.join(dir, entry.name);
         if (entry.isDirectory()) {
           if (!excludeDirs.includes(entry.name)) {
             await walk(fullPath);

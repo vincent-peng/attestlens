@@ -25,6 +25,33 @@ import { mapAllFindings } from '../mapping/engine.js';
 import { buildComplianceReport, generateHTMLReport, generateJSONReport, generateMarkdownReport } from '../report/generator.js';
 import type { ReportOptions } from '../report/generator.js';
 import type { AttestLensFinding } from '../schema/index.js';
+import path from 'node:path';
+import fs from 'node:fs/promises';
+
+/**
+ * Validate and resolve a path parameter to prevent path traversal.
+ * Returns the resolved absolute path if valid, throws McpError otherwise.
+ */
+async function validatePath(targetPath: string): Promise<string> {
+  if (!targetPath || typeof targetPath !== 'string') {
+    throw new McpError(ErrorCode.InvalidParams, 'path is required');
+  }
+  // Reject paths with suspicious characters
+  if (/[;|`$\\]/.test(targetPath)) {
+    throw new McpError(ErrorCode.InvalidParams, 'path contains invalid characters');
+  }
+  const resolved = path.resolve(targetPath);
+  let stat;
+  try {
+    stat = await fs.stat(resolved);
+  } catch {
+    throw new McpError(ErrorCode.InvalidParams, `path does not exist: ${resolved}`);
+  }
+  if (!stat.isDirectory()) {
+    throw new McpError(ErrorCode.InvalidParams, `path is not a directory: ${resolved}`);
+  }
+  return resolved;
+}
 
 const server = new Server(
   { name: 'attestlens', version: '0.1.0' },
@@ -97,8 +124,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
   switch (name) {
     case 'attestlens_scan': {
-      const targetPath = args?.path as string;
-      if (!targetPath) throw new McpError(ErrorCode.InvalidParams, 'path is required');
+      const targetPath = await validatePath(args?.path as string);
 
       const orchestrator = new ScannerOrchestrator();
       const result = await orchestrator.scan(targetPath);
@@ -149,8 +175,8 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     }
 
     case 'attestlens_audit': {
-      const targetPath = args?.path as string;
-      if (!targetPath) throw new McpError(ErrorCode.InvalidParams, 'path is required');
+      const targetPath = await validatePath(args?.path as string);
+      // Removed: if (!targetPath) throw — validatePath handles this
 
       const projectName = (args?.name as string) || targetPath.split('/').pop() || 'project';
       const format = (args?.format as string) || 'json';
