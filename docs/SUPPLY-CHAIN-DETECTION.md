@@ -67,45 +67,25 @@ Supply chain detection is a **critical gap** in APP 11 (Security) compliance. Un
 | **License compliance** | Copyleft licenses in commercial products | APP_6 | Medium |
 | **Outdated dependencies** | Packages >2 major versions behind | APP_11 | Medium |
 
-#### Proposed Scanner: `supply-chain`
+#### Implemented Rules
 
-```typescript
-// src/scanner/supply-chain.ts
+| Rule ID | Pattern | Severity | Maps To | Status |
+|---------|---------|----------|---------|--------|
+| `VS-SC-001` | postinstall/preinstall scripts in deps | Critical | APP_11 | ✅ Shipped |
+| `VS-SC-002` | Dependency with no source code import (manifest-only) | High | APP_11 | ✅ Shipped |
+| `VS-SC-004` | Typosquat of top-100 npm package (Levenshtein ≤2) | Critical | APP_11 | ✅ Shipped |
+| `VS-SC-005` | Missing or invalid lockfile | Critical | APP_11 | ✅ Shipped |
+| `VS-SC-006` | Known CVE in dependency (npm audit) | High | APP_11 | ✅ Shipped |
+| `VS-SC-007` | Dependency with no repository field | Medium | APP_11 | ✅ Shipped |
+| `VS-SC-008` | Install scripts + no source repo (critical combo) | Critical | APP_11 | ✅ Shipped |
 
-export class SupplyChainAdapter implements ScannerAdapter {
-  readonly name = 'supply-chain';
-  
-  async scan(targetPath: string): Promise<ScannerResult> {
-    const findings: AttestLensFinding[] = [];
-    
-    // 1. Parse package.json + package-lock.json
-    // 2. Check for install scripts (postinstall, preinstall, etc.)
-    // 3. Verify each dependency against npm registry (integrity hash)
-    // 4. Flag new/unknown packages (<30 days old)
-    // 5. Detect typosquatting against popular package names
-    // 6. Check for manifest-only changes (deps added but no code changed)
-    // 7. Run `npm audit` for known CVEs
-    // 8. Check lockfile integrity (shasum mismatch)
-    
-    return { findings, ... };
-  }
-}
-```
+#### Planned Rules (Phase 2+)
 
-#### Detection Rules
-
-| Rule ID | Pattern | Severity | Maps To |
-|---------|---------|----------|---------|
-| `VS-SC-001` | postinstall/preinstall scripts in deps | Critical | APP_11 |
-| `VS-SC-002` | Dependency added with no code changes (manifest-only) | Critical | APP_11 |
-| `VS-SC-003` | Package with <30 days publishing history | High | APP_11 |
-| `VS-SC-004` | Typosquat of top-100 npm package | Critical | APP_11 |
-| `VS-SC-005` | Lockfile integrity mismatch | Critical | APP_11 |
-| `VS-SC-006` | Known CVE in dependency (npm audit) | High | APP_11 |
-| `VS-SC-007` | Dependency with no repository field | Medium | APP_11 |
-| `VS-SC-008` | Dependency with install scripts AND no source repo | Critical | APP_11 |
-| `VS-SC-009` | Outdated major version (>2 behind latest) | Medium | APP_11 |
-| `VS-SC-010` | Next.js/React dependency mismatch | Low | APP_11 |
+| Rule ID | Pattern | Severity | Maps To | Status |
+|---------|---------|----------|---------|--------|
+| `VS-SC-003` | Package with <30 days publishing history | High | APP_11 | 🔜 Phase 2 (requires npm registry API) |
+| `VS-SC-009` | Outdated major version (>2 behind latest) | Medium | APP_11 | 🔜 Phase 2 |
+| `VS-SC-010` | Next.js/React dependency mismatch | Low | APP_11 | 🔜 Phase 2 |
 
 #### Axios Attack Detection Matrix
 
@@ -123,9 +103,9 @@ export class SupplyChainAdapter implements ScannerAdapter {
 
 ### Implementation Priority
 
-1. **Phase 1.5** (now): Static supply chain scanner — parse `package.json`/`package-lock.json`, detect install scripts, flag new packages, typosquatting
-2. **Phase 2**: Integration with `npm audit` + Socket.dev API for real-time vulnerability data
-3. **Phase 3**: Lockfile integrity verification, manifest diff detection, continuous monitoring
+1. **Phase 1.5** ✅ (shipped): Static supply chain scanner — parse `package.json`/`package-lock.json`, detect install scripts, flag unused deps, typosquatting, missing lockfile, npm audit, no-repo, install-scripts+no-repo combo
+2. **Phase 2** (next): Package age detection (npm registry API), manifest diff detection, Socket.dev/OSV API integration for real-time vulnerability data
+3. **Phase 3**: Lockfile integrity verification, continuous monitoring, drift detection
 
 ### Staying Current
 

@@ -27,6 +27,11 @@ attestlens audit ./my-project -n "MyApp"
 # Strict mode — UNKNOWN controls become FAIL
 attestlens audit ./my-project -n "MyApp" --strict
 
+# Disable individual scanners
+attestlens audit ./my-project -n "MyApp" --no-guardvibe
+attestlens audit ./my-project -n "MyApp" --no-mcp-scan
+attestlens audit ./my-project -n "MyApp" --no-supply-chain
+
 # Generate report from existing scan data
 attestlens report ./scan-results.json -f html
 ```
@@ -63,6 +68,7 @@ attestlens audit ./my-project -n "MyApp" -o ./reports --strict
 | `--strict` | Treat UNKNOWN controls as FAIL | `false` |
 | `--no-guardvibe` | Disable GuardVibe scanner | — |
 | `--no-mcp-scan` | Disable MCP config scanner | — |
+| `--no-supply-chain` | Disable supply chain scanner | — |
 
 ### `attestlens report <file>`
 
@@ -165,6 +171,22 @@ Checks MCP server configurations for:
 - Overly broad permissions
 - Unencrypted secrets in config files
 
+### Supply Chain Scanner
+
+Detects supply chain risks in npm projects — designed to catch attacks like the Axios npm compromise (March 2026):
+
+| Rule ID | Severity | What It Detects |
+|---------|----------|----------------|
+| `VS-SC-001` | Critical | Install scripts in dependencies (postinstall, preinstall) |
+| `VS-SC-002` | High | Unused production dependencies (manifest-only injection) |
+| `VS-SC-004` | Critical | Typosquatting against top npm packages |
+| `VS-SC-005` | Critical | Missing or invalid lockfile |
+| `VS-SC-006` | High | Known vulnerabilities via `npm audit` |
+| `VS-SC-007` | Medium | Dependencies with no repository URL |
+| `VS-SC-008` | Critical | Install scripts + no source repo (critical combo) |
+
+The Axios attack would have been caught on **5-7 of 7 indicators** (manifest-only dependency, install scripts, pre-staged package, typosquatting, no repo, and the critical combo). See [`docs/SUPPLY-CHAIN-DETECTION.md`](docs/SUPPLY-CHAIN-DETECTION.md) for full analysis.
+
 ## Strict Mode
 
 By default, controls with no findings are marked **UNKNOWN** (questionnaire required). With `--strict`, all UNKNOWN controls become **FAIL** — this is the conservative approach for formal audits where the absence of evidence is evidence of absence.
@@ -186,9 +208,10 @@ src/
 ├── scanner/            # Scanner adapters + orchestrator
 │   ├── guardvibe.ts    # GuardVibe adapter (MCP + static fallback)
 │   ├── mcp-scan.ts     # MCP config scanner adapter
+│   ├── supply-chain.ts # Supply chain risk detector (npm)
 │   ├── orchestrator.ts # Parallel execution + dedup
 │   └── types.ts        # Scanner interfaces
-├── questionnaire/       # Interactive attestation (Phase 2)
+├── questionnaire/       # Interactive attestation (Phase 2 scaffold)
 ├── report/             # Report generation (HTML, JSON, Markdown)
 ├── cli/               # CLI entry point (scan, audit, report)
 └── mcp/               # MCP server (AI editor tools)
@@ -203,7 +226,7 @@ npm install
 # Build
 npm run build
 
-# Test (40 tests)
+# Test (48 tests)
 npm test
 
 # Run locally
@@ -216,14 +239,15 @@ npm run lint
 ## Roadmap
 
 ### Phase 1 ✅ (Current)
-- Core schema + APP/NDB mapping engine
-- Scanner adapters (GuardVibe static + mcp-scan)
+- Core schema + APP/NDB mapping engine (19 rules)
+- Scanner adapters (GuardVibe static + mcp-scan + supply-chain)
 - Scanner orchestrator (parallel + dedup)
 - CLI (scan, audit, report)
 - Report generation (HTML, JSON, Markdown)
 - MCP server (3 tools)
-- 40 tests
+- 48 tests
 - Strict mode
+- Supply chain detection (7 rules, Axios-attack coverage)
 
 ### Phase 2 (Next)
 - Interactive attestation questionnaire (UNKNOWN → PASS/FAIL)
