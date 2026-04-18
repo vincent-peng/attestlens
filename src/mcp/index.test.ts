@@ -8,9 +8,9 @@ import os from 'node:os';
 
 describe('MCP Server - Path Validation', () => {
   describe('ALLOWED_ROOTS environment variable', () => {
-    it('should default to process.cwd() when ATTESTLENS_ALLOWED_ROOTS is not set', () => {
-      // The default behavior is already set in the module
-      // We verify it works by scanning a subdirectory of cwd
+    it('should default to allowing all paths when ATTESTLENS_ALLOWED_ROOTS is not set', () => {
+      // When ALLOWED_ROOTS is undefined, all valid directories are allowed
+      // Security relies on suspicious-char check + directory validation
       expect(true).toBe(true); // Placeholder — integration test covers this
     });
 

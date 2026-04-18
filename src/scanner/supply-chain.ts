@@ -466,11 +466,15 @@ export class SupplyChainAdapter implements ScannerAdapter {
     findings: AttestLensFinding[],
     errors: ScannerError[],
   ): Promise<void> {
-    // Skip npm audit if node_modules doesn't exist (won't work on fresh clones)
-    try {
-      await fs.access(path.join(safePath, 'node_modules'));
-    } catch {
-      // No node_modules — npm audit won't work, skip silently
+    // npm audit works with just a lockfile — only skip if there's no lockfile either
+    const hasLockfile = await fs.access(path.join(safePath, 'package-lock.json'))
+      .then(() => true)
+      .catch(() => false);
+    const hasNodeModules = await fs.access(path.join(safePath, 'node_modules'))
+      .then(() => true)
+      .catch(() => false);
+    if (!hasLockfile && !hasNodeModules) {
+      // Nothing for npm audit to work with — skip silently
       return;
     }
 

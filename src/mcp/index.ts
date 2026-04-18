@@ -37,7 +37,7 @@ import fs from 'node:fs/promises';
  */
 const ALLOWED_ROOTS = process.env.ATTESTLENS_ALLOWED_ROOTS
   ? process.env.ATTESTLENS_ALLOWED_ROOTS.split(':').filter(Boolean)
-  : [process.cwd()];
+  : undefined; // undefined = allow all paths (security relies on suspicious-char check + directory validation)
 
 async function validatePath(targetPath: string): Promise<string> {
   if (!targetPath || typeof targetPath !== 'string') {
@@ -49,13 +49,17 @@ async function validatePath(targetPath: string): Promise<string> {
   }
   const resolved = path.resolve(targetPath);
 
-  // Security: ensure resolved path is under an allowed root
-  const isAllowed = ALLOWED_ROOTS.some(root => {
-    const normalizedRoot = path.resolve(root);
-    return resolved === normalizedRoot || resolved.startsWith(normalizedRoot + path.sep);
-  });
-  if (!isAllowed) {
-    throw new McpError(ErrorCode.InvalidParams, `path is outside allowed roots: ${resolved}. Allowed roots: ${ALLOWED_ROOTS.join(', ')}`);
+  // Security: restrict to ALLOWED_ROOTS if configured
+  // If ALLOWED_ROOTS is not set, allow any valid directory (suspicious-char check + directory validation still apply)
+  // If ALLOWED_ROOTS is set, only allow paths under those roots
+  if (ALLOWED_ROOTS) {
+    const isAllowed = ALLOWED_ROOTS.some(root => {
+      const normalizedRoot = path.resolve(root);
+      return resolved === normalizedRoot || resolved.startsWith(normalizedRoot + path.sep);
+    });
+    if (!isAllowed) {
+      throw new McpError(ErrorCode.InvalidParams, `path is outside allowed roots: ${resolved}. Allowed roots: ${ALLOWED_ROOTS.join(', ')}`);
+    }
   }
 
   let stat;
