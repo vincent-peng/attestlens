@@ -31,7 +31,14 @@ import fs from 'node:fs/promises';
 /**
  * Validate and resolve a path parameter to prevent path traversal.
  * Returns the resolved absolute path if valid, throws McpError otherwise.
+ *
+ * Security: Only allows scanning directories under ALLOWED_ROOTS (defaults to CWD).
+ * Prevents scanning sensitive system directories like /etc, /root, etc.
  */
+const ALLOWED_ROOTS = process.env.ATTESTLENS_ALLOWED_ROOTS
+  ? process.env.ATTESTLENS_ALLOWED_ROOTS.split(':').filter(Boolean)
+  : [process.cwd()];
+
 async function validatePath(targetPath: string): Promise<string> {
   if (!targetPath || typeof targetPath !== 'string') {
     throw new McpError(ErrorCode.InvalidParams, 'path is required');
@@ -41,6 +48,16 @@ async function validatePath(targetPath: string): Promise<string> {
     throw new McpError(ErrorCode.InvalidParams, 'path contains invalid characters');
   }
   const resolved = path.resolve(targetPath);
+
+  // Security: ensure resolved path is under an allowed root
+  const isAllowed = ALLOWED_ROOTS.some(root => {
+    const normalizedRoot = path.resolve(root);
+    return resolved === normalizedRoot || resolved.startsWith(normalizedRoot + path.sep);
+  });
+  if (!isAllowed) {
+    throw new McpError(ErrorCode.InvalidParams, `path is outside allowed roots: ${resolved}. Allowed roots: ${ALLOWED_ROOTS.join(', ')}`);
+  }
+
   let stat;
   try {
     stat = await fs.stat(resolved);
