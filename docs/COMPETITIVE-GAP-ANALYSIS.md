@@ -1,0 +1,368 @@
+# AttestLens Competitive Gap Analysis
+
+**Date:** 2026-04-18
+**Purpose:** Deep research on closing gaps vs CheckVibe + the broader vibe-coding security scanner market
+
+---
+
+## 1. Market Landscape (April 2026)
+
+The vibe-coding security scanner market has exploded. There are now **15+ competing tools**, up from 3 a few months ago. Key players:
+
+| Tool | Type | Price | Source Code | Live URL | APP/NDB |
+|---|---|---|---|---|---|
+| **CheckVibe** | SaaS | £13-55/mo | ❌ | ✅ | ❌ |
+| **Vibe App Scanner** | SaaS | $5-29/mo | ✅ | ✅ | ❌ |
+| **VibeCheck** (notelon.ai) | Free Web | Free | ✅ | ✅ | ❌ |
+| **Aikido Security** | Platform | Free+paid | ✅ | ❌ | ❌ |
+| **VibeSecurity** | IDE Plugin | Free+paid | ✅ | ❌ | ❌ |
+| **ChakraView** | CLI/OSS | Free | ✅ | ❌ | ❌ |
+| **ShipSafe** | SaaS | Free+paid | ✅ | ✅ | ❌ |
+| **VibeDoctor** | Web | Free | ✅ | ✅ | ❌ |
+| **VibeWrench** | Web | Free | ✅ | ✅ | ❌ |
+| **Vibeship Scanner** | Web | Free | ✅ | ✅ | ❌ |
+| **amihackable.dev** | Web | Free | ❌ | ✅ | ❌ |
+| **WebLegal.ai** | Web | Free | ❌ | ✅ | Partial (AU only) |
+| **OneTrust** | Enterprise | $$$$ | ❌ | ❌ | ✅ (full suite) |
+| **AttestLens** | CLI/OSS | Free | ✅ | ❌ | ✅ |
+
+**Critical insight:** ZERO tools combine security scanning with Australian Privacy Act (APP/NDB) compliance mapping. That's our moat. But we need to close the security scanning gaps first — nobody will use a compliance tool that can't find vulnerabilities.
+
+---
+
+## 2. CheckVibe Deep Dive
+
+### What CheckVibe Actually Does
+
+CheckVibe is a **URL-based scanner** — you enter a deployed website URL and it scans it in ~30 seconds. It does NOT scan source code locally.
+
+**Their scanning method:**
+1. HTTP GET/HEAD to the target URL
+2. Fetches all JS bundles, HTML, CSS
+3. Pattern-matches for 100+ vulnerability signatures:
+   - **Exposed keys:** API keys (OpenAI, Stripe, Firebase, Supabase service_role, Anthropic, etc.) in JS bundles
+   - **Security headers:** Missing CSP, HSTS, X-Frame-Options, X-Content-Type-Options, Referrer-Policy, Permissions-Policy
+   - **CORS:** Wildcard Access-Control-Allow-Origin
+   - **BaaS misconfig:** Supabase anon key exposure, Firebase missing rules, Convex config leaks
+   - **SSL/TLS:** Certificate issues, weak protocols
+   - **XSS vectors:** dangerouslySetInnerHTML, v-html patterns in bundled JS
+   - **Info disclosure:** Stack traces, .env exposure, .git exposure, debug endpoints
+
+**Their MCP server** (`@checkvibe/mcp-server` v1.3.2):
+- Just a thin MCP wrapper that calls their SaaS API
+- Dependencies: `zod`, `@modelcontextprotocol/sdk`
+- Runs as `checkvibe-mcp` binary
+- Weekly downloads: 10 (tiny — they're selling the web app, not the MCP)
+
+**Their pricing:**
+- Starter: £13/mo (1 project, 30 scans/mo)
+- Pro: £27/mo (5 projects, 155 scans/mo, daily monitoring, live threat detection)
+- Max: £55/mo (25 projects, unlimited, dedicated support)
+- Annual = 30% discount
+
+**Revenue signals:**
+- Reddit post: "$1k revenue, 50 users" after 1 month (r/micro_saas)
+- "Trusted by 500+ developers" on homepage
+- £13/mo minimum = they're targeting indie devs with real apps
+
+### What CheckVibe Does NOT Do
+
+- ❌ No local source code scanning (URL only)
+- ❌ No dependency/supply chain analysis
+- ❌ No compliance mapping (no APP, NDB, GDPR, SOC2 — nothing)
+- ❌ No CLI tool (SaaS + MCP only)
+- ❌ No privacy impact assessment
+- ❌ No data breach readiness scoring
+- ❌ No consultant-grade PDF reports with statutory references
+- ❌ No questionnaire-based compliance assessment
+
+---
+
+## 3. Gap Analysis: What We're Missing
+
+### TIER 1 — Must-Have (we lose to CheckVibe without these)
+
+#### 3.1 Live URL Scanner (HTTP-based)
+
+**What it does:** Point at a deployed URL → get security findings in 30 seconds.
+
+**How to build it:**
+- New adapter: `src/scanner/url-scan.ts`
+- Uses Node.js `fetch` (built-in since v18) — zero dependencies
+- Scan flow:
+  1. `fetch(url)` → get response headers + HTML
+  2. Parse `<script src="...">` tags → fetch each JS bundle
+  3. Pattern-match JS bundles for exposed keys (same regex patterns we already have)
+  4. Check security headers (CSP, HSTS, X-Frame-Options, etc.)
+  5. Check SSL/TLS via `https` module
+  6. Check for common misconfigs (`.git` exposed, `.env` exposed, debug endpoints)
+
+**Effort:** ~2-3 days. Most of the regex patterns already exist in our `staticFallback`.
+
+**Key checks to implement:**
+```
+HTTP Security Headers (12 checks):
+- Content-Security-Policy
+- Strict-Transport-Security  
+- X-Frame-Options
+- X-Content-Type-Options
+- Referrer-Policy
+- Permissions-Policy
+- X-XSS-Protection (legacy)
+- Cross-Origin-Opener-Policy
+- Cross-Origin-Resource-Policy
+- Cross-Origin-Embedder-Policy
+- Cache-Control (sensitive pages)
+- Server header info disclosure
+
+Exposed Key Detection (15+ patterns):
+- OpenAI API keys (sk-proj-*, sk-*)
+- Stripe keys (sk_live_*, pk_live_*)
+- Supabase service_role keys
+- Firebase Admin SDK keys
+- Anthropic API keys
+- AWS Access Key IDs
+- GitHub Personal Access Tokens
+- SendGrid API keys
+- Twilio Account SIDs
+- Google API keys
+- Cloudflare API tokens
+- Private keys (-----BEGIN RSA PRIVATE KEY-----)
+- Generic api_key/secret_key patterns
+
+JS Bundle Analysis:
+- dangerouslySetInnerHTML
+- eval() usage
+- document.write()
+- innerHTML assignment
+- window.location injection
+- postMessage without origin check
+
+Infrastructure Checks:
+- .git/HEAD exposure
+- .env file exposure  
+- /api/debug endpoints
+- /wp-admin exposure
+- Server version disclosure
+- Cookie Secure/HttpOnly flags
+- CORS wildcard
+- Open redirect
+```
+
+#### 3.2 AI Fix Prompts
+
+**What it does:** Every finding has a copy-paste prompt for Cursor/Copilot/Claude Code.
+
+**How to build it:**
+- Add `fixPrompt` field to `AttestLensFinding` schema
+- Template system: each rule gets a structured prompt:
+  ```
+  "Fix the {severity} security issue: {title}.
+   In file {file} at line {line}, the code:
+   {code}
+   
+   This is a {category} vulnerability because {description}.
+   
+   To fix: {fix}
+   
+   Make the minimal change needed. Do not modify unrelated code."
+  ```
+- For URL-scan findings (no file/line), generate config-level prompts:
+  ```
+  "Add the following HTTP security headers to your server configuration:
+   - Content-Security-Policy: default-src 'self'; ...
+   - Strict-Transport-Security: max-age=31536000; includeSubDomains
+   ..."
+  ```
+
+**Effort:** ~1 day. Mostly schema change + template strings.
+
+#### 3.3 PDF Report Generation
+
+**What it does:** Consultant-grade PDF with findings, compliance mappings, and remediation roadmap.
+
+**How to build it:**
+- **Option A: Puppeteer** — Render our existing HTML report → PDF. Best fidelity, but ~300MB Chromium dependency.
+- **Option B: PDFKit** — Pure JS, no Chromium. More work to lay out, but lightweight. ~2MB dependency.
+- **Option C: @react-pdf/renderer** — JSX templates for PDFs. Good balance if we build a web UI.
+
+**Recommendation:** Option A (Puppeteer) for V1. We already have `generateHTMLReport()` — just pipe it through `page.pdf()`. The 300MB dependency is only needed at report-generation time, not during scanning. CLI flag: `--format pdf`.
+
+**Effort:** ~1-2 days.
+
+```typescript
+// src/report/pdf-generator.ts
+import puppeteer from 'puppeteer';
+import { generateHTMLReport } from './generator.js';
+
+export async function generatePDFReport(findings, options): Promise<Buffer> {
+  const html = await generateHTMLReport(findings, options);
+  const browser = await puppeteer.launch({ headless: true });
+  const page = await browser.newPage();
+  await page.setContent(html, { waitUntil: 'networkidle0' });
+  const pdf = await page.pdf({
+    format: 'A4',
+    printBackground: true,
+    margin: { top: '20mm', bottom: '20mm', left: '15mm', right: '15mm' },
+  });
+  await browser.close();
+  return pdf;
+}
+```
+
+### TIER 2 — Competitive Parity
+
+#### 3.4 Stack-Specific Checks
+
+**What CheckVibe has:** Convex, Firebase, Supabase, Vercel, Netlify, Cloudflare, GitHub.
+
+**How to build it:**
+- Extend our static regex patterns (already have Supabase, NEXT_PUBLIC_)
+- Add new pattern groups:
+  - **Firebase:** Missing Firestore rules, exposed Admin SDK JSON, insecure `firebase.initializeApp()` config
+  - **Vercel/Netlify:** `_headers`/`netlify.toml` analysis, `vercel.json` config checks
+  - **Cloudflare:** Worker secrets, Pages config
+  - **Stripe:** Live mode keys, webhook secrets
+  - **Convex:** `convex/` directory misconfig
+
+**Effort:** ~3-4 days. Most are regex patterns + rule definitions.
+
+#### 3.5 Dashboard / Web UI
+
+**What it does:** Web interface for scanning, viewing reports, managing projects.
+
+**How to build it:**
+- Next.js app with:
+  - URL input → scan → results page
+  - File upload / GitHub OAuth for source code scanning
+  - Report viewer with PDF export
+  - Project management (multiple scans per project)
+- Uses our existing scanner as the backend (API routes call the CLI)
+
+**Effort:** ~1-2 weeks for MVP.
+
+**Decision:** Defer to Phase 3. CLI + MCP is enough for V1. The consultant workflow is: scan via CLI → generate PDF → deliver to client. They don't need a dashboard.
+
+### TIER 3 — Differentiation (Our Moat)
+
+These are things CheckVibe and ALL competitors lack. This is where AttestLens wins.
+
+#### 3.6 APP/NDB Compliance Mapping (✅ Already Built)
+
+Our mapping engine maps technical findings → APP sub-obligations → NDB sections. No competitor does this.
+
+**Enhancement:** Add confidence-weighted mappings to the PDF report. Show "APP 11.1 — Data Storage (85% confidence)" etc.
+
+#### 3.7 Compliance Questionnaire (Planned Phase 2)
+
+Interactive questionnaire that fills gaps the scanner can't detect (policies, procedures, training). This transforms AttestLens from a scanner into an **assessment tool**.
+
+#### 3.8 NDB Breach Readiness Score
+
+Aggregate findings + questionnaire answers into a single "breach readiness" score. Consultants can present this to boards.
+
+#### 3.9 Consultant Workflow Features
+
+- White-label PDF reports (consultant branding)
+- Finding acknowledgment tracking (client confirms fixes)
+- Re-scan diff (what changed between scans)
+- Executive summary (1-page for boards)
+
+---
+
+## 4. Implementation Roadmap
+
+### Phase 1.5 — Close the CheckVibe Gap (2 weeks)
+
+| Week | Feature | Effort | Impact |
+|---|---|---|---|
+| W1 D1-2 | **URL Scanner** (`url-scan.ts`) | 2 days | Parity with CheckVibe's core feature |
+| W1 D3 | **AI Fix Prompts** (schema + templates) | 1 day | Copy-paste fixes (CheckVibe's #2 feature) |
+| W1 D4-5 | **PDF Reports** (Puppeteer pipeline) | 1.5 days | Consultant deliverable |
+| W2 D1-3 | **Stack-Specific Checks** (Firebase, Vercel, Stripe, etc.) | 3 days | Competitive parity |
+| W2 D4 | **MCP: Add URL scan tool** | 0.5 day | MCP parity with CheckVibe |
+| W2 D5 | **Integration tests + docs** | 1 day | Ship readiness |
+
+**Total: ~10 working days**
+
+### Phase 2 — Compliance Differentiation (existing plan)
+
+- Questionnaire engine
+- Confidence-weighted mappings
+- Breach readiness score
+- Enhanced PDF with statutory references
+
+### Phase 3 — Platform (future)
+
+- Web dashboard (Next.js)
+- GitHub OAuth integration
+- Project management
+- Daily monitoring (cron-based re-scans)
+
+---
+
+## 5. GuardVibe Dependency Analysis
+
+**Current state:** AttestLens does NOT depend on GuardVibe. Here's how it actually works:
+
+```
+ScannerOrchestrator
+  ├── GuardVibeAdapter
+  │   ├── Tries: npx @guardvibe/cli full_audit → 335 rules
+  │   └── Fallback: 9 static regex patterns → limited but functional
+  ├── McpScanAdapter (independent)
+  └── SupplyChainAdapter (independent, 8 rules)
+```
+
+**The problem:** Without GuardVibe CLI installed, we only have 9 regex patterns. CheckVibe has 100+. That's a huge gap.
+
+**The solution:** Don't rely on GuardVibe. Build our own scanner rules directly. The `url-scan.ts` adapter and expanded static patterns in `guardvibe.ts` give us 30+ checks without any external dependency.
+
+**After Phase 1.5:** We'll have:
+- 30+ static code patterns (expanded guardvibe.ts)
+- 30+ URL/header checks (url-scan.ts)
+- 8 supply chain rules (supply-chain.ts)
+- **= 68+ checks, zero external dependencies**
+
+---
+
+## 6. Competitive Positioning
+
+### Our Position: "CheckVibe meets Australian Privacy Act"
+
+**For consultants:**
+> "AttestLens is the only scanner that maps security findings to APP/NDB obligations and generates consultant-grade compliance reports. Scan code or live URLs, get AI fix prompts, and deliver PDF reports your clients can actually use."
+
+**For indie devs (CheckVibe's market):**
+> "Free, open-source alternative to CheckVibe. Same security checks, same AI fix prompts, plus Australian compliance mapping. Run locally or via MCP."
+
+### Pricing Strategy (when we add SaaS)
+
+| Tier | Price | Features |
+|---|---|---|
+| **Free** | $0 | CLI, local scans, JSON/MD/HTML reports, MCP server |
+| **Pro** | $15 AUD/mo | URL scanning, PDF reports, AI fix prompts, 50 scans/mo |
+| **Consultant** | $49 AUD/mo | White-label PDFs, compliance mapping, breach readiness, unlimited scans, priority support |
+| **Enterprise** | Custom | Self-hosted, SSO, API access, SLA |
+
+Free tier = AttestLens CLI (current + Phase 1.5). Pro = SaaS wrapper. Consultant = our moat.
+
+---
+
+## 7. Key Risks
+
+1. **Market saturation:** 15+ vibe-coding scanners exist. But NONE have compliance mapping. Our moat is real.
+2. **CheckVibe is SaaS-first:** They own the "paste URL, get results" UX. We need to match this in Phase 1.5 or we look inferior.
+3. **GuardVibe stagnation:** If GuardVibe stops updating, our static patterns become stale. Building our own rules solves this.
+4. **Australian market size:** ~2.6M businesses, ~9K APP-bound entities. Compliance scanner niche is smaller than general security scanning. But consultants serve thousands of clients each.
+5. **Open source vs SaaS tension:** Free CLI means no moat on scanning. Compliance mapping + consultant features are the paywall.
+
+---
+
+## 8. Conclusion
+
+**CheckVibe validated the market** — £13/mo for URL scanning, 500+ devs, $1k/mo revenue at launch. The demand is real.
+
+**Our move:** Close the scanning gap in 2 weeks (URL scanner + AI fix prompts + PDF + stack checks), then double down on compliance mapping — the one thing nobody else has. That's our path from "another vibe-coding scanner" to "the Australian compliance scanner."
+
+Priority order: **URL scanner > AI fix prompts > PDF > stack-specific checks > MCP URL tool > questionnaire**
