@@ -8,6 +8,7 @@ import type { AttestLensFinding, ScanSource } from '../schema/index.js';
 import type { ScannerResult, ScannerAdapter, ScannerError, ScannerRegistryEntry } from './types.js';
 import { GuardVibeAdapter } from './guardvibe.js';
 import { McpScanAdapter } from './mcp-scan.js';
+import { SupplyChainAdapter } from './supply-chain.js';
 
 export class ScannerOrchestrator {
   private registry: Map<ScanSource, ScannerRegistryEntry> = new Map();
@@ -16,6 +17,7 @@ export class ScannerOrchestrator {
     // Register default scanners
     this.register(new GuardVibeAdapter());
     this.register(new McpScanAdapter());
+    this.register(new SupplyChainAdapter());
   }
 
   register(adapter: ScannerAdapter, enabled = true): void {

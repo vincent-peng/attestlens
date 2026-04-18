@@ -20,6 +20,7 @@ export const ScanSource = z.enum([
   'vibesafe',
   'mcp-scan',
   'vibe-check',
+  'supply-chain',
   'manual',
   'questionnaire',
 ]);

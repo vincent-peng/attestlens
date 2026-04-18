@@ -5,9 +5,10 @@ describe('ScannerOrchestrator', () => {
   it('should register guardvibe and mcp-scan adapters by default', () => {
     const orchestrator = new ScannerOrchestrator();
     const registry = orchestrator.getRegistry();
-    expect(registry.length).toBe(2);
+    expect(registry.length).toBe(3);
     expect(registry.some(r => r.adapter.name === 'guardvibe')).toBe(true);
     expect(registry.some(r => r.adapter.name === 'mcp-scan')).toBe(true);
+    expect(registry.some(r => r.adapter.name === 'supply-chain')).toBe(true);
   });
 
   it('should allow disabling adapters', () => {

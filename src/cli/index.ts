@@ -37,6 +37,7 @@ program
   .option('--strict', 'Treat UNKNOWN controls as FAIL')
   .option('--no-guardvibe', 'Disable GuardVibe scanner')
   .option('--no-mcp-scan', 'Disable mcp-scan')
+  .option('--no-supply-chain', 'Disable supply chain scanner')
   .action(async (targetPath: string, options: any) => {
     console.log(chalk.bold.cyan('\n🔍 AttestLens — Privacy Act Compliance Scanner\n'));
 
@@ -57,6 +58,7 @@ program
     const orchestrator = new ScannerOrchestrator();
     if (options.noGuardvibe) orchestrator.disable('guardvibe');
     if (options.noMcpScan) orchestrator.disable('mcp-scan');
+    if (options.noSupplyChain) orchestrator.disable('supply-chain');
 
     // Run scan
     const spinner = ora('Scanning project...').start();
@@ -132,6 +134,7 @@ program
   .option('--strict', 'Treat UNKNOWN controls as FAIL')
   .option('--no-guardvibe', 'Disable GuardVibe scanner')
   .option('--no-mcp-scan', 'Disable mcp-scan')
+  .option('--no-supply-chain', 'Disable supply chain scanner')
   .action(async (targetPath: string, options: any) => {
     console.log(chalk.bold.cyan('\n🔍 AttestLens — Privacy Act Compliance Audit\n'));
 
@@ -142,6 +145,7 @@ program
     const orchestrator = new ScannerOrchestrator();
     if (options.noGuardvibe) orchestrator.disable('guardvibe');
     if (options.noMcpScan) orchestrator.disable('mcp-scan');
+    if (options.noSupplyChain) orchestrator.disable('supply-chain');
 
     // Run scan
     const spinner = ora('Running compliance scan...').start();
