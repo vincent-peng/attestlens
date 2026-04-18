@@ -549,7 +549,7 @@ export function mapAllFindings(findings: AttestLensFinding[]): {
       control.questionnaireRequired = true;
     } else if (control.status === 'fail') {
       control.questionnaireRequired = false; // We have evidence of failure
-    } else if (control.findings.length > 0 && control.status !== 'fail') {
+    } else if (control.findings.length > 0) {
       control.questionnaireRequired = false; // We have findings, no questionnaire needed
     }
   }

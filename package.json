@@ -16,7 +16,16 @@
     "audit": "tsx src/cli/index.ts audit",
     "report": "tsx src/cli/index.ts report"
   },
-  "keywords": ["compliance", "privacy", "app", "ndb", "attestation", "security", "scanner", "mcp"],
+  "keywords": [
+    "compliance",
+    "privacy",
+    "app",
+    "ndb",
+    "attestation",
+    "security",
+    "scanner",
+    "mcp"
+  ],
   "author": "Vincent Peng",
   "license": "UNLICENSED",
   "dependencies": {
@@ -26,7 +35,6 @@
     "chalk": "^5.4.0",
     "ora": "^8.2.0",
     "pdfkit": "^0.17.0",
-    "puppeteer": "^24.4.0",
     "yaml": "^2.7.0"
   },
   "devDependencies": {
