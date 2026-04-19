@@ -24,9 +24,12 @@ The vibe-coding security scanner market has exploded. There are now **15+ compet
 | **amihackable.dev** | Web | Free | ❌ | ✅ | ❌ |
 | **WebLegal.ai** | Web | Free | ❌ | ✅ | Partial (AU only) |
 | **OneTrust** | Enterprise | $$$$ | ❌ | ❌ | ✅ (full suite) |
-| **AttestLens** | CLI/OSS | Free | ✅ | ❌ | ✅ |
+| **AttestLens** | CLI/OSS | Free | ✅ | ✅ | ✅ |
+| **Shannon** (Keygraph) | CLI+Docker | Lite: AGPL / Pro: Commercial | ✅ | ✅ (live exploit) | ❌ |
 
 **Critical insight:** ZERO tools combine security scanning with Australian Privacy Act (APP/NDB) compliance mapping. That's our moat. But we need to close the security scanning gaps first — nobody will use a compliance tool that can't find vulnerabilities.
+
+**New entrant (April 2026):** Shannon (Keygraph) — autonomous AI pentester. Finds + **proves** exploits (SQLi, XSS, SSRF, auth bypass) with working PoCs. Open-core model (Lite AGPL, Pro commercial). 20+ confirmed vulns in OWASP Juice Shop. **No compliance mapping.** Directly complementary with AttestLens — see §9.
 
 ---
 
@@ -366,3 +369,81 @@ Free tier = AttestLens CLI (current + Phase 1.5). Pro = SaaS wrapper. Consultant
 **Our move:** Close the scanning gap in 2 weeks (URL scanner + AI fix prompts + PDF + stack checks), then double down on compliance mapping — the one thing nobody else has. That's our path from "another vibe-coding scanner" to "the Australian compliance scanner."
 
 Priority order: **URL scanner > AI fix prompts > PDF > stack-specific checks > MCP URL tool > questionnaire**
+
+---
+
+## 9. Shannon (Keygraph) — Deep Dive
+
+**Added:** 2026-04-19
+**Repo:** <https://github.com/KeygraphHQ/shannon>
+**Sample report:** <https://github.com/KeygraphHQ/shannon/blob/main/sample-reports/shannon-report-juice-shop.md>
+
+### What Shannon Does
+
+Autonomous, white-box AI pentester for web apps and APIs:
+1. **Source code analysis** — reads repo to identify attack vectors
+2. **Live exploitation** — runs real attacks (SQLi, XSS, SSRF, auth bypass, NoSQL injection, XXE) against the running app using browser automation + CLI tools (Nmap, Subfinder, WhatWeb, Schemathesis)
+3. **Proof-of-Concept only** — only reports vulnerabilities with working exploits. No theoretical findings.
+4. **Report generation** — structured report with curl-ready PoC commands
+
+### Shannon Lite vs Pro
+
+| | Shannon Lite | Shannon Pro |
+|---|---|---|
+| License | AGPL-3.0 | Commercial |
+| Static Analysis | Code review prompting | Full agentic SAST, SCA, secrets, business logic (CPG-based) |
+| Dynamic Testing | Autonomous AI pentesting | + static-dynamic correlation |
+| CI/CD | Manual/CLI | Native CI/CD, GitHub PR scanning |
+| Deployment | CLI + Docker | Managed cloud or self-hosted runner |
+
+### Shannon's Report Format (Benchmark)
+
+Their Juice Shop report is the gold standard for security report quality:
+- **Vulnerability location** (endpoint + HTTP method)
+- **Overview** (1-2 sentence explanation)
+- **Impact** (business consequence)
+- **Severity** (Critical/High/Medium)
+- **Prerequisites** (auth needed? public endpoint?)
+- **Exploitation Steps** (copy-paste curl commands)
+- **Proof of Impact** (actual exfiltrated data shown)
+- **Notes** (root cause, source code reference)
+
+→ **Our PDF attestation reports must match this quality bar** on the compliance axis.
+
+### What Shannon Does NOT Do
+
+- ❌ No compliance mapping (APP, NDB, GDPR — nothing)
+- ❌ No questionnaire-based assessment
+- ❌ No attestation artifacts
+- ❌ No evidence of remediation tracking
+- ❌ No drift detection or re-attestation
+- ❌ No white-label / agency features
+
+### AttestLens vs Shannon Positioning
+
+| | Shannon | AttestLens |
+|---|---|---|
+| **Core job** | Find + prove exploitable vulns | Map findings → APP/NDB + generate attestation evidence |
+| **Output** | Security report with PoCs | Compliance attestation with remediation |
+| **Buyer** | Security teams, AppSec | Agencies, MSPs, compliance officers |
+| **Regulatory** | None | AU Privacy Act / NDB |
+| **Distribution** | CLI + Docker + npx | MCP + CLI + per-stack pages |
+| **Moat** | CPG + exploit validation | Evidence graph + attestation chain + APP/NDB mapping |
+
+**Key insight:** Shannon and AttestLens are **complementary**, not competitive. Shannon finds the holes; AttestLens maps them to legal obligations and generates the compliance paper trail. A smart agency runs Shannon for security findings, then feeds those into AttestLens for the attestation pack.
+
+### What We Can Borrow
+
+1. **Report structure** — their finding format (location → overview → impact → severity → steps → proof → notes) is the template our compliance PDF should follow, with APP/NDB clauses added
+2. **Open-core model** — Lite (AGPL) + Pro (commercial) validates our MCP-first + paid report approach
+3. **"Vibe coding security" positioning** — same narrative. We should reframe as "vibe coding **compliance** risk"
+4. **PoC-style remediation** — their curl-ready exploits → our AI fix prompts should be equally copy-paste ready
+5. **Sample report as marketing** — their public Juice Shop report is a conversion tool. We should publish a sample attestation report for a well-known AU app.
+
+### Integration Opportunity: Shannon → AttestLens Adapter
+
+See `docs/SHANNON-ADAPTER-SPEC.md` for the deferred research note and future design constraints.
+
+**Important:** Shannon integration is exploratory and explicitly out of scope for the current shipped roadmap. It should not widen current CLI, MCP, or schema contracts until post-`v0.2.0` prioritization and a full trust-boundary design are approved.
+
+**Core idea:** Import Shannon scan results (JSON) → auto-map findings to APP/NDB → generate compliance attestation pack. "From pentest to attestation in 5 minutes."
