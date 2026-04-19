@@ -21,6 +21,7 @@ export const ScanSource = z.enum([
   'mcp-scan',
   'vibe-check',
   'supply-chain',
+  'url-scan',
   'manual',
   'questionnaire',
 ]);
@@ -88,7 +89,7 @@ export type FindingEvidence = z.infer<typeof FindingEvidence>;
 export const AttestLensFinding = z.object({
   id: z.string(),                       // Deterministic hash
   source: ScanSource,
-  sourceRule: z.string(),               // e.g., "VG-SEC-001", "VS-HARDKEY"
+  sourceRule: z.string(),               // e.g., "VG-SEC-001", "VS-HARDKEY", "AL-KEY-001"
   severity: Severity,
   category: z.string(),                  // e.g., "Security", "Auth", "Data Flow"
   title: z.string(),
@@ -96,7 +97,9 @@ export const AttestLensFinding = z.object({
   file: z.string().optional(),
   line: z.number().optional(),
   code: z.string().optional(),          // Offending code snippet
+  url: z.string().optional(),            // Source URL (for url-scan findings)
   fix: z.string().optional(),           // Suggested fix
+  fixPrompt: z.string().optional(),     // AI-ready fix prompt for Cursor/Copilot
   appMappings: z.array(APPMapping),
   evidence: FindingEvidence,
 });

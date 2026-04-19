@@ -30,18 +30,69 @@ program
 
 program
   .command('scan')
-  .description('Scan a project directory for privacy compliance findings')
-  .argument('<path>', 'Path to project directory')
+  .description('Scan a project directory or URL for privacy compliance findings')
+  .argument('<path>', 'Path to project directory or URL (https://...)')
   .option('-o, --output <dir>', 'Output directory', './attestlens-reports')
   .option('-f, --format <formats>', 'Output formats (json,html,markdown)', 'json,html')
   .option('--strict', 'Treat UNKNOWN controls as FAIL')
+  .option('--url-only', 'Only run URL scanner (skip file-based scanners)')
   .option('--no-guardvibe', 'Disable GuardVibe scanner')
   .option('--no-mcp-scan', 'Disable mcp-scan')
   .option('--no-supply-chain', 'Disable supply chain scanner')
   .action(async (targetPath: string, options: any) => {
     console.log(chalk.bold.cyan('\n🔍 AttestLens — Privacy Act Compliance Scanner\n'));
 
-    // Resolve target path
+    // Detect if input is a URL
+    const isUrl = /^https?:\/\//i.test(targetPath);
+
+    if (isUrl) {
+      // URL mode: enable URL scanner, optionally disable file-based scanners
+      const orchestrator = new ScannerOrchestrator();
+      if (!options.urlOnly) {
+        // File-based scanners will fail gracefully for URLs
+        orchestrator.disable('guardvibe');
+        orchestrator.disable('mcp-scan');
+        orchestrator.disable('supply-chain');
+      } else {
+        orchestrator.disable('guardvibe');
+        orchestrator.disable('mcp-scan');
+        orchestrator.disable('supply-chain');
+      }
+
+      const spinner = ora(`Scanning URL: ${targetPath}`).start();
+      const startTime = Date.now();
+
+      try {
+        const result = await orchestrator.scan(targetPath);
+        const duration = Date.now() - startTime;
+        spinner.succeed(`URL scan complete in ${(duration / 1000).toFixed(1)}s`);
+
+        const findings = result.findings;
+        if (findings.length === 0) {
+          console.log(chalk.green('\n✅ No compliance findings detected.'));
+          console.log(chalk.gray('   Run `attestlens audit` for a full APP control assessment.'));
+          return;
+        }
+
+        console.log(chalk.yellow(`\n⚠ Found ${findings.length} finding${findings.length > 1 ? 's' : ''}:\n`));
+        displayFindings(findings);
+
+        const { controls: appControls } = mapAllFindings(findings);
+        const affectedPrinciples = appControls
+          .filter(c => c.status !== 'unknown' || c.findings.length > 0)
+          .map(c => c.principle);
+        console.log(chalk.cyan(`\n📋 Affected APP Principles: ${affectedPrinciples.join(', ')}`));
+        console.log(chalk.gray(`   Run \`attestlens audit ${targetPath}\` for a full compliance report.`));
+
+      } catch (error: any) {
+        spinner.fail('URL scan failed');
+        console.error(chalk.red(`\nError: ${error.message}`));
+        process.exit(1);
+      }
+      return;
+    }
+
+    // Directory mode (existing behavior)
     const resolvedPath = path.resolve(targetPath);
     try {
       const stat = await fs.stat(resolvedPath);
@@ -79,33 +130,7 @@ program
       }
 
       console.log(chalk.yellow(`\n⚠ Found ${findings.length} finding${findings.length > 1 ? 's' : ''}:\n`));
-
-      // Group by severity
-      const criticals = findings.filter(f => f.severity === 'critical');
-      const highs = findings.filter(f => f.severity === 'high');
-      const mediums = findings.filter(f => f.severity === 'medium');
-      const lows = findings.filter(f => f.severity === 'low' || f.severity === 'info');
-
-      if (criticals.length) {
-        console.log(chalk.red(`  🔴 Critical: ${criticals.length}`));
-        for (const f of criticals) {
-          console.log(chalk.red(`     ${f.sourceRule}: ${f.title}`));
-          if (f.file) console.log(chalk.gray(`       ${f.file}${f.line ? `:${f.line}` : ''}`));
-        }
-      }
-      if (highs.length) {
-        console.log(chalk.yellow(`  🟠 High: ${highs.length}`));
-        for (const f of highs) {
-          console.log(chalk.yellow(`     ${f.sourceRule}: ${f.title}`));
-          if (f.file) console.log(chalk.gray(`       ${f.file}${f.line ? `:${f.line}` : ''}`));
-        }
-      }
-      if (mediums.length) {
-        console.log(chalk.hex('#f4a261')(`  🟡 Medium: ${mediums.length}`));
-      }
-      if (lows.length) {
-        console.log(chalk.green(`  🟢 Low/Info: ${lows.length}`));
-      }
+      displayFindings(findings);
 
       // Map to APP
       const { controls: appControls } = mapAllFindings(findings);
@@ -307,6 +332,38 @@ program
   });
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
+function displayFindings(findings: any[]) {
+  const criticals = findings.filter(f => f.severity === 'critical');
+  const highs = findings.filter(f => f.severity === 'high');
+  const mediums = findings.filter(f => f.severity === 'medium');
+  const lows = findings.filter(f => f.severity === 'low' || f.severity === 'info');
+
+  if (criticals.length) {
+    console.log(chalk.red(`  🔴 Critical: ${criticals.length}`));
+    for (const f of criticals) {
+      console.log(chalk.red(`     ${f.sourceRule}: ${f.title}`));
+      if (f.file) console.log(chalk.gray(`       ${f.file}${f.line ? `:${f.line}` : ''}`));
+      if (f.url) console.log(chalk.gray(`       ${f.url}`));
+    }
+  }
+  if (highs.length) {
+    console.log(chalk.yellow(`  🟠 High: ${highs.length}`));
+    for (const f of highs) {
+      console.log(chalk.yellow(`     ${f.sourceRule}: ${f.title}`));
+      if (f.file) console.log(chalk.gray(`       ${f.file}${f.line ? `:${f.line}` : ''}`));
+      if (f.url) console.log(chalk.gray(`       ${f.url}`));
+    }
+  }
+  if (mediums.length) {
+    console.log(chalk.hex('#f4a261')(`  🟡 Medium: ${mediums.length}`));
+  }
+  if (lows.length) {
+    console.log(chalk.green(`  🟢 Low/Info: ${lows.length}`));
+  }
+}
 
 function getGradeDisplay(grade: string, score: number): string {
   const colors: Record<string, (text: string) => string> = {

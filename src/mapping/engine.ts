@@ -471,6 +471,93 @@ const NDB_RULES: MappingRule[] = [
     rationale: 'Missing or invalid lockfiles make dependency resolution non-deterministic, increasing supply chain risk. Under APP 11.1, entities must ensure reproducible builds to maintain the security of personal information.',
     oaicReference: 'APP Guidelines Chapter 11.6',
   },
+
+  // ── URL Scan Findings ──────────────────────────────────────────────────────
+
+  // Missing security headers
+  {
+    id: 'MAP-026',
+    name: 'Missing Security Headers → APP 11.1',
+    sourcePatterns: {
+      ruleId: /^AL-URL-\d+$/,
+      category: /^Security Headers$/i,
+    },
+    appPrinciple: 'APP_11',
+    status: 'fail',
+    confidence: 0.92,
+    rationale: 'Missing HTTP security headers (CSP, HSTS, X-Frame-Options, etc.) constitute a failure to take reasonable steps to protect personal information in transit and prevent common web attacks under APP 11.1.',
+    oaicReference: 'APP Guidelines Chapter 11.6; OAIC Guide to Securing Personal Information',
+  },
+  // Exposed API keys
+  {
+    id: 'MAP-027',
+    name: 'Exposed API Keys → APP 11.1 + APP 6.1',
+    sourcePatterns: {
+      ruleId: /^AL-KEY-\d+$/,
+      category: /^Exposed Keys$/i,
+    },
+    appPrinciple: 'APP_11',
+    status: 'fail',
+    confidence: 0.95,
+    rationale: 'Exposed API keys in client-side code constitute a serious failure to protect personal information (APP 11.1) and may lead to unauthorised use or disclosure of data (APP 6.1). This is one of the most common causes of data breaches in vibe-coded applications.',
+    oaicReference: 'APP Guidelines Chapter 11.6; Notifiable Data Breaches s26WE',
+  },
+  // Infrastructure misconfigurations
+  {
+    id: 'MAP-028',
+    name: 'Infrastructure Misconfiguration → APP 11.1',
+    sourcePatterns: {
+      ruleId: /^AL-INFRA-\d+$/,
+      category: /^Infrastructure$/i,
+    },
+    appPrinciple: 'APP_11',
+    status: 'fail',
+    confidence: 0.93,
+    rationale: 'Exposed infrastructure files (.git, .env, debug endpoints) provide attackers with source code, secrets, and internal application structure, constituting a failure to take reasonable steps under APP 11.1.',
+    oaicReference: 'APP Guidelines Chapter 11.6',
+  },
+  // JS vulnerability patterns
+  {
+    id: 'MAP-029',
+    name: 'JS Vulnerability Patterns → APP 11.1',
+    sourcePatterns: {
+      ruleId: /^AL-JS-\d+$/,
+      category: /^JS Security$/i,
+    },
+    appPrinciple: 'APP_11',
+    status: 'fail',
+    confidence: 0.88,
+    rationale: 'Client-side JavaScript vulnerabilities (XSS via innerHTML, eval usage, etc.) can lead to unauthorised access to personal information, constituting a failure to take reasonable steps under APP 11.1.',
+    oaicReference: 'APP Guidelines Chapter 11.6',
+  },
+  // CORS wildcard
+  {
+    id: 'MAP-030',
+    name: 'Wildcard CORS → APP 11.1 + APP 6.1',
+    sourcePatterns: {
+      ruleId: /^AL-URL-013$/,
+      category: /^CORS$/i,
+    },
+    appPrinciple: 'APP_11',
+    status: 'fail',
+    confidence: 0.85,
+    rationale: 'Wildcard CORS allows any origin to access API responses, potentially exposing personal information to malicious websites. This violates both APP 11.1 (reasonable steps) and APP 6.1 (use/disclosure).',
+    oaicReference: 'APP Guidelines Chapter 11.6; APP Guidelines Chapter 6',
+  },
+  // Cookie security flags
+  {
+    id: 'MAP-031',
+    name: 'Insecure Cookie Flags → APP 11.1',
+    sourcePatterns: {
+      ruleId: /^AL-URL-\d+$/,
+      category: /^Cookie Security$/i,
+    },
+    appPrinciple: 'APP_11',
+    status: 'fail',
+    confidence: 0.87,
+    rationale: 'Cookies without Secure and HttpOnly flags can be intercepted or accessed via JavaScript, potentially exposing session tokens and personal information. This constitutes a failure to take reasonable steps under APP 11.1.',
+    oaicReference: 'APP Guidelines Chapter 11.6; OAIC Guide to Securing Personal Information',
+  },
 ];
 
 // ─── All Rules ───────────────────────────────────────────────────────────────

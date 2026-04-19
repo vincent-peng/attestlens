@@ -9,6 +9,7 @@ import type { ScannerResult, ScannerAdapter, ScannerError, ScannerRegistryEntry 
 import { GuardVibeAdapter } from './guardvibe.js';
 import { McpScanAdapter } from './mcp-scan.js';
 import { SupplyChainAdapter } from './supply-chain.js';
+import { UrlScanAdapter } from './url-scan.js';
 
 export class ScannerOrchestrator {
   private registry: Map<ScanSource, ScannerRegistryEntry> = new Map();
@@ -18,6 +19,8 @@ export class ScannerOrchestrator {
     this.register(new GuardVibeAdapter());
     this.register(new McpScanAdapter());
     this.register(new SupplyChainAdapter());
+    // URL scanner registered but only activated when URL input detected
+    this.register(new UrlScanAdapter());
   }
 
   register(adapter: ScannerAdapter, enabled = true): void {
