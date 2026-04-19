@@ -350,25 +350,29 @@ This addresses APP 11.1 (Security) and APP 6.1 (Use/Disclosure).`,
 
   private checkCookies(headers: Headers, url: string): AttestLensFinding[] {
     const findings: AttestLensFinding[] = [];
-    const setCookie = headers.get('set-cookie');
+    // Use getSetCookie() when available (Node 20.6+) for proper multi-cookie handling.
+    // headers.get('set-cookie') merges multiple Set-Cookie headers with commas, which
+    // breaks cookie parsing since cookie values can contain commas (e.g., Expires dates).
+    const rawCookies: string[] = typeof headers.getSetCookie === 'function'
+      ? headers.getSetCookie()
+      : (headers.get('set-cookie') ? [headers.get('set-cookie')!] : []);
+    const cookies = Array.isArray(rawCookies) ? rawCookies : [rawCookies];
 
-    if (setCookie) {
-      const cookies = Array.isArray(setCookie) ? setCookie : [setCookie];
+    for (const cookie of cookies) {
+      if (!cookie) continue;
+      const cookieName = cookie.split('=')[0]?.trim();
+      const hasSecure = /;\s*secure/i.test(cookie);
+      const hasHttpOnly = /;\s*httponly/i.test(cookie);
+      const hasSameSite = /;\s*samesite/i.test(cookie);
 
-      for (const cookie of cookies) {
-        const cookieName = cookie.split('=')[0]?.trim();
-        const hasSecure = /;\s*secure/i.test(cookie);
-        const hasHttpOnly = /;\s*httponly/i.test(cookie);
-        const hasSameSite = /;\s*samesite/i.test(cookie);
-
-        if (!hasSecure && url.startsWith('https://')) {
-          findings.push(this.createFinding({
-            sourceRule: 'AL-URL-014',
-            severity: 'medium',
-            category: 'Cookie Security',
-            title: `Cookie "${cookieName}" Missing Secure Flag`,
-            description: `The cookie "${cookieName}" is set without the Secure flag. On HTTPS sites, cookies without Secure can be sent over insecure connections during protocol downgrade attacks.`,
-            fixPrompt: `Add the Secure flag to all cookies set on HTTPS sites:
+      if (!hasSecure && url.startsWith('https://')) {
+        findings.push(this.createFinding({
+          sourceRule: 'AL-URL-014',
+          severity: 'medium',
+          category: 'Cookie Security',
+          title: `Cookie "${cookieName}" Missing Secure Flag`,
+          description: `The cookie "${cookieName}" is set without the Secure flag. On HTTPS sites, cookies without Secure can be sent over insecure connections during protocol downgrade attacks.`,
+          fixPrompt: `Add the Secure flag to all cookies set on HTTPS sites:
 
 \`\`\`typescript
 // Express:
@@ -379,27 +383,26 @@ response.setHeader('Set-Cookie', 'session=token; Secure; HttpOnly; SameSite=Stri
 \`\`\`
 
 This addresses APP 11.1 (Security).`,
-            url,
-          }));
-        }
+          url,
+        }));
+      }
 
-        if (!hasHttpOnly) {
-          findings.push(this.createFinding({
-            sourceRule: 'AL-URL-015',
-            severity: 'medium',
-            category: 'Cookie Security',
-            title: `Cookie "${cookieName}" Missing HttpOnly Flag`,
-            description: `The cookie "${cookieName}" is set without the HttpOnly flag. JavaScript can access this cookie, making it vulnerable to XSS theft.`,
-            fixPrompt: `Add the HttpOnly flag to session and authentication cookies:
+      if (!hasHttpOnly) {
+        findings.push(this.createFinding({
+          sourceRule: 'AL-URL-015',
+          severity: 'medium',
+          category: 'Cookie Security',
+          title: `Cookie "${cookieName}" Missing HttpOnly Flag`,
+          description: `The cookie "${cookieName}" is set without the HttpOnly flag. JavaScript can access this cookie, making it vulnerable to XSS theft.`,
+          fixPrompt: `Add the HttpOnly flag to session and authentication cookies:
 
 \`\`\`typescript
 res.cookie('session', token, { httpOnly: true, secure: true, sameSite: 'strict' });
 \`\`\`
 
 This addresses APP 11.1 (Security).`,
-            url,
-          }));
-        }
+          url,
+        }));
       }
     }
 

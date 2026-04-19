@@ -35,7 +35,6 @@ program
   .option('-o, --output <dir>', 'Output directory', './attestlens-reports')
   .option('-f, --format <formats>', 'Output formats (json,html,markdown)', 'json,html')
   .option('--strict', 'Treat UNKNOWN controls as FAIL')
-  .option('--url-only', 'Only run URL scanner (skip file-based scanners)')
   .option('--no-guardvibe', 'Disable GuardVibe scanner')
   .option('--no-mcp-scan', 'Disable mcp-scan')
   .option('--no-supply-chain', 'Disable supply chain scanner')
@@ -46,18 +45,11 @@ program
     const isUrl = /^https?:\/\//i.test(targetPath);
 
     if (isUrl) {
-      // URL mode: enable URL scanner, optionally disable file-based scanners
+      // URL mode: disable file-based scanners (they don't work on URLs)
       const orchestrator = new ScannerOrchestrator();
-      if (!options.urlOnly) {
-        // File-based scanners will fail gracefully for URLs
-        orchestrator.disable('guardvibe');
-        orchestrator.disable('mcp-scan');
-        orchestrator.disable('supply-chain');
-      } else {
-        orchestrator.disable('guardvibe');
-        orchestrator.disable('mcp-scan');
-        orchestrator.disable('supply-chain');
-      }
+      orchestrator.disable('guardvibe');
+      orchestrator.disable('mcp-scan');
+      orchestrator.disable('supply-chain');
 
       const spinner = ora(`Scanning URL: ${targetPath}`).start();
       const startTime = Date.now();
@@ -330,8 +322,6 @@ program
       process.exit(1);
     }
   });
-
-// ─── Helpers ──────────────────────────────────────────────────────────────────
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
