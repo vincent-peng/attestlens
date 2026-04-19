@@ -29,7 +29,9 @@ import {
 } from '../report/generator.js';
 import type { ReportFormat, ReportOptions } from '../report/generator.js';
 import { ScannerOrchestrator } from '../scanner/orchestrator.js';
+import type { ScannerError, ScannerResult } from '../scanner/types.js';
 import type { AttestLensFinding } from '../schema/index.js';
+import { sanitizeTargetPathForOutput, sanitizeTargetUrlForOutput } from '../utils/target.js';
 
 const ATTESTLENS_VERSION = '0.1.0';
 
@@ -197,6 +199,52 @@ function serializeFindings(findings: AttestLensFinding[]) {
   }));
 }
 
+function collectUrlScanErrors(
+  result: Awaited<ReturnType<ScannerOrchestrator['scan']>>,
+  urlResult?: ScannerResult,
+): ScannerError[] {
+  const resultErrors = urlResult?.errors ?? [];
+  const orchestratorErrors = result.errors.filter((error) => error.source === 'url-scan');
+  return [...resultErrors, ...orchestratorErrors];
+}
+
+function getUrlScanFailureError(
+  result: Awaited<ReturnType<ScannerOrchestrator['scan']>>,
+): McpError | null {
+  const urlResult = result.results.find((scannerResult) => scannerResult.source === 'url-scan');
+  const urlErrors = collectUrlScanErrors(result, urlResult);
+
+  if (!urlResult && urlErrors.length > 0) {
+    return formatUrlScanFailure(urlErrors[0]);
+  }
+
+  if (!urlResult) {
+    return new McpError(ErrorCode.InternalError, 'URL scan failed before any findings could be collected.');
+  }
+
+  const fatalError = urlErrors.find((error) => !error.recoverable);
+  if (fatalError) {
+    return formatUrlScanFailure(fatalError);
+  }
+
+  if (urlErrors.length > 0 && urlResult.findings.length === 0) {
+    return formatUrlScanFailure(urlErrors[0]);
+  }
+
+  return null;
+}
+
+function formatUrlScanFailure(error: ScannerError): McpError {
+  switch (error.code) {
+    case 'INVALID_URL':
+      return new McpError(ErrorCode.InvalidParams, 'URL target is not allowed for scanning.');
+    case 'FETCH_FAILED':
+      return new McpError(ErrorCode.InternalError, 'URL scan failed before any findings could be collected.');
+    default:
+      return new McpError(ErrorCode.InternalError, 'URL scan failed before any findings could be collected.');
+  }
+}
+
 function buildScanSummary(result: Awaited<ReturnType<ScannerOrchestrator['scan']>>, strictMode = false) {
   const { controls, unmapped } = mapAllFindings(result.findings, strictMode);
   return {
@@ -274,7 +322,7 @@ export async function handleToolCall(name: string, args: Record<string, unknown>
           type: 'text',
           text: JSON.stringify({
             targetType: 'path',
-            targetPath,
+            targetPath: sanitizeTargetPathForOutput(targetPath),
             ...buildScanSummary(result, strict),
           }, null, 2),
         }],
@@ -287,13 +335,17 @@ export async function handleToolCall(name: string, args: Record<string, unknown>
 
       const orchestrator = createOrchestrator('url');
       const result = await orchestrator.scan(targetUrl);
+      const urlScanFailure = getUrlScanFailureError(result);
+      if (urlScanFailure) {
+        throw urlScanFailure;
+      }
 
       return {
         content: [{
           type: 'text',
           text: JSON.stringify({
             targetType: 'url',
-            targetUrl,
+            targetUrl: sanitizeTargetUrlForOutput(targetUrl),
             ...buildScanSummary(result, strict),
           }, null, 2),
         }],

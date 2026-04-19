@@ -13,6 +13,7 @@ import chalk from 'chalk';
 import ora from 'ora';
 import fs from 'node:fs/promises';
 import path from 'node:path';
+import { pathToFileURL } from 'node:url';
 
 import { ScannerOrchestrator } from '../scanner/orchestrator.js';
 import { mapAllFindings } from '../mapping/engine.js';
@@ -25,6 +26,8 @@ import {
 } from '../report/generator.js';
 import type { AttestLensFinding } from '../schema/index.js';
 import type { ReportFormat, ReportOptions } from '../report/generator.js';
+import type { ScannerError, ScannerResult } from '../scanner/types.js';
+import { getHostnameFromTargetUrl } from '../utils/target.js';
 
 const program = new Command();
 
@@ -55,6 +58,11 @@ program
       const startTime = Date.now();
 
       const result = await orchestrator.scan(target.value);
+      const urlScanFailure = target.kind === 'url' ? getUrlScanFailureMessage(result) : null;
+      if (urlScanFailure) {
+        spinner.fail('URL scan failed');
+        throw new Error(urlScanFailure);
+      }
       const duration = Date.now() - startTime;
       spinner.succeed(`${target.kind === 'url' ? 'URL scan' : 'Scan'} complete in ${(duration / 1000).toFixed(1)}s`);
 
@@ -108,6 +116,11 @@ program
       const startTime = Date.now();
 
       const scanResult = await orchestrator.scan(target.value);
+      const urlScanFailure = target.kind === 'url' ? getUrlScanFailureMessage(scanResult) : null;
+      if (urlScanFailure) {
+        spinner.fail('Audit failed');
+        throw new Error(urlScanFailure);
+      }
       const duration = Date.now() - startTime;
 
       const reportFormats = parseReportFormats(options.format);
@@ -192,12 +205,12 @@ program
       const scanData = JSON.parse(data);
       
       const reportFormats = parseReportFormats(options.format);
-      const projectName = options.name || path.basename(resolvedPath, '.json');
+      const reportTarget = resolveReportTarget(scanData, resolvedPath, options.name);
 
       const reportOptions: ReportOptions = {
-        targetName: projectName,
-        targetPath: scanData.target?.path || resolvedPath,
-        targetUrl: scanData.target?.url,
+        targetName: reportTarget.targetName,
+        targetPath: reportTarget.targetPath,
+        targetUrl: reportTarget.targetUrl,
         formats: reportFormats,
         outputDir: path.resolve(options.output),
         strictMode: options.strict,
@@ -272,6 +285,52 @@ function createOrchestrator(targetKind: CliTarget['kind'], options: any): Scanne
   return orchestrator;
 }
 
+function getUrlScanFailureMessage(
+  result: Awaited<ReturnType<ScannerOrchestrator['scan']>>,
+): string | null {
+  const urlResult = result.results.find((scannerResult) => scannerResult.source === 'url-scan');
+  const urlErrors = collectUrlScanErrors(result, urlResult);
+
+  if (!urlResult && urlErrors.length > 0) {
+    return formatUrlScanFailure(urlErrors[0]);
+  }
+
+  if (!urlResult) {
+    return 'URL scan failed before findings could be collected.';
+  }
+
+  const fatalError = urlErrors.find((error) => !error.recoverable);
+  if (fatalError) {
+    return formatUrlScanFailure(fatalError);
+  }
+
+  if (urlErrors.length > 0 && urlResult.findings.length === 0) {
+    return formatUrlScanFailure(urlErrors[0]);
+  }
+
+  return null;
+}
+
+function collectUrlScanErrors(
+  result: Awaited<ReturnType<ScannerOrchestrator['scan']>>,
+  urlResult?: ScannerResult,
+): ScannerError[] {
+  const resultErrors = urlResult?.errors ?? [];
+  const orchestratorErrors = result.errors.filter((error) => error.source === 'url-scan');
+  return [...resultErrors, ...orchestratorErrors];
+}
+
+function formatUrlScanFailure(error: ScannerError): string {
+  switch (error.code) {
+    case 'INVALID_URL':
+      return 'URL target is not allowed for scanning.';
+    case 'FETCH_FAILED':
+      return 'URL scan failed before findings could be collected.';
+    default:
+      return 'URL scan failed before findings could be collected.';
+  }
+}
+
 function parseReportFormats(rawFormats: string): ReportFormat[] {
   const supported = new Set<ReportFormat>(['json', 'html', 'markdown', 'pdf']);
   const formats = rawFormats
@@ -290,6 +349,33 @@ function parseReportFormats(rawFormats: string): ReportFormat[] {
   }
 
   return formats as ReportFormat[];
+}
+
+function resolveReportTarget(
+  scanData: Record<string, any>,
+  resolvedPath: string,
+  explicitName?: string,
+): { targetName: string; targetPath?: string; targetUrl?: string } {
+  const embeddedTarget = typeof scanData.target === 'object' && scanData.target ? scanData.target : {};
+  const targetUrl = typeof embeddedTarget.url === 'string'
+    ? embeddedTarget.url
+    : typeof scanData.targetUrl === 'string'
+      ? scanData.targetUrl
+      : undefined;
+  const targetPath = targetUrl
+    ? undefined
+    : typeof embeddedTarget.path === 'string'
+      ? embeddedTarget.path
+      : typeof scanData.targetPath === 'string'
+        ? scanData.targetPath
+        : resolvedPath;
+  const targetName = explicitName
+    || (typeof embeddedTarget.name === 'string' ? embeddedTarget.name : undefined)
+    || getHostnameFromTargetUrl(targetUrl)
+    || (targetPath ? path.basename(targetPath) : undefined)
+    || path.basename(resolvedPath, '.json');
+
+  return { targetName, targetPath, targetUrl };
 }
 
 function buildReportFilename(targetName: string, timestamp: string): string {
@@ -389,4 +475,6 @@ function getRiskDisplay(risk: string): string {
 
 // ─── Run ──────────────────────────────────────────────────────────────────────
 
-await program.parseAsync();
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  await program.parseAsync();
+}

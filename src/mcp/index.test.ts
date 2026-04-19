@@ -75,26 +75,88 @@ describe('MCP Server', () => {
             },
           },
         ],
-        results: [],
+        results: [
+          {
+            source: 'url-scan',
+            version: '1.0.0',
+            timestamp: new Date().toISOString(),
+            findings: [
+              {
+                id: 'FIND-001',
+                source: 'url-scan',
+                sourceRule: 'AL-URL-001',
+                severity: 'high',
+                category: 'Security Headers',
+                title: 'Missing CSP header',
+                description: 'Content-Security-Policy header is missing',
+                url: 'https://example.com',
+                appMappings: [],
+                evidence: {
+                  timestamp: new Date().toISOString(),
+                  scannerVersion: '0.1.0',
+                  rawOutput: {},
+                },
+              },
+            ],
+            errors: [],
+            durationMs: 42,
+          },
+        ],
         errors: [],
         totalDurationMs: 42,
       });
       const disableSpy = vi.spyOn(ScannerOrchestrator.prototype, 'disable');
 
       const response = await handleToolCall('attestlens_scan_url', {
-        url: 'https://example.com',
+        url: 'https://user:pass@example.com/path?token=abc#frag',
         strict: true,
       });
       const payload = JSON.parse(response.content[0].text);
 
       expect(payload.targetType).toBe('url');
-      expect(payload.targetUrl).toBe('https://example.com/');
+      expect(payload.targetUrl).toBe('https://example.com/path');
       expect(payload.summary.total).toBe(1);
       expect(payload.findings[0].sourceRule).toBe('AL-URL-001');
-      expect(scanSpy).toHaveBeenCalledWith('https://example.com/');
+      expect(scanSpy).toHaveBeenCalledWith('https://user:pass@example.com/path?token=abc#frag');
       expect(disableSpy).toHaveBeenCalledWith('guardvibe');
       expect(disableSpy).toHaveBeenCalledWith('mcp-scan');
       expect(disableSpy).toHaveBeenCalledWith('supply-chain');
+    });
+
+    it('rejects blocked URL scan requests instead of returning a clean payload', async () => {
+      vi.spyOn(ScannerOrchestrator.prototype, 'scan').mockResolvedValue({
+        findings: [],
+        results: [
+          {
+            source: 'url-scan',
+            version: '1.0.0',
+            timestamp: new Date().toISOString(),
+            findings: [],
+            errors: [
+              {
+                source: 'url-scan',
+                message: 'Invalid URL: Target resolves to a private/internal host: localhost. SSRF protection.',
+                code: 'INVALID_URL',
+                recoverable: false,
+              },
+            ],
+            durationMs: 5,
+          },
+        ],
+        errors: [
+          {
+            source: 'url-scan',
+            message: 'Invalid URL: Target resolves to a private/internal host: localhost. SSRF protection.',
+            code: 'INVALID_URL',
+            recoverable: false,
+          },
+        ],
+        totalDurationMs: 5,
+      });
+
+      await expect(handleToolCall('attestlens_scan_url', {
+        url: 'http://localhost:3000',
+      })).rejects.toThrow('URL target is not allowed for scanning.');
     });
 
     it('returns PDF audits as base64-encoded payloads', async () => {

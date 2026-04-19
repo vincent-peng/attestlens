@@ -18,6 +18,7 @@ import type {
 } from '../schema/index.js';
 import { APPInfo, calculateGrade, calculateRiskLevel } from '../schema/index.js';
 import { mapAllFindings } from '../mapping/engine.js';
+import { sanitizeTargetPathForOutput, sanitizeTargetUrlForOutput } from '../utils/target.js';
 
 const ATTESTLENS_VERSION = '0.1.0';
 
@@ -61,6 +62,8 @@ export function buildComplianceReport(
 
   // Step 4: Generate remediation items
   const remediation = generateRemediation(mappedFindings);
+  const targetPath = sanitizeTargetPathForOutput(options.targetPath);
+  const targetUrl = sanitizeTargetUrlForOutput(options.targetUrl);
 
   // Step 5: Build the report
   const report: ComplianceReport = {
@@ -68,8 +71,8 @@ export function buildComplianceReport(
     timestamp: new Date().toISOString(),
     target: {
       name: options.targetName,
-      path: options.targetPath,
-      url: options.targetUrl,
+      path: targetPath,
+      url: targetUrl,
       version: options.targetVersion,
     },
     overallScore,

@@ -81,6 +81,17 @@ describe('buildComplianceReport', () => {
     const report = buildComplianceReport([], defaultOptions, 1000);
     expect(report.disclaimer).toContain('does not constitute legal advice');
   });
+
+  it('should sanitize target URLs and paths before storing them in the report', () => {
+    const report = buildComplianceReport([], {
+      ...defaultOptions,
+      targetPath: '/Users/alice/private/secret-project',
+      targetUrl: 'https://user:pass@example.com/private?token=secret#frag',
+    }, 1000);
+
+    expect(report.target.path).toBe('secret-project');
+    expect(report.target.url).toBe('https://example.com/private');
+  });
 });
 
 describe('generateJSONReport', () => {
