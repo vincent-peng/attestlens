@@ -177,21 +177,20 @@ This addresses APP 11.1 (Security).`,
   },
   {
     id: 'AL-JS-006',
-    pattern: /postMessage\s*\([^)]*(?!origin)/g,
+    pattern: /\.postMessage\s*\(\s*[^,)]*\s*,\s*['"]\*['"]\s*[^)]*\)/g,
     severity: 'medium',
-    title: 'postMessage Without Origin Check',
-    description: 'postMessage() calls were found without origin verification. Without checking event.origin, any window can send messages and potentially inject malicious data.',
-    fixPrompt: `Always verify origin in postMessage handlers:
+    title: 'postMessage With Wildcard Origin (*)',
+    description: 'postMessage() calls were found passing "*" as the target origin. This allows any window to receive the message, which can leak data to malicious frames.',
+    fixPrompt: `Always specify a specific origin in postMessage calls:
 
 \`\`\`typescript
-// Sending — specify target origin:
-window.postMessage(data, 'https://yoursite.com');
+// Instead of:
+window.postMessage(data, '*');
+parent.postMessage(data, '*');
 
-// Receiving — ALWAYS check origin:
-window.addEventListener('message', (event) => {
-  if (event.origin !== 'https://yoursite.com') return; // CRITICAL
-  // Process message...
-});
+// Always specify a trusted origin:
+window.postMessage(data, 'https://yoursite.com');
+iframe.contentWindow.postMessage(data, 'https://trusted-app.com');
 \`\`\`
 
 This addresses APP 11.1 (Security).`,
@@ -199,7 +198,7 @@ This addresses APP 11.1 (Security).`,
   },
   {
     id: 'AL-JS-007',
-    pattern: /\.map\s*$/m,
+    pattern: /\.js\.map(?:\?.*)?$/m,
     severity: 'low',
     title: 'JavaScript Source Map Available',
     description: 'A JavaScript source map (.js.map) is accessible. Source maps expose original source code, variable names, and internal structure, which aids attackers in finding vulnerabilities.',

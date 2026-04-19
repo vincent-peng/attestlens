@@ -326,4 +326,33 @@ This addresses APP 11.1 — reducing information disclosure that could aid attac
       return !versionPattern.test(value);
     },
   },
+  {
+    id: 'AL-URL-016',
+    header: 'cache-control',
+    severity: 'low',
+    title: 'Missing Cache-Control Header',
+    description: 'No Cache-Control header is set. Pages serving personal or sensitive data may be cached by browsers or intermediaries, potentially exposing that data on shared devices.',
+    fixPrompt: `Add a Cache-Control header appropriate to your content:
+
+For pages serving personal/sensitive data:
+\`\`\`
+Cache-Control: no-store, no-cache, must-revalidate, private
+\`\`\`
+
+For public static assets:
+\`\`\`
+Cache-Control: public, max-age=31536000, immutable
+\`\`\`
+
+For Express:
+\`\`\`js
+app.use('/api', (req, res, next) => {
+  res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, private');
+  next();
+});
+\`\`\`
+
+This addresses APP 12 — ensuring personal information is not left accessible on shared devices or caches.`,
+    validate: (value) => !!value,
+  },
 ];

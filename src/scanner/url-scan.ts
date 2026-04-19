@@ -28,6 +28,13 @@ const MAX_HTML_SIZE = 5 * 1024 * 1024; // 5MB HTML limit
 const MAX_TOTAL_JS_SIZE = 10 * 1024 * 1024; // 10MB total JS limit
 const PROBE_DELAY_MS = 500; // 500ms between infrastructure probes
 const MAX_REDIRECTS = 5;
+const MAX_CONCURRENT_JS_FETCHES = 5; // Limit concurrent JS bundle fetches
+
+// ─── SSRF Protection ─────────────────────────────────────────────────────────
+// Reject URLs that resolve to private/internal IPs to prevent SSRF attacks.
+// Covers: loopback (127.0.0.0/8), link-local (169.254.0.0/16),
+// RFC 1918 (10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16), and IPv6 equivalents.
+const PRIVATE_IP_REGEX = /^0\.|127\.|10\.|172\.(?:1[6-9]|2\d|3[01])\.|192\.168\.|169\.254\.|\[::1?\]|\[fe80:/i;
 
 export class UrlScanAdapter implements ScannerAdapter {
   readonly name: ScanSource = 'url-scan';
@@ -52,6 +59,10 @@ export class UrlScanAdapter implements ScannerAdapter {
       targetUrl = new URL(targetPath);
       if (!['http:', 'https:'].includes(targetUrl.protocol)) {
         throw new Error(`Unsupported protocol: ${targetUrl.protocol}`);
+      }
+      // SSRF protection: reject URLs with private/internal hostnames
+      if (PRIVATE_IP_REGEX.test(targetUrl.hostname)) {
+        throw new Error(`Target resolves to a private/internal IP: ${targetUrl.hostname}. SSRF protection.`);
       }
     } catch (err: any) {
       return {
@@ -86,22 +97,18 @@ export class UrlScanAdapter implements ScannerAdapter {
       // 3. Check CORS
       findings.push(...this.checkCORS(headers, targetUrl.href));
 
-      // 4. Extract and fetch JS bundles
+      // 4. Extract and fetch JS bundles (with concurrency limit)
       const scriptUrls = this.extractScriptUrls(html, targetUrl);
       let totalJsSize = 0;
       const jsContents: Map<string, string> = new Map();
 
-      for (const scriptUrl of scriptUrls) {
-        if (totalJsSize >= MAX_TOTAL_JS_SIZE) break;
-        try {
-          const jsContent = await this.fetchWithTimeout(scriptUrl, JS_TIMEOUT);
-          if (jsContent) {
-            totalJsSize += jsContent.text.length;
-            jsContents.set(scriptUrl, jsContent.text);
-          }
-        } catch {
-          // Skip failed JS bundles
-        }
+      // Fetch JS bundles with concurrency limit to avoid resource exhaustion
+      const jsQueue = [...scriptUrls];
+      const jsResults = await this.fetchJsWithConcurrency(jsQueue, MAX_CONCURRENT_JS_FETCHES, JS_TIMEOUT);
+      for (const [url, content] of jsResults) {
+        if (totalJsSize + content.length > MAX_TOTAL_JS_SIZE) break;
+        totalJsSize += content.length;
+        jsContents.set(url, content);
       }
 
       // 5. Check inline scripts
@@ -220,16 +227,19 @@ This addresses APP 11.1 (Security) and APP 6.1 (Use/Disclosure).`,
 
   private scanForKeys(content: string, sourceUrl: string, pageUrl: string): AttestLensFinding[] {
     const findings: AttestLensFinding[] = [];
+    // Truncate content for regex scanning to prevent ReDoS on very large inputs
+    const scanContent = content.length > 1_000_000 ? content.substring(0, 1_000_000) : content;
 
     for (const pattern of KEY_PATTERNS) {
       // Reset lastIndex for global regex
       pattern.pattern.lastIndex = 0;
-      const matches = pattern.pattern.exec(content);
+      const matches = pattern.pattern.exec(scanContent);
 
       if (matches) {
         // Check exclusion patterns
-        if (pattern.excludePattern && pattern.excludePattern.test(matches[0])) {
-          continue;
+        if (pattern.excludePattern) {
+          pattern.excludePattern.lastIndex = 0;
+          if (pattern.excludePattern.test(matches[0])) continue;
         }
 
         // Avoid false positives from common test/placeholder patterns
@@ -258,13 +268,15 @@ This addresses APP 11.1 (Security) and APP 6.1 (Use/Disclosure).`,
   private scanForJSPatterns(content: string, sourceUrl: string, pageUrl: string): AttestLensFinding[] {
     const findings: AttestLensFinding[] = [];
     const isMinified = sourceUrl.endsWith('.min.js') || content.split('\n').length < 10;
+    // Truncate content for regex scanning to prevent ReDoS
+    const scanContent = content.length > 1_000_000 ? content.substring(0, 1_000_000) : content;
 
     for (const pattern of JS_PATTERNS) {
       // Skip patterns that should only match non-minified code
       if (pattern.skipMinified && isMinified) continue;
 
       pattern.pattern.lastIndex = 0;
-      const matches = pattern.pattern.exec(content);
+      const matches = pattern.pattern.exec(scanContent);
 
       if (matches) {
         findings.push(this.createFinding({
@@ -423,6 +435,33 @@ This addresses APP 11.1 (Security).`,
   }
 
   // ─── Helper Methods ─────────────────────────────────────────────────────
+
+  private async fetchJsWithConcurrency(
+    urls: string[],
+    concurrency: number,
+    timeoutMs: number,
+  ): Promise<Map<string, string>> {
+    const results = new Map<string, string>();
+    let index = 0;
+
+    const worker = async () => {
+      while (index < urls.length) {
+        const url = urls[index++];
+        try {
+          const response = await this.fetchWithTimeout(url, timeoutMs);
+          if (response && response.text) {
+            results.set(url, response.text);
+          }
+        } catch {
+          // Skip failed JS bundles
+        }
+      }
+    };
+
+    const workers = Array.from({ length: Math.min(concurrency, urls.length) }, () => worker());
+    await Promise.all(workers);
+    return results;
+  }
 
   private async fetchPage(url: URL): Promise<{ response: Response; headers: Headers; html: string } | null> {
     try {

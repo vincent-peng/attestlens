@@ -77,8 +77,8 @@ describe('UrlScanAdapter', () => {
 });
 
 describe('URL Header Checks', () => {
-  it('should have 12 header checks', () => {
-    expect(HEADER_CHECKS.length).toBe(12);
+  it('should have 13 header checks', () => {
+    expect(HEADER_CHECKS.length).toBe(13);
   });
 
   it('should validate missing headers correctly', () => {

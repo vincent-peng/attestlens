@@ -17,6 +17,7 @@ import path from 'node:path';
 import { ScannerOrchestrator } from '../scanner/orchestrator.js';
 import { mapAllFindings } from '../mapping/engine.js';
 import { buildComplianceReport, generateHTMLReport, generateJSONReport, generateMarkdownReport } from '../report/generator.js';
+import type { AttestLensFinding } from '../schema/index.js';
 import type { ReportOptions } from '../report/generator.js';
 
 const program = new Command();
@@ -325,7 +326,7 @@ program
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-function displayFindings(findings: any[]) {
+function displayFindings(findings: AttestLensFinding[]) {
   const criticals = findings.filter(f => f.severity === 'critical');
   const highs = findings.filter(f => f.severity === 'high');
   const mediums = findings.filter(f => f.severity === 'medium');

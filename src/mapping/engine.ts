@@ -40,6 +40,11 @@ export interface MappingRule {
     description?: RegExp;
     severity?: Severity[];
   };
+  /**
+   * 'and' = all defined pattern fields must match (default for new rules).
+   * 'or' = any defined pattern field can match (legacy behavior).
+   */
+  matchMode?: 'and' | 'or';
   appPrinciple: APPPrinciple;
   status: ControlStatus;
   confidence: number;
@@ -63,6 +68,7 @@ const APP_11_RULES: MappingRule[] = [
       title: /hardcoded.*(key|secret|token|password|credential|api.?key)/i,
       severity: ['critical', 'high'],
     },
+    matchMode: 'or',
     appPrinciple: 'APP_11',
     status: 'fail',
     confidence: 0.95,
@@ -79,6 +85,7 @@ const APP_11_RULES: MappingRule[] = [
       title: /sql.?injection/i,
       severity: ['critical', 'high'],
     },
+    matchMode: 'or',
     appPrinciple: 'APP_11',
     status: 'fail',
     confidence: 0.95,
@@ -95,6 +102,7 @@ const APP_11_RULES: MappingRule[] = [
       title: /missing.*(row.?level|rls)|rls.*(disabled|not.?enabled)/i,
       severity: ['critical', 'high'],
     },
+    matchMode: 'or',
     appPrinciple: 'APP_11',
     status: 'fail',
     confidence: 0.92,
@@ -111,6 +119,7 @@ const APP_11_RULES: MappingRule[] = [
       title: /cross.?site.?scripting|xss|dangerously.?set.?inner.?html/i,
       severity: ['high', 'medium'],
     },
+    matchMode: 'or',
     appPrinciple: 'APP_11',
     status: 'fail',
     confidence: 0.90,
@@ -127,6 +136,7 @@ const APP_11_RULES: MappingRule[] = [
       title: /debug.?mode|debug.?enabled/i,
       severity: ['medium', 'low'],
     },
+    matchMode: 'or',
     appPrinciple: 'APP_11',
     status: 'fail',
     confidence: 0.85,
@@ -143,6 +153,7 @@ const APP_11_RULES: MappingRule[] = [
       title: /\.env.*(not.*gitignore|exposed|committed)/i,
       severity: ['high', 'critical'],
     },
+    matchMode: 'or',
     appPrinciple: 'APP_11',
     status: 'fail',
     confidence: 0.88,
@@ -159,6 +170,7 @@ const APP_11_RULES: MappingRule[] = [
       title: /command.?injection|shell.*=.*true|os\.system|subprocess.*shell/i,
       severity: ['critical', 'high'],
     },
+    matchMode: 'or',
     appPrinciple: 'APP_11',
     status: 'fail',
     confidence: 0.93,
@@ -175,6 +187,7 @@ const APP_11_RULES: MappingRule[] = [
       title: /cors.*wildcard|access.?control.*allow.?origin.*\*/i,
       severity: ['medium', 'high'],
     },
+    matchMode: 'or',
     appPrinciple: 'APP_11',
     status: 'fail',
     confidence: 0.80,
@@ -190,6 +203,7 @@ const APP_11_RULES: MappingRule[] = [
       title: /missing.*(auth|middleware|guard)|unauthorized.*route|unprotected.*endpoint/i,
       severity: ['high', 'critical'],
     },
+    matchMode: 'or',
     appPrinciple: 'APP_11',
     status: 'fail',
     confidence: 0.88,
@@ -214,6 +228,7 @@ const APP_6_RULES: MappingRule[] = [
       title: /cors.*wildcard|access.?control.*allow.*origin.*\*/i,
       severity: ['medium', 'high'],
     },
+    matchMode: 'or',
     appPrinciple: 'APP_6',
     status: 'fail',
     confidence: 0.75,
@@ -229,6 +244,7 @@ const APP_6_RULES: MappingRule[] = [
       title: /missing.*(auth|admin|guard)|unauthorized.*admin/i,
       severity: ['high', 'critical'],
     },
+    matchMode: 'or',
     appPrinciple: 'APP_6',
     status: 'fail',
     confidence: 0.82,
@@ -245,6 +261,7 @@ const APP_6_RULES: MappingRule[] = [
       title: /data.*(exfiltration|leak|sent.*external)|external.*endpoint/i,
       severity: ['critical', 'high'],
     },
+    matchMode: 'or',
     appPrinciple: 'APP_6',
     status: 'fail',
     confidence: 0.78,
@@ -267,6 +284,7 @@ const APP_1_RULES: MappingRule[] = [
       title: /missing.*(privacy.?policy|privacy.?notice|privacy.?page)/i,
       severity: ['medium'],
     },
+    matchMode: 'or',
     appPrinciple: 'APP_1',
     status: 'fail',
     confidence: 0.70,
@@ -282,6 +300,7 @@ const APP_1_RULES: MappingRule[] = [
       title: /architecture.*(score|quality|issue)/i,
       severity: ['low', 'info'],
     },
+    matchMode: 'or',
     appPrinciple: 'APP_1',
     status: 'pass',
     confidence: 0.50,
@@ -306,6 +325,7 @@ const APP_8_RULES: MappingRule[] = [
       title: /external.*(api|endpoint|service)|third.?party.*(api|sdk)/i,
       severity: ['medium', 'high'],
     },
+    matchMode: 'or',
     appPrinciple: 'APP_8',
     status: 'unknown',
     confidence: 0.60,
@@ -321,6 +341,7 @@ const APP_8_RULES: MappingRule[] = [
       title: /analytics.*(sdk|tracking)|posthog|google.?analytics|mixpanel|segment/i,
       severity: ['medium', 'low'],
     },
+    matchMode: 'or',
     appPrinciple: 'APP_8',
     status: 'unknown',
     confidence: 0.55,
@@ -344,6 +365,7 @@ const APP_12_RULES: MappingRule[] = [
       title: /auth.*coverage.*(100|complete)|fully.*protected/i,
       severity: ['info'],
     },
+    matchMode: 'or',
     appPrinciple: 'APP_12',
     status: 'pass',
     confidence: 0.65,
@@ -365,6 +387,7 @@ const NDB_RULES: MappingRule[] = [
       title: /missing.*(audit.?log|monitoring|logging)|no.*(log|monitor)/i,
       severity: ['medium', 'high'],
     },
+    matchMode: 'or',
     appPrinciple: 'NDB',
     status: 'fail',
     confidence: 0.72,
@@ -380,6 +403,7 @@ const NDB_RULES: MappingRule[] = [
       title: /data.*(exfiltration|leak|breach)|exposure.*personal/i,
       severity: ['critical', 'high'],
     },
+    matchMode: 'or',
     appPrinciple: 'NDB',
     status: 'fail',
     confidence: 0.80,
@@ -395,6 +419,7 @@ const NDB_RULES: MappingRule[] = [
       category: /^Security$/i,
       severity: ['critical', 'high', 'medium'],
     },
+    matchMode: 'or',
     appPrinciple: 'APP_11',
     status: 'fail',
     confidence: 0.90,
@@ -409,6 +434,7 @@ const NDB_RULES: MappingRule[] = [
       category: /^Security$/i,
       severity: ['critical', 'high'],
     },
+    matchMode: 'or',
     appPrinciple: 'APP_11',
     status: 'fail',
     confidence: 0.92,
@@ -423,6 +449,7 @@ const NDB_RULES: MappingRule[] = [
       category: /^Security$/i,
       severity: ['critical'],
     },
+    matchMode: 'or',
     appPrinciple: 'APP_11',
     status: 'fail',
     confidence: 0.95,
@@ -437,6 +464,7 @@ const NDB_RULES: MappingRule[] = [
       category: /^Security$/i,
       severity: ['critical'],
     },
+    matchMode: 'or',
     appPrinciple: 'APP_11',
     status: 'fail',
     confidence: 0.97,
@@ -451,6 +479,7 @@ const NDB_RULES: MappingRule[] = [
       category: /^Security$/i,
       severity: ['critical', 'high', 'medium'],
     },
+    matchMode: 'or',
     appPrinciple: 'APP_11',
     status: 'fail',
     confidence: 0.88,
@@ -465,6 +494,7 @@ const NDB_RULES: MappingRule[] = [
       category: /^Security$/i,
       severity: ['critical'],
     },
+    matchMode: 'or',
     appPrinciple: 'APP_11',
     status: 'fail',
     confidence: 0.85,
@@ -558,6 +588,20 @@ const NDB_RULES: MappingRule[] = [
     rationale: 'Cookies without Secure and HttpOnly flags can be intercepted or accessed via JavaScript, potentially exposing session tokens and personal information. This constitutes a failure to take reasonable steps under APP 11.1.',
     oaicReference: 'APP Guidelines Chapter 11.6; OAIC Guide to Securing Personal Information',
   },
+  // Cache-Control for sensitive pages
+  {
+    id: 'MAP-032',
+    name: 'Missing Cache-Control → APP 12',
+    sourcePatterns: {
+      ruleId: /^AL-URL-016$/,
+      category: /^Security Headers$/i,
+    },
+    appPrinciple: 'APP_12',
+    status: 'fail',
+    confidence: 0.80,
+    rationale: 'Missing Cache-Control on pages serving personal information allows browsers and intermediaries to cache sensitive data, potentially making it accessible to others on shared devices. This violates APP 12 (Access) by failing to ensure information is protected after access.',
+    oaicReference: 'APP Guidelines Chapter 12; OAIC Guide to Securing Personal Information',
+  },
 ];
 
 // ─── All Rules ───────────────────────────────────────────────────────────────
@@ -615,37 +659,36 @@ export function mapFindingToAPP(finding: AttestLensFinding): APPMapping[] {
  * Check if a finding matches a mapping rule.
  */
 function matchRule(finding: AttestLensFinding, rule: MappingRule): boolean {
-  const { sourcePatterns } = rule;
-  
-  // Check rule ID
-  if (sourcePatterns.ruleId && sourcePatterns.ruleId.test(finding.sourceRule)) {
-    if (!sourcePatterns.severity || sourcePatterns.severity.includes(finding.severity)) {
-      return true;
-    }
+  const { sourcePatterns, matchMode } = rule;
+  const definedFields = [sourcePatterns.ruleId, sourcePatterns.category, sourcePatterns.title, sourcePatterns.description].filter(Boolean).length;
+
+  // If no source patterns defined, no match
+  if (definedFields === 0) return false;
+
+  // Check severity filter first (applies regardless of match mode)
+  const severityOk = !sourcePatterns.severity || sourcePatterns.severity.includes(finding.severity);
+
+  // Evaluate each defined pattern field
+  const ruleIdMatch = !sourcePatterns.ruleId || sourcePatterns.ruleId.test(finding.sourceRule);
+  const categoryMatch = !sourcePatterns.category || sourcePatterns.category.test(finding.category);
+  const titleMatch = !sourcePatterns.title || sourcePatterns.title.test(finding.title);
+  const descriptionMatch = !sourcePatterns.description || sourcePatterns.description.test(finding.description);
+
+  // 'or' mode (legacy): any defined field matches
+  // 'and' mode (default for new rules): all defined fields must match
+  if (matchMode === 'or') {
+    // OR: if ANY defined field matches, the rule matches
+    const anyMatch = !!(
+      (sourcePatterns.ruleId && ruleIdMatch) ||
+      (sourcePatterns.category && categoryMatch) ||
+      (sourcePatterns.title && titleMatch) ||
+      (sourcePatterns.description && descriptionMatch)
+    );
+    return anyMatch && severityOk;
   }
 
-  // Check category
-  if (sourcePatterns.category && sourcePatterns.category.test(finding.category)) {
-    if (!sourcePatterns.severity || sourcePatterns.severity.includes(finding.severity)) {
-      return true;
-    }
-  }
-
-  // Check title
-  if (sourcePatterns.title && sourcePatterns.title.test(finding.title)) {
-    if (!sourcePatterns.severity || sourcePatterns.severity.includes(finding.severity)) {
-      return true;
-    }
-  }
-
-  // Check description
-  if (sourcePatterns.description && sourcePatterns.description.test(finding.description)) {
-    if (!sourcePatterns.severity || sourcePatterns.severity.includes(finding.severity)) {
-      return true;
-    }
-  }
-
-  return false;
+  // AND (default): all defined fields must match
+  return ruleIdMatch && categoryMatch && titleMatch && descriptionMatch && severityOk;
 }
 
 /**
