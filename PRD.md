@@ -1,9 +1,9 @@
 # AttestLens — Product Requirements Document (PRD)
 
-**Version:** 1.1  
-**Date:** 2026-04-18  
+**Version:** 1.2  
+**Date:** 2026-04-19  
 **Author:** Vincent Peng / ADA  
-**Status:** Phase 1 complete — pre-validation
+**Status:** Phase 1.5 in progress — pre-validation
 
 ---
 
@@ -18,7 +18,7 @@ Consultants and MSPs need: *"Is this app compliant? What evidence do I have?"* C
 ## 2. Product Vision
 
 **AttestLens** is a compliance attestation tool that:
-1. **Scans** codebases using composed open-source scanners (GuardVibe, mcp-scan, supply-chain)
+1. **Scans** codebases and live URLs using composed open-source scanners (GuardVibe, mcp-scan, supply-chain, url-scan)
 2. **Maps** every technical finding to APP/NDB obligations with confidence scoring
 3. **Produces** evidence-grade compliance reports for consultant-to-client handoff
 
@@ -61,7 +61,7 @@ We are **NOT** a generic security scanner. We compose the best OSS tools and own
 │  • PDF/HTML export for client handoff                    │
 ├─────────────────────────────────────────────────────────┤
 │  Layer 2: COMPLIANCE SYNTHESIS ENGINE                    │
-│  • 19 mapping rules: finding → APP obligations          │
+│  • 31 mapping rules: finding → APP obligations          │
 │  • Confidence-weighted scoring (0-1)                    │
 │  • Deduplication across scan sources                    │
 │  • Strict mode: UNKNOWN → FAIL for formal audits       │
@@ -70,6 +70,7 @@ We are **NOT** a generic security scanner. We compose the best OSS tools and own
 │  • GuardVibe (static regex + MCP fallback)              │
 │  • mcp-scan (MCP config security)                       │
 │  • supply-chain (npm dependency risks, 7 rules)        │
+│  • url-scan (headers, JS, infra, cookies, source maps) │
 │  • Normalize all output into unified finding schema     │
 └─────────────────────────────────────────────────────────┘
 ```
@@ -132,21 +133,21 @@ We are **NOT** a generic security scanner. We compose the best OSS tools and own
 
 ### Shipped
 - [x] Core schema (Zod-validated unified finding schema)
-- [x] Mapping engine (19 rules, confidence-weighted scoring)
-- [x] Scanner adapters (GuardVibe static + mcp-scan + supply-chain)
+- [x] Mapping engine (31 rules, confidence-weighted scoring)
+- [x] Scanner adapters (GuardVibe static + mcp-scan + supply-chain + url-scan)
 - [x] Scanner orchestrator (parallel execution + dedup + disable flags)
 - [x] CLI (scan, audit, report commands)
-- [x] Report generation (HTML, JSON, Markdown)
-- [x] MCP server (3 tools: scan, audit, map)
+- [x] Report generation (HTML, JSON, Markdown, PDF)
+- [x] MCP server (4 tools: scan, scan_url, audit, map)
 - [x] Supply chain scanner (7 rules, Axios-attack coverage)
+- [x] URL scanner with hardened outbound request handling
 - [x] Strict mode (UNKNOWN → FAIL)
-- [x] 48 tests
+- [x] 107 tests
 - [x] Security hardening (execFileSync, path validation, no command injection)
 
-### Not Yet Shipped (Phase 2)
+### Not Yet Shipped (Phase 2+)
 - [ ] Interactive attestation questionnaire (UNKNOWN → PASS/FAIL)
 - [ ] Web dashboard (React + real-time scan progress)
-- [ ] PDF report generation
 - [ ] Live GuardVibe MCP integration (not just static fallback)
 - [ ] Additional compliance packs (GDPR, SOC 2)
 
@@ -168,9 +169,9 @@ Before building Phase 2:
 | Decision | Choice | Rationale |
 |---|---|---|
 | Language | TypeScript | MCP SDK is TS-native, all scanners are JS/TS |
-| Scanner Integration | MCP (GuardVibe) + CLI (others) | GuardVibe is MCP-native; others run as CLI subprocesses |
+| Scanner Integration | Internal adapters + MCP server surface | Keep local execution simple; expose capabilities to editors through MCP |
 | Output Schema | JSON Schema (typed with Zod) | Interoperable, type-safe, compatible with SARIF |
-| Report Generation | HTML + JSON + Markdown (PDF Phase 2) | Client-ready deliverables |
+| Report Generation | HTML + JSON + Markdown + PDF (PDFKit) | Client-ready deliverables |
 | Security | execFileSync, path validation, allowlist | Command injection prevention, path traversal protection |
 
 ---
@@ -207,4 +208,4 @@ Before building Phase 2:
 
 ---
 
-*This PRD is a living document. Last updated 2026-04-18 (Phase 1 shipped).*
+*This PRD is a living document. Last updated 2026-04-19 (Phase 1.5 in progress).*

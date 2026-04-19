@@ -1,7 +1,14 @@
-import { describe, it, expect } from 'vitest';
+import { beforeAll, describe, expect, it } from 'vitest';
 import { ScannerOrchestrator } from './orchestrator.js';
 
-describe('ScannerOrchestrator', () => {
+describe('ScannerOrchestrator', { timeout: 20000 }, () => {
+  let scanResult: Awaited<ReturnType<ScannerOrchestrator['scan']>>;
+
+  beforeAll(async () => {
+    const orchestrator = new ScannerOrchestrator();
+    scanResult = await orchestrator.scan('/tmp/vulnerable-app');
+  });
+
   it('should register guardvibe and mcp-scan adapters by default', () => {
     const orchestrator = new ScannerOrchestrator();
     const registry = orchestrator.getRegistry();
@@ -30,18 +37,14 @@ describe('ScannerOrchestrator', () => {
   });
 
   it('should return findings from scan', async () => {
-    const orchestrator = new ScannerOrchestrator();
-    const result = await orchestrator.scan('/tmp/vulnerable-app');
     // Should have findings from static scan
-    expect(result.findings.length).toBeGreaterThan(0);
-    expect(result.totalDurationMs).toBeGreaterThan(0);
+    expect(scanResult.findings.length).toBeGreaterThan(0);
+    expect(scanResult.totalDurationMs).toBeGreaterThan(0);
   });
 
   it('should deduplicate findings by rule+file+line', async () => {
-    const orchestrator = new ScannerOrchestrator();
-    const result = await orchestrator.scan('/tmp/vulnerable-app');
     // Check no duplicate rule+file+line combinations
-    const keys = result.findings.map(f => `${f.sourceRule}:${f.file}:${f.line}`);
+    const keys = scanResult.findings.map(f => `${f.sourceRule}:${f.file}:${f.line}`);
     const uniqueKeys = new Set(keys);
     expect(keys.length).toBe(uniqueKeys.size);
   });

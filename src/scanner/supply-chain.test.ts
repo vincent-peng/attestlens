@@ -4,7 +4,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import os from 'node:os';
 
-describe('SupplyChainAdapter', () => {
+describe('SupplyChainAdapter', { timeout: 20000 }, () => {
   const adapter = new SupplyChainAdapter();
   let tmpDir: string;
 

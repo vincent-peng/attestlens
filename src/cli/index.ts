@@ -16,9 +16,15 @@ import path from 'node:path';
 
 import { ScannerOrchestrator } from '../scanner/orchestrator.js';
 import { mapAllFindings } from '../mapping/engine.js';
-import { buildComplianceReport, generateHTMLReport, generateJSONReport, generateMarkdownReport } from '../report/generator.js';
+import {
+  buildComplianceReport,
+  generateHTMLReport,
+  generateJSONReport,
+  generateMarkdownReport,
+  generatePDFReport,
+} from '../report/generator.js';
 import type { AttestLensFinding } from '../schema/index.js';
-import type { ReportOptions } from '../report/generator.js';
+import type { ReportFormat, ReportOptions } from '../report/generator.js';
 
 const program = new Command();
 
@@ -32,89 +38,26 @@ program
 program
   .command('scan')
   .description('Scan a project directory or URL for privacy compliance findings')
-  .argument('<path>', 'Path to project directory or URL (https://...)')
+  .argument('<target>', 'Path to project directory or URL (https://...)')
   .option('-o, --output <dir>', 'Output directory', './attestlens-reports')
-  .option('-f, --format <formats>', 'Output formats (json,html,markdown)', 'json,html')
+  .option('-f, --format <formats>', 'Output formats (json,html,markdown,pdf)', 'json,html')
   .option('--strict', 'Treat UNKNOWN controls as FAIL')
   .option('--no-guardvibe', 'Disable GuardVibe scanner')
   .option('--no-mcp-scan', 'Disable mcp-scan')
   .option('--no-supply-chain', 'Disable supply chain scanner')
-  .action(async (targetPath: string, options: any) => {
+  .action(async (targetInput: string, options: any) => {
     console.log(chalk.bold.cyan('\n🔍 AttestLens — Privacy Act Compliance Scanner\n'));
 
-    // Detect if input is a URL
-    const isUrl = /^https?:\/\//i.test(targetPath);
-
-    if (isUrl) {
-      // URL mode: disable file-based scanners (they don't work on URLs)
-      const orchestrator = new ScannerOrchestrator();
-      orchestrator.disable('guardvibe');
-      orchestrator.disable('mcp-scan');
-      orchestrator.disable('supply-chain');
-
-      const spinner = ora(`Scanning URL: ${targetPath}`).start();
+    try {
+      const target = await resolveCliTarget(targetInput, options.name);
+      const orchestrator = createOrchestrator(target.kind, options);
+      const spinner = ora(target.kind === 'url' ? `Scanning URL: ${target.value}` : 'Scanning project...').start();
       const startTime = Date.now();
 
-      try {
-        const result = await orchestrator.scan(targetPath);
-        const duration = Date.now() - startTime;
-        spinner.succeed(`URL scan complete in ${(duration / 1000).toFixed(1)}s`);
-
-        const findings = result.findings;
-        if (findings.length === 0) {
-          console.log(chalk.green('\n✅ No compliance findings detected.'));
-          console.log(chalk.gray('   Run `attestlens audit` for a full APP control assessment.'));
-          return;
-        }
-
-        console.log(chalk.yellow(`\n⚠ Found ${findings.length} finding${findings.length > 1 ? 's' : ''}:\n`));
-        displayFindings(findings);
-
-        const { controls: appControls } = mapAllFindings(findings);
-        const affectedPrinciples = appControls
-          .filter(c => c.status !== 'unknown' || c.findings.length > 0)
-          .map(c => c.principle);
-        console.log(chalk.cyan(`\n📋 Affected APP Principles: ${affectedPrinciples.join(', ')}`));
-        console.log(chalk.gray(`   Run \`attestlens audit ${targetPath}\` for a full compliance report.`));
-
-      } catch (error: any) {
-        spinner.fail('URL scan failed');
-        console.error(chalk.red(`\nError: ${error.message}`));
-        process.exit(1);
-      }
-      return;
-    }
-
-    // Directory mode (existing behavior)
-    const resolvedPath = path.resolve(targetPath);
-    try {
-      const stat = await fs.stat(resolvedPath);
-      if (!stat.isDirectory()) {
-        console.error(chalk.red(`Error: ${resolvedPath} is not a directory`));
-        process.exit(1);
-      }
-    } catch {
-      console.error(chalk.red(`Error: ${resolvedPath} does not exist`));
-      process.exit(1);
-    }
-
-    // Setup orchestrator
-    const orchestrator = new ScannerOrchestrator();
-    if (options.noGuardvibe) orchestrator.disable('guardvibe');
-    if (options.noMcpScan) orchestrator.disable('mcp-scan');
-    if (options.noSupplyChain) orchestrator.disable('supply-chain');
-
-    // Run scan
-    const spinner = ora('Scanning project...').start();
-    const startTime = Date.now();
-
-    try {
-      const result = await orchestrator.scan(resolvedPath);
+      const result = await orchestrator.scan(target.value);
       const duration = Date.now() - startTime;
+      spinner.succeed(`${target.kind === 'url' ? 'URL scan' : 'Scan'} complete in ${(duration / 1000).toFixed(1)}s`);
 
-      spinner.succeed(`Scan complete in ${(duration / 1000).toFixed(1)}s`);
-
-      // Display findings
       const findings = result.findings;
       if (findings.length === 0) {
         console.log(chalk.green('\n✅ No compliance findings detected.'));
@@ -131,10 +74,11 @@ program
         .filter(c => c.status !== 'unknown' || c.findings.length > 0)
         .map(c => c.principle);
       console.log(chalk.cyan(`\n📋 Affected APP Principles: ${affectedPrinciples.join(', ')}`));
-      console.log(chalk.gray(`   Run \`attestlens audit ${targetPath}\` for a full compliance report.`));
+      console.log(chalk.gray(`   Run \`attestlens audit ${target.rawInput}\` for a full compliance report.`));
 
     } catch (error: any) {
-      spinner.fail('Scan failed');
+      const label = isUrlTarget(targetInput) ? 'URL scan failed' : 'Scan failed';
+      console.error(chalk.red(`\n${label.replace(/^./, s => s.toUpperCase())}`));
       console.error(chalk.red(`\nError: ${error.message}`));
       process.exit(1);
     }
@@ -145,39 +89,32 @@ program
 program
   .command('audit')
   .description('Full compliance audit — scan + generate APP/NDB report')
-  .argument('<path>', 'Path to project directory')
+  .argument('<target>', 'Path to project directory or URL (https://...)')
   .option('-n, --name <name>', 'Project name', '')
   .option('-o, --output <dir>', 'Output directory', './attestlens-reports')
-  .option('-f, --format <formats>', 'Output formats (json,html,markdown)', 'html,json')
+  .option('-f, --format <formats>', 'Output formats (json,html,markdown,pdf)', 'html,json')
   .option('--strict', 'Treat UNKNOWN controls as FAIL')
   .option('--no-guardvibe', 'Disable GuardVibe scanner')
   .option('--no-mcp-scan', 'Disable mcp-scan')
   .option('--no-supply-chain', 'Disable supply chain scanner')
-  .action(async (targetPath: string, options: any) => {
+  .action(async (targetInput: string, options: any) => {
     console.log(chalk.bold.cyan('\n🔍 AttestLens — Privacy Act Compliance Audit\n'));
 
-    const resolvedPath = path.resolve(targetPath);
-    const projectName = options.name || path.basename(resolvedPath);
-
-    // Setup orchestrator
-    const orchestrator = new ScannerOrchestrator();
-    if (options.noGuardvibe) orchestrator.disable('guardvibe');
-    if (options.noMcpScan) orchestrator.disable('mcp-scan');
-    if (options.noSupplyChain) orchestrator.disable('supply-chain');
-
-    // Run scan
-    const spinner = ora('Running compliance scan...').start();
-    const startTime = Date.now();
-
     try {
-      const scanResult = await orchestrator.scan(resolvedPath);
+      const target = await resolveCliTarget(targetInput, options.name);
+      const projectName = target.name;
+      const orchestrator = createOrchestrator(target.kind, options);
+      const spinner = ora(`Running compliance scan for ${target.kind === 'url' ? 'URL' : 'project'}...`).start();
+      const startTime = Date.now();
+
+      const scanResult = await orchestrator.scan(target.value);
       const duration = Date.now() - startTime;
 
-      // Build report (mapAllFindings is called inside buildComplianceReport)
-      const reportFormats = options.format.split(',') as Array<'json' | 'html' | 'markdown'>;
+      const reportFormats = parseReportFormats(options.format);
       const reportOptions: ReportOptions = {
         targetName: projectName,
-        targetPath: resolvedPath,
+        targetPath: target.kind === 'path' ? target.value : undefined,
+        targetUrl: target.kind === 'url' ? target.value : undefined,
         formats: reportFormats,
         outputDir: path.resolve(options.output),
         strictMode: options.strict,
@@ -207,35 +144,8 @@ program
       console.log('');
 
       // Write output files
-      const outputDir = path.resolve(options.output);
-      await fs.mkdir(outputDir, { recursive: true });
-
-      for (const format of reportFormats) {
-        const filename = `attestlens-report-${projectName.toLowerCase().replace(/\s+/g, '-')}-${new Date().toISOString().split('T')[0]}`;
-        
-        switch (format) {
-          case 'html': {
-            const html = generateHTMLReport(report, reportOptions);
-            const htmlPath = path.join(outputDir, `${filename}.html`);
-            await fs.writeFile(htmlPath, html);
-            console.log(chalk.green(`  📄 HTML report: ${htmlPath}`));
-            break;
-          }
-          case 'json': {
-            const json = generateJSONReport(report);
-            const jsonPath = path.join(outputDir, `${filename}.json`);
-            await fs.writeFile(jsonPath, json);
-            console.log(chalk.green(`  📄 JSON report: ${jsonPath}`));
-            break;
-          }
-          case 'markdown': {
-            const md = generateMarkdownReport(report);
-            const mdPath = path.join(outputDir, `${filename}.md`);
-            await fs.writeFile(mdPath, md);
-            console.log(chalk.green(`  📄 Markdown report: ${mdPath}`));
-            break;
-          }
-        }
+      for (const output of await writeReportFiles(report, reportOptions)) {
+        console.log(chalk.green(`  📄 ${output.label}: ${output.path}`));
       }
 
       // Show errors if any
@@ -259,7 +169,6 @@ program
       }
 
     } catch (error: any) {
-      spinner.fail('Audit failed');
       console.error(chalk.red(`\nError: ${error.message}`));
       process.exit(1);
     }
@@ -272,7 +181,7 @@ program
   .description('Generate report from existing scan data (JSON)')
   .argument('<file>', 'Path to scan results JSON file')
   .option('-o, --output <dir>', 'Output directory', './attestlens-reports')
-  .option('-f, --format <formats>', 'Output formats', 'html,json,markdown')
+  .option('-f, --format <formats>', 'Output formats', 'html,json,markdown,pdf')
   .option('-n, --name <name>', 'Project name', '')
   .option('--strict', 'Treat UNKNOWN controls as FAIL')
   .action(async (filePath: string, options: any) => {
@@ -282,40 +191,20 @@ program
       const data = await fs.readFile(resolvedPath, 'utf-8');
       const scanData = JSON.parse(data);
       
-      const reportFormats = options.format.split(',') as Array<'json' | 'html' | 'markdown'>;
+      const reportFormats = parseReportFormats(options.format);
       const projectName = options.name || path.basename(resolvedPath, '.json');
 
       const reportOptions: ReportOptions = {
         targetName: projectName,
-        targetPath: resolvedPath,
+        targetPath: scanData.target?.path || resolvedPath,
+        targetUrl: scanData.target?.url,
         formats: reportFormats,
         outputDir: path.resolve(options.output),
         strictMode: options.strict,
       };
 
       const report = buildComplianceReport(scanData.findings || scanData, reportOptions, 0);
-
-      const outputDir = path.resolve(options.output);
-      await fs.mkdir(outputDir, { recursive: true });
-
-      for (const format of reportFormats) {
-        const filename = `attestlens-report-${projectName.toLowerCase().replace(/\s+/g, '-')}-${new Date().toISOString().split('T')[0]}`;
-        
-        switch (format) {
-          case 'html': {
-            await fs.writeFile(path.join(outputDir, `${filename}.html`), generateHTMLReport(report, reportOptions));
-            break;
-          }
-          case 'json': {
-            await fs.writeFile(path.join(outputDir, `${filename}.json`), generateJSONReport(report));
-            break;
-          }
-          case 'markdown': {
-            await fs.writeFile(path.join(outputDir, `${filename}.md`), generateMarkdownReport(report));
-            break;
-          }
-        }
-      }
+      await writeReportFiles(report, reportOptions);
 
       console.log(chalk.green('✅ Report generated successfully.'));
     } catch (error: any) {
@@ -325,6 +214,125 @@ program
   });
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
+
+type CliTarget =
+  | { kind: 'path'; rawInput: string; value: string; name: string }
+  | { kind: 'url'; rawInput: string; value: string; name: string };
+
+function isUrlTarget(value: string): boolean {
+  try {
+    const parsed = new URL(value);
+    return parsed.protocol === 'http:' || parsed.protocol === 'https:';
+  } catch {
+    return false;
+  }
+}
+
+async function resolveCliTarget(targetInput: string, explicitName?: string): Promise<CliTarget> {
+  if (isUrlTarget(targetInput)) {
+    const url = new URL(targetInput);
+    return {
+      kind: 'url',
+      rawInput: targetInput,
+      value: url.toString(),
+      name: explicitName || url.hostname,
+    };
+  }
+
+  const resolvedPath = path.resolve(targetInput);
+  const stat = await fs.stat(resolvedPath).catch(() => null);
+  if (!stat) {
+    throw new Error(`${resolvedPath} does not exist`);
+  }
+  if (!stat.isDirectory()) {
+    throw new Error(`${resolvedPath} is not a directory`);
+  }
+
+  return {
+    kind: 'path',
+    rawInput: targetInput,
+    value: resolvedPath,
+    name: explicitName || path.basename(resolvedPath),
+  };
+}
+
+function createOrchestrator(targetKind: CliTarget['kind'], options: any): ScannerOrchestrator {
+  const orchestrator = new ScannerOrchestrator();
+
+  if (targetKind === 'url') {
+    orchestrator.disable('guardvibe');
+    orchestrator.disable('mcp-scan');
+    orchestrator.disable('supply-chain');
+    return orchestrator;
+  }
+
+  if (options.guardvibe === false) orchestrator.disable('guardvibe');
+  if (options.mcpScan === false) orchestrator.disable('mcp-scan');
+  if (options.supplyChain === false) orchestrator.disable('supply-chain');
+  return orchestrator;
+}
+
+function parseReportFormats(rawFormats: string): ReportFormat[] {
+  const supported = new Set<ReportFormat>(['json', 'html', 'markdown', 'pdf']);
+  const formats = rawFormats
+    .split(',')
+    .map(value => value.trim().toLowerCase())
+    .filter(Boolean);
+
+  if (formats.length === 0) {
+    throw new Error('At least one report format is required');
+  }
+
+  for (const format of formats) {
+    if (!supported.has(format as ReportFormat)) {
+      throw new Error(`Unsupported report format: ${format}`);
+    }
+  }
+
+  return formats as ReportFormat[];
+}
+
+function buildReportFilename(targetName: string, timestamp: string): string {
+  const slug = targetName
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 80) || 'target';
+  return `attestlens-report-${slug}-${timestamp.split('T')[0]}`;
+}
+
+async function writeReportFiles(report: any, reportOptions: ReportOptions): Promise<Array<{ label: string; path: string }>> {
+  const outputDir = path.resolve(reportOptions.outputDir);
+  await fs.mkdir(outputDir, { recursive: true });
+
+  const filename = buildReportFilename(reportOptions.targetName, report.timestamp);
+  const outputs: Array<{ label: string; path: string }> = [];
+
+  for (const format of reportOptions.formats) {
+    const filePath = path.join(outputDir, `${filename}.${format === 'markdown' ? 'md' : format}`);
+
+    switch (format) {
+      case 'html':
+        await fs.writeFile(filePath, generateHTMLReport(report, reportOptions));
+        outputs.push({ label: 'HTML report', path: filePath });
+        break;
+      case 'json':
+        await fs.writeFile(filePath, generateJSONReport(report));
+        outputs.push({ label: 'JSON report', path: filePath });
+        break;
+      case 'markdown':
+        await fs.writeFile(filePath, generateMarkdownReport(report));
+        outputs.push({ label: 'Markdown report', path: filePath });
+        break;
+      case 'pdf':
+        await fs.writeFile(filePath, await generatePDFReport(report, reportOptions));
+        outputs.push({ label: 'PDF report', path: filePath });
+        break;
+    }
+  }
+
+  return outputs;
+}
 
 function displayFindings(findings: AttestLensFinding[]) {
   const criticals = findings.filter(f => f.severity === 'critical');
@@ -381,4 +389,4 @@ function getRiskDisplay(risk: string): string {
 
 // ─── Run ──────────────────────────────────────────────────────────────────────
 
-program.parse();
+await program.parseAsync();

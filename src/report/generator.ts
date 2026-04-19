@@ -1,25 +1,28 @@
 /**
  * AttestLens — Report Generator
  * 
- * Generates compliance reports in HTML, JSON, and Markdown formats.
+ * Generates compliance reports in HTML, JSON, Markdown, and PDF formats.
  * Takes scanner findings + mapping results and produces the final deliverable.
  */
 
 import crypto from 'node:crypto';
+import { PassThrough } from 'node:stream';
+import type PDFDocument from 'pdfkit';
 import type {
   AttestLensFinding,
   APPControl,
   APPPrinciple,
-  APPMapping,
   ComplianceReport,
-  ReportGrade,
   RemediationItem,
-  RemediationPriority,
   ControlStatus,
 } from '../schema/index.js';
 import { APPInfo, calculateGrade, calculateRiskLevel } from '../schema/index.js';
-import { ALL_MAPPING_RULES, mapAllFindings } from '../mapping/engine.js';
-import type { MappingRule } from '../mapping/engine.js';
+import { mapAllFindings } from '../mapping/engine.js';
+
+const ATTESTLENS_VERSION = '0.1.0';
+
+export const SUPPORTED_REPORT_FORMATS = ['json', 'html', 'markdown', 'pdf'] as const;
+export type ReportFormat = (typeof SUPPORTED_REPORT_FORMATS)[number];
 
 // ─── Report Builder ─────────────────────────────────────────────────────────
 
@@ -28,7 +31,7 @@ export interface ReportOptions {
   targetPath?: string;
   targetUrl?: string;
   targetVersion?: string;
-  formats: Array<'json' | 'html' | 'markdown'>;
+  formats: ReportFormat[];
   outputDir: string;
   strictMode?: boolean; // Treat UNKNOWN as FAIL
   branding?: {
@@ -90,86 +93,6 @@ export function buildComplianceReport(
   };
 
   return report;
-}
-
-// ─── APP Control Builder ─────────────────────────────────────────────────────
-
-function buildAPPControls(findings: AttestLensFinding[], strictMode = false): APPControl[] {
-  const principles = Object.keys(APPInfo) as APPPrinciple[];
-  const controls: APPControl[] = [];
-
-  for (const principle of principles) {
-    const principleFindings = findings.filter(f => 
-      f.appMappings.some(m => m.principle === principle)
-    );
-
-    const status = determineControlStatus(principle, principleFindings, strictMode);
-    const score = calculateControlScore(principle, principleFindings, status);
-    
-    controls.push({
-      principle,
-      shortName: APPInfo[principle].shortName,
-      obligation: APPInfo[principle].obligation,
-      status,
-      score,
-      findingCount: {
-        critical: principleFindings.filter(f => f.severity === 'critical').length,
-        high: principleFindings.filter(f => f.severity === 'high').length,
-        medium: principleFindings.filter(f => f.severity === 'medium').length,
-        low: principleFindings.filter(f => f.severity === 'low').length,
-        info: principleFindings.filter(f => f.severity === 'info').length,
-      },
-      findings: principleFindings.map(f => f.id),
-      questionnaireRequired: status === 'unknown',
-      lastAssessed: new Date().toISOString(),
-    });
-  }
-
-  return controls;
-}
-
-function determineControlStatus(
-  principle: APPPrinciple,
-  findings: AttestLensFinding[],
-  strictMode: boolean,
-): ControlStatus {
-  if (findings.length === 0) {
-    return strictMode ? 'fail' : 'unknown';
-  }
-
-  // If any finding maps to this principle with FAIL status, the control fails
-  const hasFail = findings.some(f => 
-    f.appMappings.some(m => m.principle === principle && m.status === 'fail')
-  );
-  
-  // If all findings map with PASS status, the control passes
-  const allPass = findings.every(f => 
-    f.appMappings.every(m => m.principle !== principle || m.status === 'pass')
-  );
-
-  if (hasFail) return 'fail';
-  if (allPass && findings.length > 0) return 'pass';
-  return 'unknown';
-}
-
-function calculateControlScore(
-  principle: APPPrinciple,
-  findings: AttestLensFinding[],
-  status: ControlStatus,
-): number {
-  if (status === 'pass') return 100;
-  if (status === 'unknown') return 50;
-  
-  // status === 'fail' — score based on finding severity
-  const severityWeights = { critical: -30, high: -20, medium: -10, low: -5, info: -1 };
-  let score = 100;
-  
-  for (const finding of findings) {
-    const weight = severityWeights[finding.severity] || -5;
-    score += weight;
-  }
-
-  return Math.max(0, Math.min(100, score));
 }
 
 // ─── Score Calculation ────────────────────────────────────────────────────────
@@ -381,7 +304,9 @@ export function generateHTMLReport(report: ComplianceReport, options: ReportOpti
         <tr><th>Date</th><td>${new Date(report.timestamp).toLocaleDateString('en-AU', { year: 'numeric', month: 'long', day: 'numeric' })}</td></tr>
         <tr><th>Target</th><td>${report.target.name}${report.target.version ? ` v${report.target.version}` : ''}</td></tr>
         <tr><th>Framework</th><td>APP / NDB (Privacy Act 1988)</td></tr>
-        <tr><th>Scanner</th><td>AttestLens v0.1.0</td></tr>
+        <tr><th>Scanner</th><td>AttestLens v${ATTESTLENS_VERSION}</td></tr>
+        ${report.target.url ? `<tr><th>URL</th><td>${report.target.url}</td></tr>` : ''}
+        ${report.target.path ? `<tr><th>Path</th><td>${report.target.path}</td></tr>` : ''}
       </table>
       <div class="confidential-badge">CONFIDENTIAL</div>
     </div>
@@ -495,7 +420,7 @@ export function generateHTMLReport(report: ComplianceReport, options: ReportOpti
     
     <div class="disclaimer">
       <p>${report.disclaimer}</p>
-      <p style="margin-top: 8px;">Report generated by AttestLens v0.1.0 — ${new Date(report.timestamp).toLocaleString('en-AU')}</p>
+      <p style="margin-top: 8px;">Report generated by AttestLens v${ATTESTLENS_VERSION} — ${new Date(report.timestamp).toLocaleString('en-AU')}</p>
       <p>Deterministic hash: <code>${report.metadata.deterministicHash}</code></p>
     </div>
     
@@ -551,6 +476,8 @@ export function generateMarkdownReport(report: ComplianceReport): string {
   lines.push(`**Report ID:** ${report.id}`);
   lines.push(`**Date:** ${new Date(report.timestamp).toLocaleDateString('en-AU')}`);
   lines.push(`**Framework:** APP / NDB (Privacy Act 1988)`);
+  if (report.target.url) lines.push(`**Target URL:** ${report.target.url}`);
+  if (report.target.path) lines.push(`**Target Path:** ${report.target.path}`);
   lines.push('');
   lines.push(`## Executive Summary`);
   lines.push('');
@@ -600,7 +527,198 @@ export function generateMarkdownReport(report: ComplianceReport): string {
 
   lines.push(`---`);
   lines.push(`*${report.disclaimer}*`);
-  lines.push(`*Generated by AttestLens v0.1.0 — ${new Date(report.timestamp).toLocaleString('en-AU')}*`);
+  lines.push(`*Generated by AttestLens v${ATTESTLENS_VERSION} — ${new Date(report.timestamp).toLocaleString('en-AU')}*`);
 
   return lines.join('\n');
+}
+
+// ─── PDF Report Generator ────────────────────────────────────────────────────
+
+export async function generatePDFReport(
+  report: ComplianceReport,
+  options: ReportOptions,
+): Promise<Buffer> {
+  const { default: PDFDocument } = await import('pdfkit');
+  const doc = new PDFDocument({
+    size: 'A4',
+    margin: 50,
+    info: {
+      Title: `AttestLens Compliance Report — ${report.target.name}`,
+      Author: options.branding?.companyName || 'AttestLens',
+      Subject: 'Australian Privacy Act compliance report',
+      Keywords: 'AttestLens, APP, NDB, privacy, compliance',
+      Producer: 'AttestLens',
+      Creator: 'AttestLens',
+      CreationDate: new Date(report.timestamp),
+      ModDate: new Date(report.timestamp),
+    },
+  });
+
+  const stream = new PassThrough();
+  const chunks: Buffer[] = [];
+
+  const bufferPromise = new Promise<Buffer>((resolve, reject) => {
+    stream.on('data', (chunk: Buffer | string) => {
+      chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+    });
+    stream.on('end', () => resolve(Buffer.concat(chunks)));
+    stream.on('error', reject);
+    doc.on('error', reject);
+  });
+
+  doc.pipe(stream);
+
+  renderPDFCover(doc, report, options);
+  doc.addPage();
+  renderPDFExecutiveSummary(doc, report);
+  doc.addPage();
+  renderPDFFindings(doc, report);
+  doc.addPage();
+  renderPDFRemediation(doc, report);
+  doc.end();
+
+  return bufferPromise;
+}
+
+function renderPDFCover(doc: PDFDocument, report: ComplianceReport, options: ReportOptions): void {
+  doc.fillColor('#1a2332').fontSize(26).text('Privacy Act Compliance Report');
+  doc.moveDown(0.5);
+  doc.fillColor('#334155').fontSize(18).text(report.target.name);
+  doc.moveDown(1.5);
+
+  doc.fontSize(11).fillColor('#0f172a');
+  writePDFLabelValue(doc, 'Report ID', report.id);
+  writePDFLabelValue(
+    doc,
+    'Date',
+    new Date(report.timestamp).toLocaleDateString('en-AU', { year: 'numeric', month: 'long', day: 'numeric' }),
+  );
+  writePDFLabelValue(doc, 'Framework', 'APP / NDB (Privacy Act 1988)');
+  writePDFLabelValue(doc, 'Scanner', `AttestLens v${ATTESTLENS_VERSION}`);
+  writePDFLabelValue(doc, 'Target URL', report.target.url);
+  writePDFLabelValue(doc, 'Target Path', report.target.path);
+  writePDFLabelValue(doc, 'Version', report.target.version);
+  if (options.branding?.companyName) {
+    writePDFLabelValue(doc, 'Prepared For', options.branding.companyName);
+  }
+
+  doc.moveDown(2);
+  doc.fillColor('#dc2626').fontSize(12).text('CONFIDENTIAL');
+}
+
+function renderPDFExecutiveSummary(doc: PDFDocument, report: ComplianceReport): void {
+  doc.fillColor('#1a2332').fontSize(22).text('Executive Summary');
+  doc.moveDown();
+
+  doc.fontSize(14).fillColor('#0f172a').text(`Overall Grade: ${report.overallGrade} (${report.overallScore}/100)`);
+  doc.text(`Risk Level: ${report.riskLevel.toUpperCase()}`);
+  doc.moveDown(0.5);
+  doc.fontSize(11).fillColor('#334155').text(getRiskSummary(report));
+  doc.moveDown();
+
+  doc.fontSize(16).fillColor('#1a2332').text('Finding Summary');
+  doc.moveDown(0.5);
+  writePDFLabelValue(doc, 'Critical', String(report.findings.filter(f => f.severity === 'critical').length));
+  writePDFLabelValue(doc, 'High', String(report.findings.filter(f => f.severity === 'high').length));
+  writePDFLabelValue(doc, 'Medium', String(report.findings.filter(f => f.severity === 'medium').length));
+  writePDFLabelValue(doc, 'Low / Info', String(report.findings.filter(f => f.severity === 'low' || f.severity === 'info').length));
+
+  doc.moveDown();
+  doc.fontSize(16).fillColor('#1a2332').text('APP Control Status');
+  doc.moveDown(0.5);
+
+  for (const control of report.appControls) {
+    const findingCount =
+      control.findingCount.critical +
+      control.findingCount.high +
+      control.findingCount.medium +
+      control.findingCount.low +
+      control.findingCount.info;
+    doc
+      .fontSize(10)
+      .fillColor('#0f172a')
+      .text(
+        `${control.principle} — ${control.shortName}: ${control.status.toUpperCase()} (${control.score}/100, ${findingCount} findings)`,
+      );
+  }
+}
+
+function renderPDFFindings(doc: PDFDocument, report: ComplianceReport): void {
+  doc.fillColor('#1a2332').fontSize(22).text('Technical Findings');
+  doc.moveDown();
+
+  if (report.findings.length === 0) {
+    doc.fontSize(11).fillColor('#334155').text('No findings were detected in this scan.');
+    return;
+  }
+
+  for (const finding of report.findings) {
+    doc.fillColor('#0f172a').fontSize(14).text(`[${finding.severity.toUpperCase()}] ${finding.title}`);
+    doc.fontSize(10).fillColor('#475569').text(`${finding.id} • ${finding.sourceRule} • ${finding.category}`);
+    if (finding.file) {
+      doc.text(`${finding.file}${finding.line ? `:${finding.line}` : ''}`);
+    }
+    doc.moveDown(0.25);
+    doc.fontSize(11).fillColor('#334155').text(finding.description);
+
+    if (finding.appMappings.length > 0) {
+      doc.moveDown(0.25);
+      doc
+        .fontSize(10)
+        .fillColor('#0f172a')
+        .text(`APP references: ${finding.appMappings.map(m => m.principle).join(', ')}`);
+    }
+
+    if (finding.fix) {
+      doc.moveDown(0.25);
+      doc.fontSize(10).fillColor('#15803d').text(`Suggested fix: ${finding.fix}`);
+    }
+
+    if (finding.fixPrompt) {
+      doc.moveDown(0.25);
+      doc.fontSize(9).fillColor('#475569').text(`Fix prompt: ${finding.fixPrompt}`);
+    }
+
+    doc.moveDown();
+  }
+}
+
+function renderPDFRemediation(doc: PDFDocument, report: ComplianceReport): void {
+  doc.fillColor('#1a2332').fontSize(22).text('Remediation Playbook');
+  doc.moveDown();
+
+  for (const item of report.remediation) {
+    doc.fillColor('#0f172a').fontSize(13).text(item.title);
+    doc
+      .fontSize(10)
+      .fillColor('#475569')
+      .text(
+        `${item.priority.replace('_', ' ').toUpperCase()} • ${item.estimatedTime} • APP ${item.appReferences.join(', ')}`,
+      );
+    doc.moveDown(0.25);
+    doc.fontSize(11).fillColor('#334155').text(item.description);
+    if (item.fix) {
+      doc.moveDown(0.25);
+      doc.fontSize(10).fillColor('#15803d').text(`Fix: ${item.fix}`);
+    }
+    doc.moveDown();
+  }
+
+  doc.moveDown();
+  doc.fontSize(9).fillColor('#64748b').text(report.disclaimer);
+  doc.moveDown(0.5);
+  doc
+    .fontSize(9)
+    .fillColor('#64748b')
+    .text(`Generated by AttestLens v${ATTESTLENS_VERSION} — ${new Date(report.timestamp).toLocaleString('en-AU')}`);
+  doc.text(`Deterministic hash: ${report.metadata.deterministicHash}`);
+}
+
+function writePDFLabelValue(doc: PDFDocument, label: string, value?: string): void {
+  if (!value) {
+    return;
+  }
+
+  doc.font('Helvetica-Bold').text(`${label}: `, { continued: true });
+  doc.font('Helvetica').text(value);
 }

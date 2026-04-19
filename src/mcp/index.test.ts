@@ -1,75 +1,120 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import path from 'node:path';
 import fs from 'node:fs/promises';
 import os from 'node:os';
+import path from 'node:path';
 
-// We test validatePath by importing the MCP module and testing through the server,
-// but for unit testing the path validation logic, we'll extract and test directly.
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-describe('MCP Server - Path Validation', () => {
-  describe('ALLOWED_ROOTS environment variable', () => {
-    it('should default to allowing all paths when ATTESTLENS_ALLOWED_ROOTS is not set', () => {
-      // When ALLOWED_ROOTS is undefined, all valid directories are allowed
-      // Security relies on suspicious-char check + directory validation
-      expect(true).toBe(true); // Placeholder — integration test covers this
+import { McpError } from '@modelcontextprotocol/sdk/types.js';
+
+import { ScannerOrchestrator } from '../scanner/orchestrator.js';
+import { handleToolCall, validatePath, validateUrl } from './index.js';
+
+describe('MCP Server', () => {
+  let tempDir: string;
+
+  beforeEach(async () => {
+    tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'attestlens-mcp-'));
+    delete process.env.ATTESTLENS_ALLOWED_ROOTS;
+  });
+
+  afterEach(async () => {
+    vi.restoreAllMocks();
+    delete process.env.ATTESTLENS_ALLOWED_ROOTS;
+    await fs.rm(tempDir, { recursive: true, force: true });
+  });
+
+  describe('validatePath', () => {
+    it('allows valid directories when ATTESTLENS_ALLOWED_ROOTS is not set', async () => {
+      await expect(validatePath(tempDir)).resolves.toBe(tempDir);
     });
 
-    it('should accept colon-separated paths from ATTESTLENS_ALLOWED_ROOTS', () => {
-      const roots = '/tmp:/home/user/projects:/var/data';
-      const paths = roots.split(':').filter(Boolean);
-      expect(paths).toEqual(['/tmp', '/home/user/projects', '/var/data']);
+    it('blocks paths outside allowed roots', async () => {
+      process.env.ATTESTLENS_ALLOWED_ROOTS = tempDir;
+
+      await expect(validatePath('/etc')).rejects.toThrow(McpError);
+    });
+
+    it('rejects shell metacharacters', async () => {
+      await expect(validatePath(`${tempDir};rm -rf /`)).rejects.toThrow('path contains invalid characters');
     });
   });
 
-  describe('Path traversal prevention', () => {
-    it('should block paths outside allowed roots', async () => {
-      // Simulate the path validation logic
-      const allowedRoots = ['/tmp/test-allowed'];
-      const testPath = '/etc/passwd';
-
-      const isAllowed = allowedRoots.some(root => {
-        const normalizedRoot = path.resolve(root);
-        return testPath === normalizedRoot || testPath.startsWith(normalizedRoot + path.sep);
-      });
-
-      expect(isAllowed).toBe(false);
+  describe('validateUrl', () => {
+    it('accepts public http(s) URLs', () => {
+      expect(validateUrl('https://example.com')).toBe('https://example.com/');
+      expect(validateUrl('http://example.com/path')).toBe('http://example.com/path');
     });
 
-    it('should allow paths under allowed roots', async () => {
-      const allowedRoots = ['/tmp/test-allowed'];
-      const testPath = '/tmp/test-allowed/my-project';
-
-      const isAllowed = allowedRoots.some(root => {
-        const normalizedRoot = path.resolve(root);
-        return testPath === normalizedRoot || testPath.startsWith(normalizedRoot + path.sep);
-      });
-
-      expect(isAllowed).toBe(true);
+    it('rejects non-http protocols', () => {
+      expect(() => validateUrl('file:///tmp/report')).toThrow('unsupported URL protocol');
     });
 
-    it('should block directory traversal with ..', async () => {
-      const allowedRoots = ['/tmp/test-allowed'];
-      // After resolution, /tmp/test-allowed/../../etc becomes /etc
-      const maliciousPath = '/tmp/test-allowed/../../etc/passwd';
-      const resolved = path.resolve(maliciousPath);
+    it('rejects invalid URLs', () => {
+      expect(() => validateUrl('not-a-url')).toThrow('invalid URL');
+    });
+  });
 
-      const isAllowed = allowedRoots.some(root => {
-        const normalizedRoot = path.resolve(root);
-        return resolved === normalizedRoot || resolved.startsWith(normalizedRoot + path.sep);
+  describe('handleToolCall', () => {
+    it('returns URL scan output keyed by targetUrl', async () => {
+      const scanSpy = vi.spyOn(ScannerOrchestrator.prototype, 'scan').mockResolvedValue({
+        findings: [
+          {
+            id: 'FIND-001',
+            source: 'url-scan',
+            sourceRule: 'AL-URL-001',
+            severity: 'high',
+            category: 'Security Headers',
+            title: 'Missing CSP header',
+            description: 'Content-Security-Policy header is missing',
+            url: 'https://example.com',
+            appMappings: [],
+            evidence: {
+              timestamp: new Date().toISOString(),
+              scannerVersion: '0.1.0',
+              rawOutput: {},
+            },
+          },
+        ],
+        results: [],
+        errors: [],
+        totalDurationMs: 42,
       });
+      const disableSpy = vi.spyOn(ScannerOrchestrator.prototype, 'disable');
 
-      expect(isAllowed).toBe(false);
+      const response = await handleToolCall('attestlens_scan_url', {
+        url: 'https://example.com',
+        strict: true,
+      });
+      const payload = JSON.parse(response.content[0].text);
+
+      expect(payload.targetType).toBe('url');
+      expect(payload.targetUrl).toBe('https://example.com/');
+      expect(payload.summary.total).toBe(1);
+      expect(payload.findings[0].sourceRule).toBe('AL-URL-001');
+      expect(scanSpy).toHaveBeenCalledWith('https://example.com/');
+      expect(disableSpy).toHaveBeenCalledWith('guardvibe');
+      expect(disableSpy).toHaveBeenCalledWith('mcp-scan');
+      expect(disableSpy).toHaveBeenCalledWith('supply-chain');
     });
 
-    it('should reject paths with shell metacharacters', () => {
-      const suspiciousChars = /[;|`$\\]/;
+    it('returns PDF audits as base64-encoded payloads', async () => {
+      vi.spyOn(ScannerOrchestrator.prototype, 'scan').mockResolvedValue({
+        findings: [],
+        results: [],
+        errors: [],
+        totalDurationMs: 10,
+      });
 
-      expect(suspiciousChars.test('/tmp/project;rm -rf /')).toBe(true);
-      expect(suspiciousChars.test('/tmp/project|cat /etc/passwd')).toBe(true);
-      expect(suspiciousChars.test('/tmp/project`whoami`')).toBe(true);
-      expect(suspiciousChars.test('/tmp/project$(whoami)')).toBe(true);
-      expect(suspiciousChars.test('/tmp/project\\malicious')).toBe(true);
-      expect(suspiciousChars.test('/tmp/valid-project')).toBe(false);
+      const response = await handleToolCall('attestlens_audit', {
+        path: tempDir,
+        format: 'pdf',
+      });
+      const payload = JSON.parse(response.content[0].text);
+
+      expect(payload.format).toBe('pdf');
+      expect(payload.encoding).toBe('base64');
+      expect(typeof payload.content).toBe('string');
+      expect(Buffer.from(payload.content, 'base64').subarray(0, 4).toString()).toBe('%PDF');
     });
   });
 });

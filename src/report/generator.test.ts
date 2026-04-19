@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { buildComplianceReport, generateJSONReport, generateMarkdownReport } from './generator.js';
+import { buildComplianceReport, generateJSONReport, generateMarkdownReport, generatePDFReport } from './generator.js';
 import type { AttestLensFinding } from '../schema/index.js';
 import type { ReportOptions } from './generator.js';
 
@@ -103,5 +103,29 @@ describe('generateMarkdownReport', () => {
     expect(md).toContain('# Privacy Act Compliance Report');
     expect(md).toContain('APP_11');
     expect(md).toContain('Hardcoded key');
+  });
+});
+
+describe('generatePDFReport', () => {
+  it('should produce a PDF buffer for path or URL reports', async () => {
+    const findings = [
+      makeFinding({ id: 'F-1', severity: 'high', sourceRule: 'AL-URL-001', title: 'Missing CSP header' }),
+    ];
+    const report = buildComplianceReport(findings, {
+      ...defaultOptions,
+      targetPath: undefined,
+      targetUrl: 'https://example.com',
+      formats: ['pdf'],
+    }, 1000);
+
+    const pdf = await generatePDFReport(report, {
+      ...defaultOptions,
+      targetPath: undefined,
+      targetUrl: 'https://example.com',
+      formats: ['pdf'],
+    });
+
+    expect(pdf.subarray(0, 4).toString()).toBe('%PDF');
+    expect(pdf.length).toBeGreaterThan(500);
   });
 });

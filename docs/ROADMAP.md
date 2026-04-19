@@ -5,87 +5,71 @@
 
 ---
 
-## Current State (v0.1.0)
+## Current State (v0.1.x)
 
 **What's built:**
-- ✅ Core scanner schema + mapping engine (19 APP/NDB rules)
+- ✅ Core scanner schema + mapping engine
 - ✅ GuardVibe adapter (9 static regex + MCP fallback)
 - ✅ Supply chain scanner (8 rules: VS-SC-001→008)
+- ✅ URL scanner with headers, JS, infra, cookies, and source-map checks
 - ✅ Scanner orchestrator (parallel, dedup, disable flags)
 - ✅ CLI: `scan`, `audit`, `report` commands
-- ✅ MCP server: 3 tools for AI editor integration
-- ✅ Report generator: HTML, JSON, Markdown
-- ✅ 55 tests passing, 0 npm vulnerabilities
-- ✅ Security audit: 2 CRITICAL issues fixed
+- ✅ MCP server: path scan, URL scan, audit, and mapping tools
+- ✅ Report generator: HTML, JSON, Markdown, PDF
+- ✅ AI-ready `fixPrompt` support in schema and scanner rules
+- ✅ 107 tests passing
+- ✅ Security hardening including SSRF protection for URL scanning
 
 **What's NOT built yet:**
-- ❌ URL scanner (HTTP-based remote scanning)
-- ❌ AI fix prompts per finding
-- ❌ PDF report generation
 - ❌ Interactive compliance questionnaire
 - ❌ Rule update pipeline
 - ❌ Stack-specific checks (Firebase, Vercel, etc.)
 - ❌ Web dashboard
 
-**Codebase:** ~4,500 lines TypeScript, 6 modules, 6 test files
+**Current focus:** Finish Phase 1.5 release packaging and validation, then move into questionnaire-driven differentiation.
 
 ---
 
 ## Roadmap Overview
 
 ```
-Phase 1.5 — Close the Scanner Gap        ← NOW (Weeks 1-2)
-Phase 2   — Compliance Differentiation     ← Weeks 3-6
-Phase 2.5 — Rule Update Pipeline          ← Weeks 5-7
-Phase 3   — Platform & AI Integration     ← Weeks 8-14
-Phase 4   — Launch & Growth               ← Weeks 12-16
+Phase 1.5 — Scanner Credibility Release    ← NOW
+Phase 2   — Compliance Differentiation
+Phase 2.5 — Rule Update Pipeline
+Phase 3   — Platform & AI Integration
+Phase 4   — Launch & Growth
 ```
 
 ---
 
-## Phase 1.5 — Close the Scanner Gap (Weeks 1-2)
+## Phase 1.5 — Scanner Credibility Release
 
-**Goal:** Match CheckVibe's core scanning capability so we're not inferior on security checks.
+**Goal:** Ship a credible v0.2.0 that holds up on scanner quality while preserving AttestLens's compliance-first positioning.
 
-### Week 1: URL Scanner + AI Fix Prompts
+### Done
 
-| Day | Task | Details |
-|-----|------|---------|
-| D1-2 | **URL Scanner** | `src/scanner/url-scan.ts` — HTTP-based remote scanning |
-| | | - `fetch(url)` → response headers + HTML |
-| | | - Parse `<script src>` → fetch JS bundles |
-| | | - Pattern-match exposed keys (15+ patterns) |
-| | | - Check security headers (12 checks: CSP, HSTS, X-Frame, etc.) |
-| | | - Check infrastructure (.git, .env, CORS, SSL/TLS) |
-| | | - Zero new dependencies (Node.js built-in `fetch`) |
-| D3 | **AI Fix Prompts** | Schema change + template engine |
-| | | - Add `fixPrompt` field to `AttestLensFinding` |
-| | | - Template per rule category (code-level vs config-level) |
-| | | - Cursor/Copilot-ready prompt generation |
-| | | - Example: "Fix the critical security issue: Exposed Supabase service_role key..." |
+- URL scanner implementation
+- MCP URL scan tool
+- PDF report MVP using PDFKit
+- rule-level fix prompts in schema and scanner outputs
+- SSRF / redirect / derived-resource hardening for URL scanning
+- deterministic JS byte budgeting
+- duplicate Cache-Control to APP_12 path removed
+- expanded regression coverage for URL scanning and mapping behavior
 
-### Week 2: PDF Reports + Stack-Specific Checks + MCP URL Tool
+### Remaining
 
-| Day | Task | Details |
-|-----|------|---------|
-| D4-5 | **PDF Report Generation** | Puppeteer pipeline from existing HTML |
-| | | - `src/report/pdf-generator.ts` |
-| | | - `--format pdf` CLI flag |
-| | | - Consultant-grade: A4, branded header, APP references, findings table |
-| | | - Executive summary (1-page for boards) |
-| D6-8 | **Stack-Specific Checks** | Expand static regex patterns |
-| | | - Firebase: missing Firestore rules, exposed Admin SDK |
-| | | - Vercel/Netlify: `_headers`/`netlify.toml` analysis |
-| | | - Stripe: live mode keys, webhook secrets |
-| | | - Supabase: RLS policy checks, anon key exposure |
-| | | - Convex: `convex/` directory misconfig |
-| | | - Clerk/Auth0: exposed secrets, JWT misconfig |
-| | | - OpenAI/Anthropic: API key patterns |
-| D9 | **MCP: Add URL scan tool** | New `scan_url` tool in MCP server |
-| | | - Accept URL input, call URL scanner, return findings |
-| D10 | **Integration tests + docs** | Update README, test all new features, tag v0.2.0 |
+1. **Stack-specific checks**
+   - prioritize Supabase, Firebase, Vercel/Netlify, Stripe, Clerk/Auth0
+2. **Real-world validation**
+   - run scans against public targets / OSS demos
+   - log false positives, misses, and remediation quality
+3. **Docs sync**
+   - update README / PRD / roadmap so they reflect current capabilities
+4. **Release cut**
+   - tag the first scanner-credible release after the above are complete
 
-**Exit criteria:** 68+ checks, zero external deps, URL scanning, AI fix prompts, PDF reports.
+**Exit criteria:** URL scanning is documented and stable, MCP can scan URLs, PDF exists in MVP form, validation scans have been run, and docs match the code.
 
 ---
 
@@ -324,7 +308,7 @@ Free = current CLI + Phase 1.5. Pro = SaaS wrapper. Consultant = our moat.
 | CheckVibe ships compliance first | Low | High | Our compliance engine is already built; they'd start from zero |
 | Privacy Act changes delayed | Medium | Medium | Scanner works for any org handling PI; compliance wedge still valid |
 | Rule maintenance burden | Medium | Medium | Rule pack system + community contributions + advisory automation |
-| Puppeteer dependency size | Low | Low | Optional dep, CLI works without PDF, `--format html` alternative |
+| PDF generator complexity | Low | Low | Keep PDFKit output deterministic and data-driven; HTML remains fallback |
 | Solo dev bandwidth | High | High | Prioritize ruthlessly; Phase 1.5 first, validate before Phase 2 |
 
 ---
@@ -334,7 +318,7 @@ Free = current CLI + Phase 1.5. Pro = SaaS wrapper. Consultant = our moat.
 | Date | Decision | Rationale |
 |------|----------|-----------|
 | 2026-04-18 | URL scanner before questionnaire | Can't sell compliance tool that looks inferior on security |
-| 2026-04-18 | PDF via Puppeteer, not PDFKit | Fidelity from HTML rendering; dep only needed for PDF |
+| 2026-04-19 | PDF via PDFKit, not Puppeteer | Lower runtime complexity, deterministic local output, better CLI/MCP fit |
 | 2026-04-18 | MCP server first, SaaS later | Zero overhead, global reach via editors |
 | 2026-04-18 | Compliance as wedge, not moat | AU checks easy to copy; defensible layer = evidence + attestation + remediation |
 | 2026-04-18 | Rule packs independent of npm | Update rules without npm version bump; `attestlens update-rules` |

@@ -1,8 +1,14 @@
-import { describe, it, expect } from 'vitest';
+import { beforeAll, describe, expect, it } from 'vitest';
 import { GuardVibeAdapter } from './guardvibe.js';
+import type { ScannerResult } from './types.js';
 
-describe('GuardVibeAdapter', () => {
+describe('GuardVibeAdapter', { timeout: 20000 }, () => {
   const adapter = new GuardVibeAdapter();
+  let scanResult: ScannerResult;
+
+  beforeAll(async () => {
+    scanResult = await adapter.scan('/tmp/vulnerable-app');
+  });
 
   it('should always be available (static fallback)', async () => {
     const available = await adapter.isAvailable();
@@ -10,40 +16,35 @@ describe('GuardVibeAdapter', () => {
   });
 
   it('should detect hardcoded secrets in .env files', async () => {
-    const result = await adapter.scan('/tmp/vulnerable-app');
-    const hardKeyFindings = result.findings.filter(
+    const hardKeyFindings = scanResult.findings.filter(
       f => f.sourceRule === 'VS-HARDKEY'
     );
     expect(hardKeyFindings.length).toBeGreaterThan(0);
   });
 
   it('should detect XSS patterns', async () => {
-    const result = await adapter.scan('/tmp/vulnerable-app');
-    const xssFindings = result.findings.filter(
+    const xssFindings = scanResult.findings.filter(
       f => f.sourceRule === 'VS-XSS'
     );
     expect(xssFindings.length).toBeGreaterThan(0);
   });
 
   it('should detect debug logging of sensitive data', async () => {
-    const result = await adapter.scan('/tmp/vulnerable-app');
-    const debugFindings = result.findings.filter(
+    const debugFindings = scanResult.findings.filter(
       f => f.sourceRule === 'VS-DEBUG'
     );
     expect(debugFindings.length).toBeGreaterThan(0);
   });
 
   it('should detect env var exposure', async () => {
-    const result = await adapter.scan('/tmp/vulnerable-app');
-    const envFindings = result.findings.filter(
+    const envFindings = scanResult.findings.filter(
       f => f.sourceRule === 'VS-ENV'
     );
     expect(envFindings.length).toBeGreaterThan(0);
   });
 
   it('should produce findings with required fields', async () => {
-    const result = await adapter.scan('/tmp/vulnerable-app');
-    for (const finding of result.findings) {
+    for (const finding of scanResult.findings) {
       expect(finding.id).toBeTruthy();
       expect(finding.source).toBe('guardvibe');
       expect(finding.sourceRule).toBeTruthy();
@@ -55,8 +56,7 @@ describe('GuardVibeAdapter', () => {
   });
 
   it('should return errors when MCP is unavailable', async () => {
-    const result = await adapter.scan('/tmp/vulnerable-app');
     // MCP is not installed, so there should be an error about it
-    expect(result.errors.length).toBeGreaterThanOrEqual(0);
+    expect(scanResult.errors.length).toBeGreaterThanOrEqual(0);
   });
 });

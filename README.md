@@ -8,9 +8,9 @@ AttestLens automatically scans your codebase for Australian Privacy Act (APP/NDB
 
 - **Hard moat**: Questionnaire questions reflect actual *statutory requirements* from the Australian Privacy Act, not generic compliance checkboxes
 - **Automated mapping**: Security findings → APP obligations with confidence scoring
-- **Consultant-grade reports**: HTML/JSON/Markdown output that looks like a Big 4 deliverable
+- **Consultant-grade reports**: HTML/JSON/Markdown/PDF output that looks like a Big 4 deliverable
 - **Strict mode**: Treat all UNKNOWN controls as FAIL — no hiding behind "we don't know"
-- **AI-native**: MCP server for Cursor/Windsurf integration, so your editor can run compliance checks in-context
+- **AI-native**: MCP server for Cursor/Windsurf integration, including direct URL scans in-context
 
 ## Quick Start
 
@@ -23,6 +23,9 @@ attestlens scan ./my-project
 
 # Full compliance audit (scan + report)
 attestlens audit ./my-project -n "MyApp"
+
+# Live-site compliance audit
+attestlens audit https://example.com -n "Example" -f html,json,pdf
 
 # Strict mode — UNKNOWN controls become FAIL
 attestlens audit ./my-project -n "MyApp" --strict
@@ -38,32 +41,34 @@ attestlens report ./scan-results.json -f html
 
 ## CLI Reference
 
-### `attestlens scan <path>`
+### `attestlens scan <target>`
 
-Scan a project for privacy compliance findings.
+Scan a project directory or public URL for privacy compliance findings.
 
 ```bash
 attestlens scan ./my-project
+attestlens scan https://example.com
 attestlens scan ./my-project --no-guardvibe   # Skip GuardVibe scanner
 attestlens scan ./my-project --no-mcp-scan     # Skip MCP config scanner
 ```
 
 Output: List of findings with severity, rule ID, file location, and affected APP principles.
 
-### `attestlens audit <path>`
+### `attestlens audit <target>`
 
-Full compliance audit — scan + APP mapping + weighted scoring + report.
+Full compliance audit — scan + APP mapping + weighted scoring + report. Supports either a project directory or a live URL.
 
 ```bash
 attestlens audit ./my-project -n "MyApp"
-attestlens audit ./my-project -n "MyApp" -f html,json,markdown
+attestlens audit ./my-project -n "MyApp" -f html,json,markdown,pdf
+attestlens audit https://example.com -n "Example" -f json,pdf
 attestlens audit ./my-project -n "MyApp" -o ./reports --strict
 ```
 
 | Option | Description | Default |
 |--------|-------------|---------|
-| `-n, --name <name>` | Project name for the report | Directory name |
-| `-f, --format <formats>` | Output formats: json, html, markdown | `json` |
+| `-n, --name <name>` | Project name for the report | Directory or hostname |
+| `-f, --format <formats>` | Output formats: json, html, markdown, pdf | `html,json` |
 | `-o, --output <dir>` | Output directory | `./attestlens-reports` |
 | `--strict` | Treat UNKNOWN controls as FAIL | `false` |
 | `--no-guardvibe` | Disable GuardVibe scanner | — |
@@ -102,6 +107,7 @@ Add to your editor's MCP settings:
 | Tool | Description |
 |------|-------------|
 | `attestlens_scan` | Scan a project for privacy findings. Returns findings with APP mappings. |
+| `attestlens_scan_url` | Scan a live URL for privacy findings. Returns findings with APP mappings keyed by `targetUrl`. |
 | `attestlens_audit` | Full APP/NDB audit. Returns a complete compliance report. |
 | `attestlens_map` | Map a list of findings to APP obligations. Useful for custom scanners. |
 
@@ -212,7 +218,7 @@ src/
 │   ├── orchestrator.ts # Parallel execution + dedup
 │   └── types.ts        # Scanner interfaces
 ├── questionnaire/       # Interactive attestation (Phase 2 scaffold)
-├── report/             # Report generation (HTML, JSON, Markdown)
+├── report/             # Report generation (HTML, JSON, Markdown, PDF)
 ├── cli/               # CLI entry point (scan, audit, report)
 └── mcp/               # MCP server (AI editor tools)
 ```
@@ -226,7 +232,7 @@ npm install
 # Build
 npm run build
 
-# Test (48 tests)
+# Test (107 tests)
 npm test
 
 # Run locally
@@ -239,24 +245,26 @@ npm run lint
 ## Roadmap
 
 ### Phase 1 ✅ (Current)
-- Core schema + APP/NDB mapping engine (19 rules)
+- Core schema + APP/NDB mapping engine (31 rules)
 - Scanner adapters (GuardVibe static + mcp-scan + supply-chain)
 - Scanner orchestrator (parallel + dedup)
 - CLI (scan, audit, report)
-- Report generation (HTML, JSON, Markdown)
-- MCP server (3 tools)
-- 48 tests
+- URL scanning + hardened outbound fetch path
+- Report generation (HTML, JSON, Markdown, PDF)
+- MCP server (4 tools, including URL scan)
+- 107 tests
 - Strict mode
 - Supply chain detection (7 rules, Axios-attack coverage)
 
 ### Phase 2 (Next)
 - Interactive attestation questionnaire (UNKNOWN → PASS/FAIL)
-- Web dashboard (React + real-time scan progress)
-- PDF report generation
+- Stack-specific checks and validation corpus
+- Breach-readiness scoring and richer consultant deliverables
 - GuardVibe MCP integration (live scanner, not just fallback)
 - Additional framework support (GDPR, SOC 2, HIPAA)
 
 ### Phase 3 (Future)
+- Web dashboard (React + real-time scan progress)
 - CI/CD integration (GitHub Actions, GitLab CI)
 - Team collaboration features
 - Historical trend tracking
