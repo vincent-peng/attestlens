@@ -1,0 +1,37 @@
+targets:
+  - id: example
+    name: Example
+    url: https://example.com/
+    expectedSurface: Baseline static marketing site for header and report sanity checks
+  - id: supabase
+    name: Supabase
+    url: https://supabase.com/
+    expectedSurface: Supabase marketing site with vendor fingerprinting and client bundle checks
+  - id: firebase
+    name: Firebase
+    url: https://firebase.google.com/
+    expectedSurface: Firebase marketing/docs surface with public bundle and header checks
+  - id: vercel
+    name: Vercel
+    url: https://vercel.com/
+    expectedSurface: Vercel marketing site for framework platform fingerprinting
+  - id: netlify
+    name: Netlify
+    url: https://www.netlify.com/
+    expectedSurface: Netlify marketing site for platform fingerprinting and public asset checks
+  - id: clerk
+    name: Clerk
+    url: https://clerk.com/
+    expectedSurface: Clerk auth vendor site to inspect auth-related public bundle signals
+  - id: auth0
+    name: Auth0
+    url: https://auth0.com/
+    expectedSurface: Auth0 identity platform site for auth vendor fingerprinting
+  - id: stripe
+    name: Stripe
+    url: https://stripe.com/
+    expectedSurface: Stripe marketing surface for payment vendor fingerprinting and key-rule sanity checks
+  - id: juice-shop
+    name: OWASP Juice Shop
+    url: https://demo.owasp-juice.shop/
+    expectedSurface: Intentionally vulnerable app for high-signal URL scanner findings and sample reports
