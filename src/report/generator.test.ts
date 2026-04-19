@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { buildComplianceReport, generateJSONReport, generateMarkdownReport, generatePDFReport } from './generator.js';
-import type { AttestLensFinding } from '../schema/index.js';
+import type { AttestLensFinding, QuestionnaireSession } from '../schema/index.js';
 import type { ReportOptions } from './generator.js';
 
 function makeFinding(overrides: Partial<AttestLensFinding> = {}): AttestLensFinding {
@@ -30,6 +30,30 @@ const defaultOptions: ReportOptions = {
   outputDir: '/tmp/attestlens-test',
   strictMode: false,
 };
+
+function makeQuestionnaireSession(
+  overrides: Partial<QuestionnaireSession> = {},
+): QuestionnaireSession {
+  return {
+    id: overrides.id || 'session-001',
+    version: '1.0',
+    status: overrides.status || 'completed',
+    target: overrides.target || {
+      kind: 'path',
+      name: 'TestApp',
+      path: '/tmp/test',
+    },
+    startedAt: overrides.startedAt || new Date().toISOString(),
+    updatedAt: overrides.updatedAt || new Date().toISOString(),
+    completedAt: overrides.completedAt || new Date().toISOString(),
+    strictMode: overrides.strictMode ?? false,
+    scanSnapshotPath: overrides.scanSnapshotPath || '/tmp/test/scan-results.json',
+    findingsHash: overrides.findingsHash || 'hash-123',
+    answers: overrides.answers || [],
+    principleResults: overrides.principleResults || [],
+    currentQuestionId: overrides.currentQuestionId,
+  };
+}
 
 describe('buildComplianceReport', () => {
   it('should generate a report with all 14 APP controls', () => {
@@ -92,6 +116,94 @@ describe('buildComplianceReport', () => {
     expect(report.target.path).toBe('secret-project');
     expect(report.target.url).toBe('https://example.com/private');
   });
+
+  it('merges questionnaire results into unknown controls only', () => {
+    const report = buildComplianceReport([], defaultOptions, 1000, makeQuestionnaireSession({
+      answers: [
+        {
+          questionId: 'Q-APP1-001',
+          answer: true,
+          timestamp: new Date().toISOString(),
+          note: 'Published on website',
+          evidenceRefs: ['docs/privacy-policy.md'],
+          evaluation: {
+            status: 'pass',
+            confidence: 0.85,
+            rationale: 'Policy is public.',
+          },
+        },
+      ],
+      principleResults: [
+        {
+          principle: 'APP_1',
+          status: 'pass',
+          confidence: 0.85,
+          rationale: 'Policy is public.',
+          answeredQuestionIds: ['Q-APP1-001'],
+        },
+        {
+          principle: 'APP_8',
+          status: 'fail',
+          confidence: 0.9,
+          rationale: 'No overseas disclosure controls documented.',
+          answeredQuestionIds: ['Q-APP8-001'],
+        },
+      ],
+    }));
+
+    const app1 = report.appControls.find((control) => control.principle === 'APP_1');
+    const app8 = report.appControls.find((control) => control.principle === 'APP_8');
+    const app11 = report.appControls.find((control) => control.principle === 'APP_11');
+
+    expect(app1?.status).toBe('pass');
+    expect(app8?.status).toBe('fail');
+    expect(app8?.score).toBe(0);
+    expect(app11?.status).toBe('unknown');
+  });
+
+  it('applies strict mode after questionnaire merge for unresolved controls', () => {
+    const report = buildComplianceReport([], {
+      ...defaultOptions,
+      strictMode: true,
+    }, 1000, makeQuestionnaireSession({
+      strictMode: true,
+      principleResults: [
+        {
+          principle: 'APP_1',
+          status: 'pass',
+          confidence: 0.85,
+          rationale: 'Policy is public.',
+          answeredQuestionIds: ['Q-APP1-001'],
+        },
+      ],
+    }));
+
+    const app1 = report.appControls.find((control) => control.principle === 'APP_1');
+    const app11 = report.appControls.find((control) => control.principle === 'APP_11');
+
+    expect(app1?.status).toBe('pass');
+    expect(app11?.status).toBe('fail');
+    expect(app11?.score).toBe(0);
+  });
+
+  it('does not override scan-derived failures with questionnaire pass results', () => {
+    const report = buildComplianceReport([
+      makeFinding({ id: 'F-SEC-001', severity: 'critical', sourceRule: 'VS-HARDKEY' }),
+    ], defaultOptions, 1000, makeQuestionnaireSession({
+      principleResults: [
+        {
+          principle: 'APP_11',
+          status: 'pass',
+          confidence: 0.9,
+          rationale: 'Security controls are documented.',
+          answeredQuestionIds: ['Q-APP1-001'],
+        },
+      ],
+    }));
+
+    const app11 = report.appControls.find((control) => control.principle === 'APP_11');
+    expect(app11?.status).toBe('fail');
+  });
 });
 
 describe('generateJSONReport', () => {
@@ -114,6 +226,40 @@ describe('generateMarkdownReport', () => {
     expect(md).toContain('# Privacy Act Compliance Report');
     expect(md).toContain('APP_11');
     expect(md).toContain('Hardcoded key');
+  });
+
+  it('includes questionnaire outcomes and evidence notes in merged markdown reports', () => {
+    const report = buildComplianceReport([], defaultOptions, 1000, makeQuestionnaireSession({
+      answers: [
+        {
+          questionId: 'Q-APP1-001',
+          answer: true,
+          timestamp: new Date().toISOString(),
+          note: 'Published on website',
+          evidenceRefs: ['docs/privacy-policy.md'],
+          evaluation: {
+            status: 'pass',
+            confidence: 0.85,
+            rationale: 'Policy is public.',
+          },
+        },
+      ],
+      principleResults: [
+        {
+          principle: 'APP_1',
+          status: 'pass',
+          confidence: 0.85,
+          rationale: 'Policy is public.',
+          answeredQuestionIds: ['Q-APP1-001'],
+        },
+      ],
+    }));
+
+    const md = generateMarkdownReport(report);
+    expect(md).toContain('### Questionnaire Attestation');
+    expect(md).toContain('Policy is public.');
+    expect(md).toContain('#### Evidence Notes');
+    expect(md).toContain('docs/privacy-policy.md');
   });
 });
 

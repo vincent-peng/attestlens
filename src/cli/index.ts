@@ -24,9 +24,18 @@ import {
   generateMarkdownReport,
   generatePDFReport,
 } from '../report/generator.js';
+import {
+  buildAttestationScanSnapshot,
+  createInteractivePromptRunner,
+  initializeAttestationSession,
+  loadQuestionnaireSession,
+  loadScanSnapshot,
+  runAttestationSession,
+} from '../questionnaire/index.js';
 import type { AttestLensFinding } from '../schema/index.js';
 import type { ReportFormat, ReportOptions } from '../report/generator.js';
 import type { ScannerError, ScannerResult } from '../scanner/types.js';
+import type { AttestationPromptRunner, AttestationScanSnapshot, SessionTarget } from '../questionnaire/index.js';
 import { getHostnameFromTargetUrl } from '../utils/target.js';
 
 const program = new Command();
@@ -187,6 +196,32 @@ program
     }
   });
 
+// ─── Attest Command ───────────────────────────────────────────────────────────
+
+program
+  .command('attest')
+  .description('Start, resume, or complete a questionnaire-backed attestation session')
+  .argument('[target]', 'Path to project directory or URL (https://...)')
+  .option('--from-scan <file>', 'Create a new attestation session from an existing scan JSON')
+  .option('--resume <file>', 'Resume an existing attestation session JSON')
+  .option('-n, --name <name>', 'Target name', '')
+  .option('-o, --output <dir>', 'Output directory', './attestlens-reports')
+  .option('-f, --format <formats>', 'Output formats (json,html,markdown,pdf)', 'html,json,markdown,pdf')
+  .option('--strict', 'Treat unresolved controls as FAIL after questionnaire merge')
+  .option('--no-guardvibe', 'Disable GuardVibe scanner')
+  .option('--no-mcp-scan', 'Disable mcp-scan')
+  .option('--no-supply-chain', 'Disable supply chain scanner')
+  .action(async (targetInput: string | undefined, options: any) => {
+    console.log(chalk.bold.cyan('\n📝 AttestLens — Privacy Act Attestation\n'));
+
+    try {
+      await executeAttestCommand(targetInput, options);
+    } catch (error: any) {
+      console.error(chalk.red(`\nError: ${error.message}`));
+      process.exit(1);
+    }
+  });
+
 // ─── Report Command ───────────────────────────────────────────────────────────
 
 program
@@ -283,6 +318,261 @@ function createOrchestrator(targetKind: CliTarget['kind'], options: any): Scanne
   if (options.mcpScan === false) orchestrator.disable('mcp-scan');
   if (options.supplyChain === false) orchestrator.disable('supply-chain');
   return orchestrator;
+}
+
+export interface AttestCommandResult {
+  status: 'saved' | 'completed';
+  sessionPath: string;
+  scanSnapshotPath: string;
+  outputDir: string;
+  reportPaths?: Array<{ label: string; path: string }>;
+}
+
+function countDefined(values: Array<unknown>): number {
+  return values.filter((value) => value !== undefined && value !== null && value !== '').length;
+}
+
+function toSessionTarget(target: CliTarget): SessionTarget {
+  return target.kind === 'url'
+    ? { kind: 'url', name: target.name, url: target.value }
+    : { kind: 'path', name: target.name, path: target.value };
+}
+
+function buildSessionTargetFromReportTarget(reportTarget: {
+  targetName: string;
+  targetPath?: string;
+  targetUrl?: string;
+}): SessionTarget {
+  if (reportTarget.targetUrl) {
+    return {
+      kind: 'url',
+      name: reportTarget.targetName,
+      url: reportTarget.targetUrl,
+    };
+  }
+
+  return {
+    kind: 'path',
+    name: reportTarget.targetName,
+    path: reportTarget.targetPath || reportTarget.targetName,
+  };
+}
+
+function normalizeScanSnapshot(
+  scanData: Record<string, any> | AttestLensFinding[],
+  resolvedPath: string,
+  explicitName?: string,
+): { snapshot: AttestationScanSnapshot; target: SessionTarget } {
+  const normalizedScanData = Array.isArray(scanData)
+    ? { findings: scanData }
+    : scanData;
+
+  const reportTarget = resolveReportTarget(normalizedScanData, resolvedPath, explicitName);
+  const target = buildSessionTargetFromReportTarget(reportTarget);
+  const findings = Array.isArray(normalizedScanData.findings) ? normalizedScanData.findings : [];
+
+  return {
+    target,
+    snapshot: {
+      targetType: target.kind,
+      target: {
+        name: target.name,
+        path: target.kind === 'path' ? target.path : undefined,
+        url: target.kind === 'url' ? target.url : undefined,
+      },
+      targetPath: target.kind === 'path' ? target.path : undefined,
+      targetUrl: target.kind === 'url' ? target.url : undefined,
+      findings,
+      results: Array.isArray(normalizedScanData.results) ? normalizedScanData.results : [],
+      errors: Array.isArray(normalizedScanData.errors) ? normalizedScanData.errors : [],
+      totalDurationMs: typeof normalizedScanData.totalDurationMs === 'number'
+        ? normalizedScanData.totalDurationMs
+        : typeof normalizedScanData.metadata?.scanDurationMs === 'number'
+          ? normalizedScanData.metadata.scanDurationMs
+          : 0,
+    },
+  };
+}
+
+function getReportOptionsForSession(
+  sessionTarget: SessionTarget,
+  formats: ReportFormat[],
+  outputDir: string,
+  strictMode: boolean,
+): ReportOptions {
+  return {
+    targetName: sessionTarget.name,
+    targetPath: sessionTarget.kind === 'path' ? sessionTarget.path : undefined,
+    targetUrl: sessionTarget.kind === 'url' ? sessionTarget.url : undefined,
+    formats,
+    outputDir,
+    strictMode,
+  };
+}
+
+function getScannerVersions(snapshot: AttestationScanSnapshot): Record<string, string> {
+  return Object.fromEntries(snapshot.results.map((result) => [result.source, result.version]));
+}
+
+function summarizeQuestionnaireResults(report: ReturnType<typeof buildComplianceReport>): {
+  resolved: number;
+  unresolved: string[];
+} {
+  const results = report.questionnaireResults || [];
+  return {
+    resolved: results.filter((result) => result.status !== 'unknown').length,
+    unresolved: results
+      .filter((result) => result.status === 'unknown')
+      .map((result) => result.principle),
+  };
+}
+
+export async function executeAttestCommand(
+  targetInput: string | undefined,
+  options: any,
+  promptRunner?: AttestationPromptRunner,
+): Promise<AttestCommandResult> {
+  const selectedSources = countDefined([targetInput, options.fromScan, options.resume]);
+  if (selectedSources !== 1) {
+    throw new Error('Choose exactly one start mode: <target>, --from-scan <file>, or --resume <session.json>.');
+  }
+
+  const runner = promptRunner || createInteractivePromptRunner();
+  const outputRoot = path.resolve(options.output);
+  const reportFormats = parseReportFormats(options.format);
+
+  let sessionPath: string;
+  let scanSnapshotPath: string;
+  let sessionTarget: SessionTarget;
+  let snapshot: AttestationScanSnapshot;
+  let session;
+
+  if (options.resume) {
+    sessionPath = path.resolve(options.resume);
+    session = await loadQuestionnaireSession(sessionPath);
+    if (session.status === 'completed') {
+      throw new Error(`Attestation session is already completed: ${sessionPath}`);
+    }
+
+    snapshot = await loadScanSnapshot<AttestationScanSnapshot>(session.scanSnapshotPath);
+    scanSnapshotPath = session.scanSnapshotPath;
+    sessionTarget = session.target.kind === 'url'
+      ? { kind: 'url', name: session.target.name, url: session.target.url! }
+      : { kind: 'path', name: session.target.name, path: session.target.path! };
+  } else if (options.fromScan) {
+    const resolvedScanPath = path.resolve(options.fromScan);
+    const rawScanData = JSON.parse(await fs.readFile(resolvedScanPath, 'utf-8'));
+    const normalized = normalizeScanSnapshot(rawScanData, resolvedScanPath, options.name);
+    snapshot = normalized.snapshot;
+    sessionTarget = normalized.target;
+
+    const spinner = ora('Creating attestation session from saved scan...').start();
+    const initialized = await initializeAttestationSession({
+      snapshot,
+      target: sessionTarget,
+      outputDir: outputRoot,
+      strictMode: Boolean(options.strict),
+    });
+    spinner.succeed(`Session created at ${initialized.paths.directory}`);
+
+    session = initialized.session;
+    sessionPath = initialized.paths.sessionPath;
+    scanSnapshotPath = initialized.paths.scanSnapshotPath;
+  } else {
+    const target = await resolveCliTarget(targetInput!, options.name);
+    sessionTarget = toSessionTarget(target);
+    const orchestrator = createOrchestrator(target.kind, options);
+    const spinner = ora(target.kind === 'url' ? `Scanning URL: ${target.value}` : 'Scanning project...').start();
+    const startTime = Date.now();
+    const scanResult = await orchestrator.scan(target.value);
+    const urlScanFailure = target.kind === 'url' ? getUrlScanFailureMessage(scanResult) : null;
+    if (urlScanFailure) {
+      spinner.fail('Attestation scan failed');
+      throw new Error(urlScanFailure);
+    }
+
+    snapshot = buildAttestationScanSnapshot({
+      target: sessionTarget,
+      findings: scanResult.findings,
+      results: scanResult.results,
+      errors: scanResult.errors,
+      totalDurationMs: Date.now() - startTime,
+    });
+
+    const initialized = await initializeAttestationSession({
+      snapshot,
+      target: sessionTarget,
+      outputDir: outputRoot,
+      strictMode: Boolean(options.strict),
+    });
+    spinner.succeed(`Session created at ${initialized.paths.directory}`);
+
+    session = initialized.session;
+    sessionPath = initialized.paths.sessionPath;
+    scanSnapshotPath = initialized.paths.scanSnapshotPath;
+  }
+
+  console.log(chalk.gray(`Session file: ${sessionPath}`));
+  console.log(chalk.gray(`Frozen scan snapshot: ${scanSnapshotPath}`));
+
+  const runResult = await runAttestationSession({
+    session,
+    sessionPath,
+    snapshot,
+    promptRunner: runner,
+  });
+
+  if (runResult.status === 'saved') {
+    console.log(chalk.yellow('\nAttestation saved for later completion.'));
+    console.log(chalk.yellow(`Resume with: attestlens attest --resume ${sessionPath}`));
+    return {
+      status: 'saved',
+      sessionPath,
+      scanSnapshotPath,
+      outputDir: path.dirname(sessionPath),
+    };
+  }
+
+  const reportOptions = getReportOptionsForSession(
+    sessionTarget,
+    reportFormats,
+    path.dirname(sessionPath),
+    runResult.session.strictMode,
+  );
+  const report = buildComplianceReport(
+    snapshot.findings,
+    reportOptions,
+    snapshot.totalDurationMs,
+    runResult.session,
+  );
+  report.metadata.scannerVersions = getScannerVersions(snapshot);
+
+  const reportPaths = await writeReportFiles(report, reportOptions);
+  const questionnaireSummary = summarizeQuestionnaireResults(report);
+
+  console.log('');
+  console.log(chalk.bold('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━'));
+  console.log(chalk.bold(`  Grade: ${getGradeDisplay(report.overallGrade, report.overallScore)}`));
+  console.log(chalk.bold(`  Risk:  ${getRiskDisplay(report.riskLevel)}`));
+  console.log(chalk.bold(`  Questionnaire Resolved: ${questionnaireSummary.resolved}`));
+  console.log(chalk.bold('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━'));
+
+  if (questionnaireSummary.unresolved.length > 0) {
+    console.log(chalk.yellow(`\nUnresolved questionnaire principles: ${questionnaireSummary.unresolved.join(', ')}`));
+  }
+
+  console.log('');
+  for (const output of reportPaths) {
+    console.log(chalk.green(`  📄 ${output.label}: ${output.path}`));
+  }
+
+  return {
+    status: 'completed',
+    sessionPath,
+    scanSnapshotPath,
+    outputDir: path.dirname(sessionPath),
+    reportPaths,
+  };
 }
 
 function getUrlScanFailureMessage(

@@ -1,6 +1,6 @@
 # AttestLens — Status
 
-**Last Updated:** 2026-04-19  
+**Last Updated:** 2026-04-20  
 **Purpose:** Near-term source of truth for product status, current milestone, and next actions.
 
 ---
@@ -34,9 +34,11 @@ In practice, that means:
 - Scanner orchestrator with parallel execution and deduplication
 - APP/NDB mapping engine
 - CLI commands: `scan`, `audit`, `report`
+- CLI attestation workflow: `attest <target>`, `attest --from-scan`, `attest --resume`
 - MCP server with path scan, URL scan, audit, and mapping tools
 - HTML, JSON, Markdown, and PDF reporting
 - Strict mode (`UNKNOWN -> FAIL`)
+- Questionnaire session model, JSON persistence, resume flow, and merged report support
 - Supply-chain scanner with Axios-style attack coverage
 - Validation corpus runner with 9 public targets and Markdown summaries
 - Stack-specific repo security checks for Supabase, Firebase, Stripe, Clerk/Auth0, and platform secrets
@@ -50,7 +52,7 @@ In practice, that means:
 ### In Progress
 
 - Design-partner validation and consultant/MSP outreach
-- Phase 2 questionnaire flow planning
+- Phase 2 follow-on work: broader questionnaire coverage, breach-readiness scoring, and report refinement
 - Validation-driven rule cleanup for remaining live-site false positives and CDN/bot-blocked targets
 
 ### Not Shipped
@@ -81,16 +83,17 @@ In practice, that means:
 - URL scanner hardening pass completed
 - MCP URL scan tool exists
 - PDF report MVP exists
+- `attest` CLI foundation exists with saved scan snapshots, resume support, and questionnaire/report merge
 - rule-level fix prompts exist across URL/header/key/JS findings
 - mapping engine includes URL-scan categories
 - validation corpus and findings log exist
 - stack-specific repo checks exist
 - sanitized sample Juice Shop report exists
 
-### Immediate M2 Foundation Work
+### Immediate M2 Work
 
-1. Build the questionnaire flow engine and answer evaluation.
-2. Merge scan evidence with questionnaire outcomes.
+1. Expand questionnaire coverage so fewer APP principles remain unresolved after a full attestation.
+2. Add breach-readiness scoring and consultant-facing narrative sections on top of the merged report path.
 3. Tighten the small set of validation-corpus false positives and intermittent live-site fetch failures.
 
 ---
@@ -143,8 +146,8 @@ These are the default operating rules for the project.
 ### Next 2 Weeks
 
 1. Start design-partner outreach with the v0.2.0 sample report.
-2. Build questionnaire session + evaluator primitives.
-3. Merge questionnaire output into report generation.
+2. Validate the new `attest` flow with real consultant-style runs and tighten the remaining unresolved principles.
+3. Add breach-readiness scoring on top of the merged scan + questionnaire baseline.
 4. Triage the remaining validation noise (`AL-KEY-011`, `AL-INFRA-006`, duplicate API-key semantics).
 5. Keep milestone docs aligned as M2 lands.
 

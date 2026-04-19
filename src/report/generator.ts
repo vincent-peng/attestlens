@@ -15,9 +15,11 @@ import type {
   ComplianceReport,
   RemediationItem,
   ControlStatus,
+  QuestionnaireSession,
 } from '../schema/index.js';
 import { APPInfo, calculateGrade, calculateRiskLevel } from '../schema/index.js';
 import { mapAllFindings } from '../mapping/engine.js';
+import { getQuestionById } from '../questionnaire/index.js';
 import { sanitizeTargetPathForOutput, sanitizeTargetUrlForOutput } from '../utils/target.js';
 
 const ATTESTLENS_VERSION = '0.2.0';
@@ -48,12 +50,23 @@ export function buildComplianceReport(
   findings: AttestLensFinding[],
   options: ReportOptions,
   durationMs: number,
+  questionnaireSession?: QuestionnaireSession,
 ): ComplianceReport {
-  // Step 1: Map findings to APP obligations
-  const { controls: appControls, unmapped } = mapAllFindings(findings, options.strictMode);
+  // Step 1: Map findings to APP obligations.
+  // When questionnaire results are present, keep UNKNOWN controls as-is
+  // until the questionnaire merge has a chance to resolve them.
+  const { controls: appControls } = mapAllFindings(findings, questionnaireSession ? false : options.strictMode);
   const mappedFindings = findings; // findings now have appMappings populated by mapAllFindings
 
-  // Step 2: Use the controls from mapping engine (already computed)
+  // Step 2: Merge questionnaire outcomes, then apply strict mode to anything
+  // still unresolved.
+  if (questionnaireSession) {
+    mergeQuestionnaireResults(appControls, questionnaireSession);
+
+    if (options.strictMode) {
+      applyStrictModeToUnknownControls(appControls);
+    }
+  }
 
   // Step 3: Calculate overall score and grade
   const overallScore = calculateOverallScore(appControls);
@@ -80,6 +93,8 @@ export function buildComplianceReport(
     riskLevel,
     appControls,
     findings: mappedFindings,
+    questionnaire: questionnaireSession?.answers,
+    questionnaireResults: questionnaireSession?.principleResults,
     remediation,
     metadata: {
       scannerVersions: {},
@@ -96,6 +111,46 @@ export function buildComplianceReport(
   };
 
   return report;
+}
+
+function mergeQuestionnaireResults(
+  controls: APPControl[],
+  questionnaireSession: QuestionnaireSession,
+): void {
+  const resultMap = new Map(
+    questionnaireSession.principleResults.map((result) => [result.principle, result]),
+  );
+
+  for (const control of controls) {
+    if (control.status !== 'unknown') {
+      continue;
+    }
+
+    const questionnaireResult = resultMap.get(control.principle);
+    if (!questionnaireResult || questionnaireResult.status === 'unknown') {
+      continue;
+    }
+
+    control.status = questionnaireResult.status;
+    control.questionnaireRequired = false;
+    control.lastAssessed = new Date().toISOString();
+
+    if (questionnaireResult.status === 'fail') {
+      control.score = 0;
+    }
+  }
+}
+
+function applyStrictModeToUnknownControls(controls: APPControl[]): void {
+  for (const control of controls) {
+    if (control.status !== 'unknown') {
+      continue;
+    }
+
+    control.status = 'fail';
+    control.score = 0;
+    control.questionnaireRequired = false;
+  }
 }
 
 // ─── Score Calculation ────────────────────────────────────────────────────────
@@ -372,6 +427,7 @@ export function generateHTMLReport(report: ComplianceReport, options: ReportOpti
         `).join('')}
       </tbody>
     </table>
+    ${generateHTMLQuestionnaireSection(report)}
   </div>
 
   <!-- Findings -->
@@ -455,6 +511,94 @@ function getRiskSummary(report: ComplianceReport): string {
   return 'Low risk. All identified APP controls are passing. Continue monitoring and complete attestation questionnaires for unknown controls.';
 }
 
+function getQuestionnaireSummaryRows(report: ComplianceReport): Array<{
+  principle: string;
+  status: ControlStatus;
+  rationale: string;
+}> {
+  if (!report.questionnaireResults || report.questionnaireResults.length === 0) {
+    return [];
+  }
+
+  return report.questionnaireResults.map((result) => ({
+    principle: result.principle,
+    status: result.status,
+    rationale: result.rationale,
+  }));
+}
+
+function getQuestionnaireEvidenceRows(report: ComplianceReport): Array<{
+  principle: string;
+  questionId: string;
+  question: string;
+  note?: string;
+  evidenceRefs: string[];
+}> {
+  if (!report.questionnaire || report.questionnaire.length === 0) {
+    return [];
+  }
+
+  return report.questionnaire
+    .filter((response) => response.note || response.evidenceRefs?.length)
+    .map((response) => {
+      const question = getQuestionById(response.questionId);
+      return {
+        principle: question?.appPrinciple || 'UNKNOWN',
+        questionId: response.questionId,
+        question: question?.question || response.questionId,
+        note: response.note,
+        evidenceRefs: response.evidenceRefs || [],
+      };
+    });
+}
+
+function generateHTMLQuestionnaireSection(report: ComplianceReport): string {
+  if (!report.questionnaire || report.questionnaire.length === 0) {
+    return '';
+  }
+
+  const questionnaireRows = getQuestionnaireSummaryRows(report);
+  const unresolvedRows = questionnaireRows.filter((row) => row.status === 'unknown');
+  const evidenceRows = getQuestionnaireEvidenceRows(report);
+  return `
+    <h2>Questionnaire Attestation</h2>
+    <p>${report.questionnaire.length} questionnaire response${report.questionnaire.length === 1 ? '' : 's'} captured.</p>
+    <table class="checklist">
+      <thead>
+        <tr>
+          <th>Principle</th>
+          <th>Status</th>
+          <th>Summary</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${questionnaireRows.map((row) => `
+          <tr>
+            <td><strong>${row.principle}</strong></td>
+            <td><span class="status-${row.status}">${row.status.toUpperCase()}</span></td>
+            <td>${escapeHtml(row.rationale)}</td>
+          </tr>
+        `).join('')}
+      </tbody>
+    </table>
+    ${unresolvedRows.length > 0 ? `
+      <p><strong>Unresolved principles:</strong> ${unresolvedRows.map((row) => row.principle).join(', ')}</p>
+    ` : ''}
+    ${evidenceRows.length > 0 ? `
+      <h3>Evidence Notes</h3>
+      <ul>
+        ${evidenceRows.map((row) => `
+          <li>
+            <strong>${row.principle}</strong> — ${escapeHtml(row.question)}
+            ${row.note ? `<br>${escapeHtml(row.note)}` : ''}
+            ${row.evidenceRefs.length > 0 ? `<br><em>Refs:</em> ${row.evidenceRefs.map(escapeHtml).join(', ')}` : ''}
+          </li>
+        `).join('')}
+      </ul>
+    ` : ''}
+  `;
+}
+
 function escapeHtml(text: string): string {
   return text
     .replace(/&/g, '&amp;')
@@ -497,6 +641,41 @@ export function generateMarkdownReport(report: ComplianceReport): string {
     lines.push(`| ${c.principle} | ${c.shortName} | ${c.status.toUpperCase()} | ${c.score}/100 |`);
   }
   lines.push('');
+
+  if (report.questionnaire && report.questionnaire.length > 0) {
+    lines.push(`### Questionnaire Attestation`);
+    lines.push('');
+    lines.push(`- **Responses Captured:** ${report.questionnaire.length}`);
+    const questionnaireRows = getQuestionnaireSummaryRows(report);
+    const unresolvedControls = questionnaireRows
+      .filter((row) => row.status === 'unknown')
+      .map((row) => row.principle);
+    if (unresolvedControls.length > 0) {
+      lines.push(`- **Unresolved Principles:** ${unresolvedControls.join(', ')}`);
+    }
+    lines.push('');
+    lines.push(`| Principle | Status | Summary |`);
+    lines.push(`|---|---|---|`);
+    for (const row of questionnaireRows) {
+      lines.push(`| ${row.principle} | ${row.status.toUpperCase()} | ${row.rationale.replace(/\|/g, '\\|')} |`);
+    }
+    const evidenceRows = getQuestionnaireEvidenceRows(report);
+    if (evidenceRows.length > 0) {
+      lines.push('');
+      lines.push(`#### Evidence Notes`);
+      lines.push('');
+      for (const row of evidenceRows) {
+        lines.push(`- **${row.principle} / ${row.questionId}:** ${row.question}`);
+        if (row.note) {
+          lines.push(`  Note: ${row.note}`);
+        }
+        if (row.evidenceRefs.length > 0) {
+          lines.push(`  Refs: ${row.evidenceRefs.join(', ')}`);
+        }
+      }
+    }
+    lines.push('');
+  }
 
   lines.push(`## Findings`);
   lines.push('');
@@ -643,6 +822,44 @@ function renderPDFExecutiveSummary(doc: PDFDocument, report: ComplianceReport): 
       .text(
         `${control.principle} — ${control.shortName}: ${control.status.toUpperCase()} (${control.score}/100, ${findingCount} findings)`,
       );
+  }
+
+  if (report.questionnaire && report.questionnaire.length > 0) {
+    const questionnaireRows = getQuestionnaireSummaryRows(report);
+    const unresolvedRows = questionnaireRows.filter((row) => row.status === 'unknown');
+    const evidenceRows = getQuestionnaireEvidenceRows(report);
+    doc.moveDown();
+    doc.fontSize(16).fillColor('#1a2332').text('Questionnaire Attestation');
+    doc.moveDown(0.5);
+    doc.fontSize(10).fillColor('#0f172a').text(`Responses captured: ${report.questionnaire.length}`);
+    doc.text(`Resolved principles: ${questionnaireRows.filter((row) => row.status !== 'unknown').length}`);
+    if (unresolvedRows.length > 0) {
+      doc.text(`Unresolved principles: ${unresolvedRows.map((row) => row.principle).join(', ')}`);
+    }
+
+    for (const row of questionnaireRows) {
+      doc
+        .fontSize(10)
+        .fillColor('#334155')
+        .text(`${row.principle}: ${row.status.toUpperCase()} — ${row.rationale}`);
+    }
+
+    if (evidenceRows.length > 0) {
+      doc.moveDown();
+      doc.fontSize(12).fillColor('#1a2332').text('Evidence Notes');
+      for (const row of evidenceRows) {
+        doc
+          .fontSize(10)
+          .fillColor('#334155')
+          .text(`${row.principle} / ${row.questionId}: ${row.question}`);
+        if (row.note) {
+          doc.text(`Note: ${row.note}`);
+        }
+        if (row.evidenceRefs.length > 0) {
+          doc.text(`Refs: ${row.evidenceRefs.join(', ')}`);
+        }
+      }
+    }
   }
 }
 

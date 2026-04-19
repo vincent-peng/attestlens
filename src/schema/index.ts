@@ -110,6 +110,12 @@ export type AttestLensFinding = z.infer<typeof AttestLensFinding>;
 export const QuestionType = z.enum(['yes_no', 'yes_no_na', 'text', 'multi_choice']);
 export type QuestionType = z.infer<typeof QuestionType>;
 
+export const QuestionDependency = z.object({
+  questionId: z.string(),
+  answers: z.array(z.union([z.boolean(), z.string()])),
+});
+export type QuestionDependency = z.infer<typeof QuestionDependency>;
+
 export const Question = z.object({
   id: z.string(),
   appPrinciple: APPPrinciple,
@@ -118,17 +124,62 @@ export const Question = z.object({
   options: z.array(z.string()).optional(),
   required: z.boolean(),
   helpText: z.string().optional(),
+  dependsOn: QuestionDependency.optional(),
   relatedFindings: z.array(z.string()).optional(), // Finding IDs
 });
 export type Question = z.infer<typeof Question>;
+
+export const QuestionnaireEvaluation = z.object({
+  status: ControlStatus,
+  confidence: z.number().min(0).max(1),
+  rationale: z.string(),
+});
+export type QuestionnaireEvaluation = z.infer<typeof QuestionnaireEvaluation>;
 
 export const QuestionnaireResponse = z.object({
   questionId: z.string(),
   answer: z.union([z.boolean(), z.string(), z.array(z.string())]),
   timestamp: z.string().datetime(),
   answeredBy: z.string().optional(),
+  note: z.string().optional(),
+  evidenceRefs: z.array(z.string()).optional(),
+  evaluation: QuestionnaireEvaluation.optional(),
 });
 export type QuestionnaireResponse = z.infer<typeof QuestionnaireResponse>;
+
+export const QuestionnairePrincipleResult = z.object({
+  principle: APPPrinciple,
+  status: ControlStatus,
+  confidence: z.number().min(0).max(1),
+  rationale: z.string(),
+  answeredQuestionIds: z.array(z.string()),
+});
+export type QuestionnairePrincipleResult = z.infer<typeof QuestionnairePrincipleResult>;
+
+export const QuestionnaireSessionStatus = z.enum(['in_progress', 'completed']);
+export type QuestionnaireSessionStatus = z.infer<typeof QuestionnaireSessionStatus>;
+
+export const QuestionnaireSession = z.object({
+  id: z.string(),
+  version: z.literal('1.0'),
+  status: QuestionnaireSessionStatus,
+  target: z.object({
+    kind: z.enum(['path', 'url']),
+    name: z.string(),
+    path: z.string().optional(),
+    url: z.string().optional(),
+  }),
+  startedAt: z.string().datetime(),
+  updatedAt: z.string().datetime(),
+  completedAt: z.string().datetime().optional(),
+  strictMode: z.boolean(),
+  scanSnapshotPath: z.string(),
+  findingsHash: z.string(),
+  answers: z.array(QuestionnaireResponse),
+  principleResults: z.array(QuestionnairePrincipleResult),
+  currentQuestionId: z.string().optional(),
+});
+export type QuestionnaireSession = z.infer<typeof QuestionnaireSession>;
 
 // ─── APP Control Assessment ─────────────────────────────────────────────────
 
@@ -189,6 +240,7 @@ export const ComplianceReport = z.object({
   appControls: z.array(APPControl),
   findings: z.array(AttestLensFinding),
   questionnaire: z.array(QuestionnaireResponse).optional(),
+  questionnaireResults: z.array(QuestionnairePrincipleResult).optional(),
   remediation: z.array(RemediationItem),
   metadata: z.object({
     scannerVersions: z.record(z.string(), z.string()),

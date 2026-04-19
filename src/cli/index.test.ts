@@ -7,6 +7,9 @@ import { promisify } from 'node:util';
 
 import { describe, expect, it } from 'vitest';
 
+import { loadQuestionnaireSession, loadScanSnapshot, type AttestationPromptRunner } from '../questionnaire/index.js';
+import { executeAttestCommand } from './index.js';
+
 const execFileAsync = promisify(execFile);
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 const tsxBin = path.join(repoRoot, 'node_modules', '.bin', 'tsx');
@@ -23,6 +26,48 @@ async function runCli(args: string[]): Promise<{ code: number; stdout: string; s
       stderr: error.stderr ?? '',
     };
   }
+}
+
+function makePromptRunner(options: {
+  saveAfter?: number;
+  noteQuestionId?: string;
+} = {}): AttestationPromptRunner {
+  let answeredCount = 0;
+
+  return {
+    async prompt(question) {
+      if (options.saveAfter !== undefined && answeredCount >= options.saveAfter) {
+        return { kind: 'save_and_exit' };
+      }
+
+      answeredCount += 1;
+
+      switch (question.type) {
+        case 'yes_no':
+          return {
+            kind: 'answer',
+            answer: true,
+            note: options.noteQuestionId === question.id ? 'Reviewed internally' : undefined,
+            evidenceRefs: options.noteQuestionId === question.id ? ['docs/privacy-policy.md'] : undefined,
+          };
+        case 'yes_no_na':
+          return {
+            kind: 'answer',
+            answer: true,
+          };
+        case 'multi_choice':
+          return {
+            kind: 'answer',
+            answer: (question.options || []).filter((option) => option !== 'None of the above').slice(0, 2),
+          };
+        case 'text':
+          return {
+            kind: 'answer',
+            answer: 'Documented internally',
+          };
+      }
+    },
+  };
 }
 
 describe('CLI URL handling', () => {
@@ -74,6 +119,87 @@ describe('CLI URL handling', () => {
       expect(markdown).toContain('**Target URL:** https://example.com/');
       expect(markdown).not.toContain('**Target Path:**');
       expect(markdown).toContain('# Privacy Act Compliance Report — example.com');
+    } finally {
+      await fs.rm(tempDir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('CLI attest command', () => {
+  it('creates session.json and scan-results.json when starting from a local path target', async () => {
+    const projectDir = await fs.mkdtemp(path.join(os.tmpdir(), 'attestlens-attest-project-'));
+    const outputDir = await fs.mkdtemp(path.join(os.tmpdir(), 'attestlens-attest-output-'));
+
+    try {
+      await fs.writeFile(path.join(projectDir, 'README.md'), '# Example project\n');
+
+      const result = await executeAttestCommand(projectDir, {
+        output: outputDir,
+        format: 'json',
+        strict: false,
+      }, makePromptRunner({ saveAfter: 0 }));
+
+      expect(result.status).toBe('saved');
+
+      const session = await loadQuestionnaireSession(result.sessionPath);
+      const snapshot = await loadScanSnapshot<any>(result.scanSnapshotPath);
+
+      expect(session.target.kind).toBe('path');
+      expect(session.target.path).toBe(projectDir);
+      expect(snapshot.target.path).toBe(projectDir);
+      await expect(fs.stat(result.sessionPath)).resolves.toBeTruthy();
+      await expect(fs.stat(result.scanSnapshotPath)).resolves.toBeTruthy();
+    } finally {
+      await fs.rm(projectDir, { recursive: true, force: true });
+      await fs.rm(outputDir, { recursive: true, force: true });
+    }
+  });
+
+  it('starts from a saved URL scan, resumes, and writes merged report artifacts', async () => {
+    const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'attestlens-attest-session-'));
+    const scanFile = path.join(tempDir, 'scan.json');
+
+    try {
+      await fs.writeFile(scanFile, JSON.stringify({
+        targetType: 'url',
+        targetUrl: 'https://example.com/',
+        target: {
+          name: 'example.com',
+          url: 'https://example.com/',
+        },
+        findings: [],
+        results: [],
+        errors: [],
+        totalDurationMs: 250,
+      }, null, 2));
+
+      const saved = await executeAttestCommand(undefined, {
+        fromScan: scanFile,
+        output: tempDir,
+        format: 'json,html,markdown,pdf',
+        strict: false,
+      }, makePromptRunner({ saveAfter: 1 }));
+
+      expect(saved.status).toBe('saved');
+
+      const savedSession = await loadQuestionnaireSession(saved.sessionPath);
+      const frozenSnapshot = await loadScanSnapshot<any>(saved.scanSnapshotPath);
+      expect(savedSession.answers).toHaveLength(1);
+      expect(frozenSnapshot.target.url).toBe('https://example.com/');
+
+      const completed = await executeAttestCommand(undefined, {
+        resume: saved.sessionPath,
+        output: tempDir,
+        format: 'json,html,markdown,pdf',
+        strict: false,
+      }, makePromptRunner({ noteQuestionId: 'Q-APP1-001' }));
+
+      expect(completed.status).toBe('completed');
+      expect(completed.reportPaths).toHaveLength(4);
+
+      const completedSession = await loadQuestionnaireSession(saved.sessionPath);
+      expect(completedSession.status).toBe('completed');
+      expect(completedSession.answers.length).toBeGreaterThan(1);
     } finally {
       await fs.rm(tempDir, { recursive: true, force: true });
     }
