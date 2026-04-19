@@ -1,0 +1,125 @@
+import fs from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
+
+import { describe, expect, it } from 'vitest';
+
+import { GuardVibeAdapter } from '../guardvibe.js';
+import { scanRepoStackChecks } from './repo-stack-checks.js';
+
+async function withTempProject(
+  files: Record<string, string>,
+  run: (projectDir: string) => Promise<void>,
+): Promise<void> {
+  const projectDir = await fs.mkdtemp(path.join(os.tmpdir(), 'attestlens-stack-checks-'));
+
+  try {
+    for (const [relativePath, content] of Object.entries(files)) {
+      const fullPath = path.join(projectDir, relativePath);
+      await fs.mkdir(path.dirname(fullPath), { recursive: true });
+      await fs.writeFile(fullPath, content, 'utf-8');
+    }
+
+    await run(projectDir);
+  } finally {
+    await fs.rm(projectDir, { recursive: true, force: true });
+  }
+}
+
+describe('repo stack checks', () => {
+  it('detects missing Supabase RLS when migrations exist without policies', async () => {
+    await withTempProject({
+      'src/supabase.ts': "import { createClient } from '@supabase/supabase-js';\nexport const client = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!);\n",
+      'supabase/migrations/001_create_profiles.sql': 'create table profiles (id uuid primary key, email text not null);',
+    }, async (projectDir) => {
+      const findings = await scanRepoStackChecks(projectDir, '0.1.0');
+      expect(findings.some((finding) => finding.sourceRule === 'VS-SUPA-RLS-MISSING')).toBe(true);
+    });
+  });
+
+  it('does not flag Supabase repos when RLS policies are present', async () => {
+    await withTempProject({
+      'src/supabase.ts': "import { createClient } from '@supabase/supabase-js';\n",
+      'supabase/migrations/001_profiles.sql': `
+        create table profiles (id uuid primary key);
+        alter table profiles enable row level security;
+        create policy "Users can read own profile" on profiles for select using (auth.uid() = id);
+      `,
+    }, async (projectDir) => {
+      const findings = await scanRepoStackChecks(projectDir, '0.1.0');
+      expect(findings.some((finding) => finding.sourceRule === 'VS-SUPA-RLS-MISSING')).toBe(false);
+    });
+  });
+
+  it('detects committed Firebase service account credentials', async () => {
+    await withTempProject({
+      'config/firebase-admin.json': JSON.stringify({
+        type: 'service_account',
+        private_key_id: 'abc123',
+        private_key: '-----BEGIN PRIVATE KEY-----\nsecret\n-----END PRIVATE KEY-----\n',
+        client_email: 'firebase-adminsdk@example.iam.gserviceaccount.com',
+      }, null, 2),
+    }, async (projectDir) => {
+      const findings = await scanRepoStackChecks(projectDir, '0.1.0');
+      expect(findings.some((finding) => finding.sourceRule === 'VS-FB-SERVICE-ACCOUNT')).toBe(true);
+    });
+  });
+
+  it('ignores Firebase service account material inside example content', async () => {
+    await withTempProject({
+      'examples/demo/firebase-admin.json': JSON.stringify({
+        type: 'service_account',
+        private_key_id: 'abc123',
+        private_key: '-----BEGIN PRIVATE KEY-----\nsecret\n-----END PRIVATE KEY-----\n',
+        client_email: 'firebase-adminsdk@example.iam.gserviceaccount.com',
+      }, null, 2),
+    }, async (projectDir) => {
+      const findings = await scanRepoStackChecks(projectDir, '0.1.0');
+      expect(findings.some((finding) => finding.sourceRule === 'VS-FB-SERVICE-ACCOUNT')).toBe(false);
+    });
+  });
+
+  it('detects public secret env prefixes and ignores safe public keys', async () => {
+    await withTempProject({
+      '.env': [
+        'NEXT_PUBLIC_STRIPE_SECRET_KEY="sk_live_secret"',
+        'NEXT_PUBLIC_SUPABASE_ANON_KEY="public-anon-value"',
+        'NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY="pk_live_publishable"',
+      ].join('\n'),
+    }, async (projectDir) => {
+      const findings = await scanRepoStackChecks(projectDir, '0.1.0');
+      const publicSecretFindings = findings.filter((finding) => finding.sourceRule === 'VS-PUBLIC-SECRET-ENV');
+
+      expect(publicSecretFindings).toHaveLength(1);
+      expect(publicSecretFindings[0]?.title).toContain('NEXT_PUBLIC_STRIPE_SECRET_KEY');
+    });
+  });
+
+  it('detects hardcoded platform secrets and ignores env indirection', async () => {
+    await withTempProject({
+      'src/config.ts': [
+        'export const STRIPE_WEBHOOK_SECRET = "whsec_live_secret_value";',
+        'export const AUTH0_CLIENT_SECRET = process.env.AUTH0_CLIENT_SECRET;',
+      ].join('\n'),
+    }, async (projectDir) => {
+      const findings = await scanRepoStackChecks(projectDir, '0.1.0');
+      const platformFindings = findings.filter((finding) => finding.sourceRule === 'VS-PLATFORM-SECRET');
+
+      expect(platformFindings).toHaveLength(1);
+      expect(platformFindings[0]?.title).toContain('Stripe Webhook Secret');
+    });
+  });
+
+  it('prefers stack-specific findings over generic duplicates in GuardVibe fallback', async () => {
+    await withTempProject({
+      '.env': 'NEXT_PUBLIC_STRIPE_SECRET_KEY="sk_live_secret_value"',
+    }, async (projectDir) => {
+      const result = await new GuardVibeAdapter().scan(projectDir);
+      const relevant = result.findings.filter((finding) => finding.file === '.env');
+
+      expect(relevant.some((finding) => finding.sourceRule === 'VS-PUBLIC-SECRET-ENV')).toBe(true);
+      expect(relevant.some((finding) => finding.sourceRule === 'VS-HARDKEY')).toBe(false);
+      expect(relevant.some((finding) => finding.sourceRule === 'VS-ENV')).toBe(false);
+    });
+  });
+});

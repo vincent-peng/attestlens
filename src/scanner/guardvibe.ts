@@ -12,6 +12,7 @@ import crypto from 'node:crypto';
 import path from 'node:path';
 import type { AttestLensFinding, ScanSource } from '../schema/index.js';
 import type { ScannerAdapter, ScannerResult, ScannerError, GuardVibeFinding, GuardVibeAuditResult } from './types.js';
+import { scanRepoStackChecks } from './rules/repo-stack-checks.js';
 
 export class GuardVibeAdapter implements ScannerAdapter {
   readonly name: ScanSource = 'guardvibe';
@@ -285,7 +286,14 @@ export class GuardVibeAdapter implements ScannerAdapter {
       // Static fallback failed — return what we have
     }
 
-    return findings;
+    try {
+      const stackFindings = await scanRepoStackChecks(targetPath, this.version);
+      findings.push(...stackFindings);
+    } catch {
+      // Stack-specific checks are best-effort only.
+    }
+
+    return this.pruneGenericDuplicates(findings);
   }
 
   /**
@@ -333,6 +341,24 @@ export class GuardVibeAdapter implements ScannerAdapter {
   private generateId(source: string, rule: string, file?: string, line?: number): string {
     const payload = `${source}:${rule}:${file || ''}:${line || ''}`;
     return crypto.createHash('sha256').update(payload).digest('hex').substring(0, 12);
+  }
+
+  private pruneGenericDuplicates(findings: AttestLensFinding[]): AttestLensFinding[] {
+    const specificRules = new Set(['VS-PUBLIC-SECRET-ENV', 'VS-PLATFORM-SECRET', 'VS-FB-SERVICE-ACCOUNT']);
+    const genericRules = new Set(['VS-HARDKEY', 'VS-ENV']);
+    const specificLocations = new Set(
+      findings
+        .filter((finding) => specificRules.has(finding.sourceRule))
+        .map((finding) => `${finding.file || ''}:${finding.line || ''}`),
+    );
+
+    return findings.filter((finding) => {
+      if (!genericRules.has(finding.sourceRule)) {
+        return true;
+      }
+
+      return !specificLocations.has(`${finding.file || ''}:${finding.line || ''}`);
+    });
   }
 }
 
