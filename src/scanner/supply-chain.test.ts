@@ -146,7 +146,7 @@ describe('SupplyChainAdapter', { timeout: 20000 }, () => {
 
     const result = await adapter.scan(scriptDir);
     expect(result.source).toBe('supply-chain');
-    expect(result.version).toBe('0.1.0');
+    expect(result.version).toBe('0.2.0');
     expect(result.timestamp).toBeDefined();
     expect(result.durationMs).toBeGreaterThanOrEqual(0);
 

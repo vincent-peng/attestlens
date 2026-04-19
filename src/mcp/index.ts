@@ -33,7 +33,7 @@ import type { ScannerError, ScannerResult } from '../scanner/types.js';
 import type { AttestLensFinding } from '../schema/index.js';
 import { sanitizeTargetPathForOutput, sanitizeTargetUrlForOutput } from '../utils/target.js';
 
-const ATTESTLENS_VERSION = '0.1.0';
+const ATTESTLENS_VERSION = '0.2.0';
 
 type ToolResponse = { content: Array<{ type: 'text'; text: string }> };
 

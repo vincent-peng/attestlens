@@ -20,7 +20,7 @@ import { APPInfo, calculateGrade, calculateRiskLevel } from '../schema/index.js'
 import { mapAllFindings } from '../mapping/engine.js';
 import { sanitizeTargetPathForOutput, sanitizeTargetUrlForOutput } from '../utils/target.js';
 
-const ATTESTLENS_VERSION = '0.1.0';
+const ATTESTLENS_VERSION = '0.2.0';
 
 export const SUPPORTED_REPORT_FORMATS = ['json', 'html', 'markdown', 'pdf'] as const;
 export type ReportFormat = (typeof SUPPORTED_REPORT_FORMATS)[number];

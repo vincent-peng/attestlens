@@ -147,7 +147,7 @@ interface LockfileV2 {
 
 export class SupplyChainAdapter implements ScannerAdapter {
   readonly name: ScanSource = 'supply-chain';
-  readonly version = '0.1.0';
+  readonly version = '0.2.0';
 
   async isAvailable(): Promise<boolean> {
     return true;

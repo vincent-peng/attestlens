@@ -5,7 +5,7 @@
 
 ---
 
-## Current State (v0.1.x)
+## Current State (v0.2.0)
 
 **What's built:**
 - ✅ Core scanner schema + mapping engine
@@ -17,16 +17,17 @@
 - ✅ MCP server: path scan, URL scan, audit, and mapping tools
 - ✅ Report generator: HTML, JSON, Markdown, PDF
 - ✅ AI-ready `fixPrompt` support in schema and scanner rules
-- ✅ 107 tests passing
+- ✅ Validation corpus runner + findings log
+- ✅ Stack-specific repo checks for Supabase, Firebase, Stripe, Clerk/Auth0, and platform secrets
+- ✅ 125 tests passing
 - ✅ Security hardening including SSRF protection for URL scanning
 
 **What's NOT built yet:**
 - ❌ Interactive compliance questionnaire
 - ❌ Rule update pipeline
-- ❌ Stack-specific checks (Firebase, Vercel, etc.)
 - ❌ Web dashboard
 
-**Current focus:** Finish Phase 1.5 release packaging and validation, then move into questionnaire-driven differentiation.
+**Current focus:** Move into questionnaire-driven differentiation while cleaning up the remaining live-site fetch variability and heuristic noise discovered during validation.
 
 ---
 
@@ -57,19 +58,14 @@ Phase 4   — Launch & Growth
 - duplicate Cache-Control to APP_12 path removed
 - expanded regression coverage for URL scanning and mapping behavior
 
-### Remaining
+### Outcome
 
-1. **Stack-specific checks**
-   - prioritize Supabase, Firebase, Vercel/Netlify, Stripe, Clerk/Auth0
-2. **Real-world validation**
-   - run scans against public targets / OSS demos
-   - log false positives, misses, and remediation quality
-3. **Docs sync**
-   - update README / PRD / roadmap so they reflect current capabilities
-4. **Release cut**
-   - tag the first scanner-credible release after the above are complete
+- Stack-specific checks shipped in the repo scanner fallback
+- Validation corpus executed against 9 public targets with results logged in `docs/VALIDATION-LOG.md`
+- README / PRD / roadmap synced to the current codebase
+- v0.2.0 release artifacts prepared, including a sanitized Juice Shop sample report
 
-**Exit criteria:** URL scanning is documented and stable, MCP can scan URLs, PDF exists in MVP form, validation scans have been run, and docs match the code.
+**Residual risks:** Some live marketing sites intermittently block scans or challenge asset fetches, and a small set of URL heuristics still need precision tuning.
 
 ---
 

@@ -16,7 +16,7 @@ import { scanRepoStackChecks } from './rules/repo-stack-checks.js';
 
 export class GuardVibeAdapter implements ScannerAdapter {
   readonly name: ScanSource = 'guardvibe';
-  readonly version = '0.1.0';
+  readonly version = '0.2.0';
   
   private binaryPath: string;
 

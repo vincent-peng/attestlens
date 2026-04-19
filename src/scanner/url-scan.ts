@@ -265,17 +265,23 @@ This addresses APP 11.1 (Security) and APP 6.1 (Use/Disclosure).`,
     for (const pattern of KEY_PATTERNS) {
       // Reset lastIndex for global regex
       pattern.pattern.lastIndex = 0;
-      const matches = pattern.pattern.exec(scanContent);
+      let matches: RegExpExecArray | null;
 
-      if (matches) {
+      while ((matches = pattern.pattern.exec(scanContent)) !== null) {
+        const matchedValue = matches[0];
+
         // Check exclusion patterns
         if (pattern.excludePattern) {
           pattern.excludePattern.lastIndex = 0;
-          if (pattern.excludePattern.test(matches[0])) continue;
+          if (pattern.excludePattern.test(matchedValue)) continue;
+        }
+
+        if (pattern.matchFilter && !pattern.matchFilter(matchedValue)) {
+          continue;
         }
 
         // Avoid false positives from common test/placeholder patterns
-        if (/YOUR_|EXAMPLE|PLACEHOLDER|REPLACE|TODO|FIXME/i.test(matches[0])) {
+        if (/YOUR_|EXAMPLE|PLACEHOLDER|REPLACE|TODO|FIXME/i.test(matchedValue)) {
           continue;
         }
 
@@ -287,8 +293,9 @@ This addresses APP 11.1 (Security) and APP 6.1 (Use/Disclosure).`,
           description: pattern.description,
           fixPrompt: pattern.fixPrompt,
           url: sourceUrl,
-          code: this.truncateMatch(matches[0]),
+          code: this.truncateMatch(matchedValue),
         }));
+        break;
       }
     }
 
@@ -376,7 +383,7 @@ This addresses APP 11.1 (Security) and APP 6.1 (Use/Disclosure).`,
           blockBehavior: 'skip',
         });
 
-        if (response?.ok) {
+        if (response?.ok && !this.isHtmlResponse(response)) {
           findings.push(this.createFinding({
             sourceRule: 'AL-JS-007',
             severity: 'low',
@@ -495,6 +502,10 @@ This addresses APP 11.1 (Security).`,
 
       if (response.bodyExceeded) {
         break;
+      }
+
+      if (this.isHtmlResponse(response)) {
+        continue;
       }
 
       remainingJsBudget -= Buffer.byteLength(response.text);
@@ -674,6 +685,14 @@ This addresses APP 11.1 (Security).`,
 
   private isRedirectStatus(status: number): boolean {
     return status === 301 || status === 302 || status === 303 || status === 307 || status === 308;
+  }
+
+  private isHtmlResponse(response: GuardedFetchResult): boolean {
+    const contentType = response.headers.get('content-type')?.toLowerCase() || '';
+    const trimmed = response.text.trimStart().slice(0, 64).toLowerCase();
+    return contentType.includes('text/html')
+      || trimmed.startsWith('<!doctype html')
+      || trimmed.startsWith('<html');
   }
 
   private async assertPublicScanTarget(url: URL): Promise<void> {

@@ -1,9 +1,9 @@
 # AttestLens — Product Requirements Document (PRD)
 
-**Version:** 1.2  
+**Version:** 1.3  
 **Date:** 2026-04-19  
 **Author:** Vincent Peng / ADA  
-**Status:** Phase 1.5 in progress — pre-validation
+**Status:** v0.2.0 scanner credibility release — technical validation complete, pre-design-partner validation
 
 ---
 
@@ -82,7 +82,7 @@ We are **NOT** a generic security scanner. We compose the best OSS tools and own
 ### GuardVibe — Primary Scanner
 
 - 335 rules, 36 MCP tools, covers entire modern AI stack
-- Static fallback (8 regex rules) when MCP unavailable
+- Static fallback (9 baseline rules + 4 stack-specific repo checks) when MCP unavailable
 - Used: full_audit, scan_secrets, auth_coverage, analyze_dataflow, compliance_report
 
 ### mcp-scan — MCP Config Security
@@ -142,7 +142,9 @@ We are **NOT** a generic security scanner. We compose the best OSS tools and own
 - [x] Supply chain scanner (7 rules, Axios-attack coverage)
 - [x] URL scanner with hardened outbound request handling
 - [x] Strict mode (UNKNOWN → FAIL)
-- [x] 107 tests
+- [x] Validation corpus runner + findings log
+- [x] Stack-specific repo security checks (Supabase, Firebase, Stripe, Clerk/Auth0, Vercel/Netlify)
+- [x] 125 tests
 - [x] Security hardening (execFileSync, path validation, no command injection)
 
 ### Not Yet Shipped (Phase 2+)
@@ -155,12 +157,12 @@ We are **NOT** a generic security scanner. We compose the best OSS tools and own
 
 ## 9. Validation Plan
 
-Before building Phase 2:
-1. **Create mock report** — APP checklist, pass/fail/unknown, evidence snippets
-2. **Find 5-10 AU consultants/MSPs** on LinkedIn
-3. **Show mock report** and ask: "Would you pay $199 for this? $499/mo for unlimited?"
+Before building deeper Phase 2 workflow:
+1. **Use the completed validation corpus** to keep false positives and misses visible.
+2. **Find 5-10 AU consultants/MSPs** on LinkedIn.
+3. **Show the v0.2.0 sample report** and ask: "Would you pay $199 for this? $499/mo for unlimited?"
 4. **3+ yes** → build. Crickets → pivot or kill.
-5. **Run 5 real scans** on open-source projects, manually validate mapping accuracy
+5. **Use feedback to prioritize questionnaire flow and report structure.**
 
 ---
 
@@ -208,4 +210,4 @@ Before building Phase 2:
 
 ---
 
-*This PRD is a living document. Last updated 2026-04-19 (Phase 1.5 in progress).*
+*This PRD is a living document. Last updated 2026-04-19 (v0.2.0 scanner credibility release).*

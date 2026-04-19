@@ -68,6 +68,7 @@ describe('validation corpus', () => {
   it('continues when one target scan fails and still writes the summary', async () => {
     const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'attestlens-validation-'));
     const manifestPath = path.join(tempDir, 'corpus.yaml');
+    const staleFailureDir = path.join(tempDir, 'reports', '2026-04-19', 'failure');
 
     await fs.writeFile(manifestPath, `targets:
   - id: success
@@ -79,6 +80,9 @@ describe('validation corpus', () => {
     url: https://invalid.example/
     expectedSurface: Failure path
 `, 'utf-8');
+
+    await fs.mkdir(staleFailureDir, { recursive: true });
+    await fs.writeFile(path.join(staleFailureDir, 'stale.json'), '{"stale":true}', 'utf-8');
 
     const runner: ValidationRunner = async (command, args, cwd) => {
       const targetUrl = args[0];
@@ -127,6 +131,7 @@ describe('validation corpus', () => {
     expect(result.results[0]?.status).toBe('passed');
     expect(result.results[1]?.status).toBe('failed');
     expect(result.results[1]?.notes).toContain('scan command failed');
+    await expect(fs.access(path.join(staleFailureDir, 'stale.json'))).rejects.toThrow();
 
     const summary = await fs.readFile(result.summaryPath, 'utf-8');
     expect(summary).toContain('| Success | PASSED | 1 | B | medium | Baseline |');

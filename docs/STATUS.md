@@ -38,6 +38,8 @@ In practice, that means:
 - HTML, JSON, Markdown, and PDF reporting
 - Strict mode (`UNKNOWN -> FAIL`)
 - Supply-chain scanner with Axios-style attack coverage
+- Validation corpus runner with 9 public targets and Markdown summaries
+- Stack-specific repo security checks for Supabase, Firebase, Stripe, Clerk/Auth0, and platform secrets
 - URL scanner hardening:
   - shared guarded fetch path
   - SSRF protection across redirects and derived resources
@@ -47,15 +49,12 @@ In practice, that means:
 
 ### In Progress
 
-- Phase 1.5 packaging and release readiness
-- Fix-prompt coverage consistency across findings and reports
-- Real-world validation prep for consultant and MSP feedback
-- Stack-specific detection expansion (Supabase, Firebase, Vercel/Netlify, Stripe, Clerk/Auth0)
+- Design-partner validation and consultant/MSP outreach
+- Phase 2 questionnaire flow planning
+- Validation-driven rule cleanup for remaining live-site false positives and CDN/bot-blocked targets
 
 ### Not Shipped
 
-- Validation corpus and finding-quality log
-- stack-specific checks beyond current key/header/JS coverage
 - interactive questionnaire flow engine
 - breach-readiness scoring
 - rule update pipeline
@@ -65,21 +64,18 @@ In practice, that means:
 
 ## Current Milestone
 
-### M1.5 — Scanner Credibility Release
+### M2 — Compliance Moat
 
-**Goal:** Ship a believable v0.2.0 that can stand beside CheckVibe on scanning credibility while preserving AttestLens's compliance differentiation.
+**Goal:** Turn the scanner-credible local product into a real assessment workflow with questionnaire-driven PASS/FAIL outcomes and consultant-grade deliverables.
 
 ### Exit Criteria
 
-- URL scanning is build-clean, test-covered, and documented
-- AI-ready `fixPrompt` support is consistent in schema and rule outputs
-- MCP can scan URLs directly
-- PDF report generation exists in MVP form
-- real-world scans have been run against 5-10 public targets or OSS demo apps
-- false positives and misses have been logged and triaged
-- docs match the actual repo state
+- questionnaire flow engine exists and can complete a full APP/NDB assessment from the CLI
+- scan findings and questionnaire answers merge into a single report
+- breach-readiness scoring exists
+- sample consultant-grade reports are usable without a web dashboard
 
-### What Is Already Done Toward M1.5
+### Recently Shipped
 
 - URL scanner exists
 - URL scanner hardening pass completed
@@ -87,12 +83,15 @@ In practice, that means:
 - PDF report MVP exists
 - rule-level fix prompts exist across URL/header/key/JS findings
 - mapping engine includes URL-scan categories
+- validation corpus and findings log exist
+- stack-specific repo checks exist
+- sanitized sample Juice Shop report exists
 
-### Remaining for M1.5
+### Immediate M2 Foundation Work
 
-1. Expand stack-specific checks where the scanner can be meaningfully differentiated.
-2. Run real-world scan validation and log findings quality.
-3. Keep README / PRD / roadmap aligned as milestone work lands.
+1. Build the questionnaire flow engine and answer evaluation.
+2. Merge scan evidence with questionnaire outcomes.
+3. Tighten the small set of validation-corpus false positives and intermittent live-site fetch failures.
 
 ---
 
@@ -143,11 +142,11 @@ These are the default operating rules for the project.
 
 ### Next 2 Weeks
 
-1. Run validation scans and record false positives, false negatives, and remediation quality.
-2. Add the highest-value stack-specific checks.
-3. Prepare 3-5 consultant-facing demo artifacts and start outreach.
-4. Keep milestone docs aligned as remaining M1.5 work lands.
-5. Cut the scanner-credible release once validation is logged.
+1. Start design-partner outreach with the v0.2.0 sample report.
+2. Build questionnaire session + evaluator primitives.
+3. Merge questionnaire output into report generation.
+4. Triage the remaining validation noise (`AL-KEY-011`, `AL-INFRA-006`, duplicate API-key semantics).
+5. Keep milestone docs aligned as M2 lands.
 
 ### Explicitly Not Now
 

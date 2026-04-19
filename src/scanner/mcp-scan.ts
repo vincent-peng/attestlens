@@ -14,7 +14,7 @@ import type { ScannerAdapter, ScannerResult, ScannerError, McpScanResult } from 
 
 export class McpScanAdapter implements ScannerAdapter {
   readonly name: ScanSource = 'mcp-scan';
-  readonly version = '0.1.0';
+  readonly version = '0.2.0';
 
   private binaryPath: string;
 

@@ -163,11 +163,14 @@ Runs when the GuardVibe MCP server is unavailable. Scans source files for common
 | `VG-SEC-002` | Critical | Service role key in client code |
 | `VS-HARDKEY` | Critical | Hardcoded API keys, secret keys, private keys |
 | `VS-SQLI` | High | SQL injection via string interpolation |
-| `VS-RLS` | High | Missing Row Level Security policies |
 | `VS-XSS` | Medium | XSS vectors (`dangerouslySetInnerHTML`, `v-html`) |
 | `VS-DEBUG` | Medium | Debug logging of sensitive data |
 | `VS-ENV` | Critical | Sensitive env vars exposed to client (`NEXT_PUBLIC_`) |
 | `VS-CORS` | Medium | Wildcard CORS (`origin: '*'`) |
+| `VS-SUPA-RLS-MISSING` | High | Supabase SQL migrations without RLS policies |
+| `VS-FB-SERVICE-ACCOUNT` | Critical | Committed Firebase service account material |
+| `VS-PUBLIC-SECRET-ENV` | Critical | Public client prefixes applied to secret env vars |
+| `VS-PLATFORM-SECRET` | Critical | Hardcoded Stripe/Clerk/Auth0/Vercel/Netlify secrets |
 
 ### MCP Config Scanner (mcp-scan)
 
@@ -232,8 +235,11 @@ npm install
 # Build
 npm run build
 
-# Test (107 tests)
+# Test (125 tests)
 npm test
+
+# Run the live validation corpus
+npm run validate:corpus
 
 # Run locally
 npx tsx src/cli/index.ts audit ./my-project -n "MyApp"
@@ -244,21 +250,23 @@ npm run lint
 
 ## Roadmap
 
-### Phase 1 ✅ (Current)
+### Phase 1.5 ✅ (v0.2.0)
 - Core schema + APP/NDB mapping engine (31 rules)
-- Scanner adapters (GuardVibe static + mcp-scan + supply-chain)
+- Scanner adapters (GuardVibe static + mcp-scan + supply-chain + url-scan)
 - Scanner orchestrator (parallel + dedup)
 - CLI (scan, audit, report)
 - URL scanning + hardened outbound fetch path
 - Report generation (HTML, JSON, Markdown, PDF)
 - MCP server (4 tools, including URL scan)
-- 107 tests
+- Validation corpus runner + findings log
+- Stack-specific repo security checks for Supabase, Firebase, Stripe, Clerk/Auth0, Vercel/Netlify secrets
+- 125 tests
 - Strict mode
 - Supply chain detection (7 rules, Axios-attack coverage)
 
 ### Phase 2 (Next)
 - Interactive attestation questionnaire (UNKNOWN → PASS/FAIL)
-- Stack-specific checks and validation corpus
+- Design-partner validation and consultant outreach
 - Breach-readiness scoring and richer consultant deliverables
 - GuardVibe MCP integration (live scanner, not just fallback)
 - Additional framework support (GDPR, SOC 2, HIPAA)

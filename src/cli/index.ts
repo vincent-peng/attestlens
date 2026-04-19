@@ -34,7 +34,7 @@ const program = new Command();
 program
   .name('attestlens')
   .description('AI Compliance Scanner & Privacy Act Attestation Tool')
-  .version('0.1.0');
+  .version('0.2.0');
 
 // ─── Scan Command ─────────────────────────────────────────────────────────────
 

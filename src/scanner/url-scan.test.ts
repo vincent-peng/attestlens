@@ -204,6 +204,20 @@ describe('UrlScanAdapter', () => {
     expect(results.size).toBe(0);
   });
 
+  it('should skip HTML responses returned for script URLs', async () => {
+    stubPublicLookup(adapter, { 'cdn.example.com': '93.184.216.34' });
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(response('<!DOCTYPE html><html><body>Checkpoint</body></html>', {
+      status: 200,
+      headers: { 'content-type': 'text/html; charset=utf-8' },
+    })));
+
+    const results = await (adapter as any).fetchJavaScriptBundles([
+      'https://cdn.example.com/app.js',
+    ], 64);
+
+    expect(results.size).toBe(0);
+  });
+
   it('should probe source maps with .map before the query string', async () => {
     stubPublicLookup(adapter, { 'cdn.example.com': '93.184.216.34' });
     const fetchMock = vi.fn().mockResolvedValue(response('{}', { status: 200 }));
@@ -371,17 +385,31 @@ describe('Key Detection Patterns', () => {
   it('should detect Stripe live keys', () => {
     const pattern = KEY_PATTERNS.find(p => p.id === 'AL-KEY-002');
     expect(pattern).toBeDefined();
+    pattern!.pattern.lastIndex = 0;
     expect(pattern!.pattern.test('sk_live_26PHem9OkJ1642VQ3Y3BK0Rq')).toBe(true);
+    pattern!.pattern.lastIndex = 0;
+    expect(pattern!.pattern.test('pk_live_26PHem9OkJ1642VQ3Y3BK0Rq')).toBe(false);
     expect(pattern!.excludePattern?.test('sk_test_26PHem9OkJ16')).toBe(true);
+  });
+
+  it('should only accept Supabase service_role JWTs', () => {
+    const pattern = KEY_PATTERNS.find(p => p.id === 'AL-KEY-003');
+    expect(pattern).toBeDefined();
+
+    const anonToken = createJwt({ iss: 'supabase', role: 'anon' });
+    const serviceRoleToken = createJwt({ iss: 'supabase', role: 'service_role' });
+
+    expect(pattern!.matchFilter?.(anonToken)).toBe(false);
+    expect(pattern!.matchFilter?.(serviceRoleToken)).toBe(true);
   });
 
   it('should detect private keys', () => {
     const pattern = KEY_PATTERNS.find(p => p.id === 'AL-KEY-011');
     expect(pattern).toBeDefined();
     pattern!.pattern.lastIndex = 0;
-    expect(pattern!.pattern.test('-----BEGIN RSA PRIVATE KEY-----')).toBe(true);
+    expect(pattern!.pattern.test('-----BEGIN RSA PRIVATE KEY-----\nMIIEowIBAAKCAQEAuR9wQ3xexampleprivatekeymaterial12345\n-----END RSA PRIVATE KEY-----')).toBe(true);
     pattern!.pattern.lastIndex = 0;
-    expect(pattern!.pattern.test('-----BEGIN EC PRIVATE KEY-----')).toBe(true);
+    expect(pattern!.pattern.test('-----BEGIN EC PRIVATE KEY-----')).toBe(false);
   });
 
   it('should detect database URLs', () => {
@@ -475,3 +503,16 @@ describe('JS Pattern Analysis', () => {
     }
   });
 });
+
+function createJwt(payload: Record<string, unknown>): string {
+  const header = { alg: 'HS256', typ: 'JWT' };
+  return `${encodeBase64Url(header)}.${encodeBase64Url(payload)}.signature`;
+}
+
+function encodeBase64Url(value: Record<string, unknown>): string {
+  return Buffer.from(JSON.stringify(value))
+    .toString('base64')
+    .replace(/\+/g, '-')
+    .replace(/\//g, '_')
+    .replace(/=+$/g, '');
+}

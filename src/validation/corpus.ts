@@ -161,6 +161,7 @@ async function runValidationTarget(
   },
 ): Promise<ValidationTargetResult> {
   const targetDir = buildValidationTargetDir(options.outputRoot, options.runDate, target.id);
+  await fs.rm(targetDir, { recursive: true, force: true });
   await fs.mkdir(targetDir, { recursive: true });
 
   const scanResult = await options.runner('scan', [target.url], options.repoRoot);

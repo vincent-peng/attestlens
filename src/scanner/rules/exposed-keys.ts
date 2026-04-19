@@ -21,6 +21,8 @@ export interface KeyPattern {
   appMappings: APPMapping[];
   /** Exclude patterns that look like test/placeholder keys */
   excludePattern?: RegExp;
+  /** Additional runtime validation for payloads that need semantic checks */
+  matchFilter?: (match: string) => boolean;
 }
 
 const app11Mapping: APPMapping = {
@@ -77,12 +79,12 @@ This addresses APP 11.1 (Security) and APP 6.1 (Use/Disclosure).`,
   },
   {
     id: 'AL-KEY-002',
-    name: 'Stripe Live Key',
-    pattern: /sk_live_[A-Za-z0-9]{24,99}|pk_live_[A-Za-z0-9]{24}/g,
-    excludePattern: /sk_test_|pk_test_|YOUR_STRIPE_KEY/i,
+    name: 'Stripe Secret Key',
+    pattern: /sk_live_[A-Za-z0-9]{24,99}/g,
+    excludePattern: /sk_test_|YOUR_STRIPE_KEY/i,
     severity: 'critical',
-    title: 'Exposed Stripe Live Key',
-    description: 'A Stripe live key was found in client-side code. This gives full access to your Stripe account, including the ability to issue refunds, create charges, and access customer data.',
+    title: 'Exposed Stripe Secret Key',
+    description: 'A Stripe secret key was found in client-side code. This gives full access to your Stripe account, including the ability to issue refunds, create charges, and access customer data.',
     fixPrompt: `This is a CRITICAL security issue. Take these steps immediately:
 
 1. **Revoke the key** at https://dashboard.stripe.com/apikeys
@@ -103,6 +105,7 @@ This addresses APP 11.1 (Security) and APP 6.1 (Use/Disclosure).`,
     name: 'Supabase Service Role Key',
     pattern: /eyJ[A-Za-z0-9_-]+\.eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+/g,
     excludePattern: /eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9\.eyJpc3MiOiJzdXBhYmFzZS[^\n]*anon/i,
+    matchFilter: isSupabaseServiceRoleJwt,
     severity: 'critical',
     title: 'Exposed Supabase Service Role Key',
     description: 'A Supabase JWT was found in client-side code. If this is a service_role key, it has full admin access to your database, bypassing all Row Level Security policies.',
@@ -311,7 +314,7 @@ This addresses APP 11.1 (Security).`,
   {
     id: 'AL-KEY-011',
     name: 'Private Key',
-    pattern: /-----BEGIN (?:RSA |EC |DSA |OPENSSH )?PRIVATE KEY-----/g,
+    pattern: /-----BEGIN (?:RSA |EC |DSA |OPENSSH )?PRIVATE KEY-----[\s\S]{20,}?-----END (?:RSA |EC |DSA |OPENSSH )?PRIVATE KEY-----/g,
     excludePattern: /YOUR_PRIVATE_KEY|example\.com/i,
     severity: 'critical',
     title: 'Exposed Private Key',
@@ -426,3 +429,27 @@ This addresses APP 11.1 (Security).`,
     appMappings: [app11Mapping],
   },
 ];
+
+function isSupabaseServiceRoleJwt(match: string): boolean {
+  const parts = match.split('.');
+  if (parts.length !== 3) {
+    return false;
+  }
+
+  try {
+    const payload = JSON.parse(base64UrlDecode(parts[1] || '')) as {
+      iss?: string;
+      role?: string;
+    };
+    return payload.iss === 'supabase' && payload.role === 'service_role';
+  } catch {
+    return false;
+  }
+}
+
+function base64UrlDecode(value: string): string {
+  const normalized = value.replace(/-/g, '+').replace(/_/g, '/');
+  const padding = normalized.length % 4;
+  const padded = padding === 0 ? normalized : normalized.padEnd(normalized.length + (4 - padding), '=');
+  return Buffer.from(padded, 'base64').toString('utf-8');
+}
