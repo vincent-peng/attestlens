@@ -118,6 +118,31 @@ describe('mapFindingToAPP', () => {
     expect(mappings.some(m => m.principle === 'NDB')).toBe(true);
   });
 
+  it('should not map missing Cache-Control to APP_12', () => {
+    const finding = makeFinding({
+      sourceRule: 'AL-URL-011',
+      severity: 'medium',
+      category: 'Security Headers',
+      title: 'Missing or Weak Cache-Control Header',
+      description: 'Without proper Cache-Control, sensitive pages may be cached by browsers or CDNs, potentially exposing personal information.',
+    });
+    const mappings = mapFindingToAPP(finding);
+    expect(mappings.some(m => m.principle === 'APP_11' && m.status === 'fail')).toBe(true);
+    expect(mappings.some(m => m.principle === 'APP_12')).toBe(false);
+  });
+
+  it('should keep APP_11 failures for other security header findings', () => {
+    const finding = makeFinding({
+      sourceRule: 'AL-URL-001',
+      severity: 'high',
+      category: 'Security Headers',
+      title: 'Missing Content-Security-Policy Header',
+      description: 'Content-Security-Policy prevents XSS, clickjacking, and other code injection attacks.',
+    });
+    const mappings = mapFindingToAPP(finding);
+    expect(mappings.some(m => m.principle === 'APP_11' && m.status === 'fail')).toBe(true);
+  });
+
   it('should map unmapped high-severity Security findings to APP_11 as unknown', () => {
     const finding = makeFinding({
       sourceRule: 'CUSTOM-RULE-999',
@@ -247,5 +272,24 @@ describe('mapAllFindings', () => {
     for (const control of controls) {
       expect(control.questionnaireRequired).toBe(true);
     }
+  });
+
+  it('should leave APP_12 unknown when only Cache-Control is missing', () => {
+    const { controls } = mapAllFindings([
+      makeFinding({
+        id: 'F-1',
+        sourceRule: 'AL-URL-011',
+        severity: 'medium',
+        category: 'Security Headers',
+        title: 'Missing or Weak Cache-Control Header',
+        description: 'Without proper Cache-Control, sensitive pages may be cached by browsers or CDNs, potentially exposing personal information.',
+      }),
+    ]);
+
+    const app11 = controls.find(c => c.principle === 'APP_11');
+    const app12 = controls.find(c => c.principle === 'APP_12');
+
+    expect(app11!.status).toBe('fail');
+    expect(app12!.status).toBe('unknown');
   });
 });

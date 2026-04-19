@@ -588,20 +588,6 @@ const NDB_RULES: MappingRule[] = [
     rationale: 'Cookies without Secure and HttpOnly flags can be intercepted or accessed via JavaScript, potentially exposing session tokens and personal information. This constitutes a failure to take reasonable steps under APP 11.1.',
     oaicReference: 'APP Guidelines Chapter 11.6; OAIC Guide to Securing Personal Information',
   },
-  // Cache-Control for sensitive pages
-  {
-    id: 'MAP-032',
-    name: 'Missing Cache-Control → APP 12',
-    sourcePatterns: {
-      ruleId: /^AL-URL-016$/,
-      category: /^Security Headers$/i,
-    },
-    appPrinciple: 'APP_12',
-    status: 'fail',
-    confidence: 0.80,
-    rationale: 'Missing Cache-Control on pages serving personal information allows browsers and intermediaries to cache sensitive data, potentially making it accessible to others on shared devices. This violates APP 12 (Access) by failing to ensure information is protected after access.',
-    oaicReference: 'APP Guidelines Chapter 12; OAIC Guide to Securing Personal Information',
-  },
 ];
 
 // ─── All Rules ───────────────────────────────────────────────────────────────

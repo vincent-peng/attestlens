@@ -1,6 +1,6 @@
 /**
  * AttestLens — URL Scanner Adapter
- * 
+ *
  * Scans deployed websites for security vulnerabilities:
  * - Missing security headers
  * - Exposed API keys in JS bundles
@@ -8,17 +8,19 @@
  * - JavaScript vulnerability patterns (XSS, eval, etc.)
  * - SSL/TLS issues
  * - CORS misconfigurations
- * 
+ *
  * Uses Node.js built-in fetch — zero external dependencies.
  */
 
 import crypto from 'node:crypto';
+import { lookup } from 'node:dns/promises';
+import { isIP } from 'node:net';
 import { URL } from 'node:url';
 import type { AttestLensFinding, ScanSource, Severity } from '../schema/index.js';
 import type { ScannerAdapter, ScannerResult, ScannerError } from './types.js';
 import { HEADER_CHECKS } from './rules/url-headers.js';
 import { KEY_PATTERNS } from './rules/exposed-keys.js';
-import { INFRA_CHECKS } from './rules/infra-checks.js';
+import { INFRA_CHECKS, type InfraCheck } from './rules/infra-checks.js';
 import { JS_PATTERNS } from './rules/js-analysis.js';
 
 const USER_AGENT = 'AttestLens/0.2.0 (Security Scanner; +https://attestlens.dev)';
@@ -28,13 +30,33 @@ const MAX_HTML_SIZE = 5 * 1024 * 1024; // 5MB HTML limit
 const MAX_TOTAL_JS_SIZE = 10 * 1024 * 1024; // 10MB total JS limit
 const PROBE_DELAY_MS = 500; // 500ms between infrastructure probes
 const MAX_REDIRECTS = 5;
-const MAX_CONCURRENT_JS_FETCHES = 5; // Limit concurrent JS bundle fetches
 
-// ─── SSRF Protection ─────────────────────────────────────────────────────────
-// Reject URLs that resolve to private/internal IPs to prevent SSRF attacks.
-// Covers: loopback (127.0.0.0/8), link-local (169.254.0.0/16),
-// RFC 1918 (10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16), and IPv6 equivalents.
-const PRIVATE_IP_REGEX = /^0\.|127\.|10\.|172\.(?:1[6-9]|2\d|3[01])\.|192\.168\.|169\.254\.|\[::1?\]|\[fe80:/i;
+interface GuardedFetchResult {
+  status: number;
+  ok: boolean;
+  headers: Headers;
+  text: string;
+  finalUrl: URL;
+  bodyExceeded: boolean;
+}
+
+interface GuardedFetchOptions {
+  timeoutMs: number;
+  method?: string;
+  headers?: HeadersInit;
+  maxBytes?: number;
+  blockBehavior?: 'throw' | 'skip';
+}
+
+class BlockedUrlError extends Error {
+  readonly url: string;
+
+  constructor(url: string, message: string) {
+    super(message);
+    this.name = 'BlockedUrlError';
+    this.url = url;
+  }
+}
 
 export class UrlScanAdapter implements ScannerAdapter {
   readonly name: ScanSource = 'url-scan';
@@ -53,16 +75,13 @@ export class UrlScanAdapter implements ScannerAdapter {
     const findings: AttestLensFinding[] = [];
     const errors: ScannerError[] = [];
 
-    // Validate URL
+    // Validate URL syntax up front. SSRF checks happen in the guarded fetch path
+    // so redirects and derived URLs use the same policy.
     let targetUrl: URL;
     try {
       targetUrl = new URL(targetPath);
       if (!['http:', 'https:'].includes(targetUrl.protocol)) {
         throw new Error(`Unsupported protocol: ${targetUrl.protocol}`);
-      }
-      // SSRF protection: reject URLs with private/internal hostnames
-      if (PRIVATE_IP_REGEX.test(targetUrl.hostname)) {
-        throw new Error(`Target resolves to a private/internal IP: ${targetUrl.hostname}. SSRF protection.`);
       }
     } catch (err: any) {
       return {
@@ -75,74 +94,87 @@ export class UrlScanAdapter implements ScannerAdapter {
       };
     }
 
+    let pageResult: { headers: Headers; html: string; finalUrl: URL } | null = null;
     try {
-      // 1. Fetch main page + headers
-      const pageResult = await this.fetchPage(targetUrl);
-      if (!pageResult) {
+      pageResult = await this.fetchPage(targetUrl);
+    } catch (err: any) {
+      if (err instanceof BlockedUrlError) {
         return {
           source: this.name,
           version: this.version,
           timestamp: new Date().toISOString(),
           findings: [],
-          errors: [{ source: this.name, message: `Failed to fetch ${targetUrl.href}`, code: 'FETCH_FAILED', recoverable: true }],
+          errors: [{ source: this.name, message: `Invalid URL: ${err.message}`, code: 'INVALID_URL', recoverable: false }],
           durationMs: Date.now() - startTime,
         };
       }
 
-      const { response, headers, html } = pageResult;
+      return {
+        source: this.name,
+        version: this.version,
+        timestamp: new Date().toISOString(),
+        findings: [],
+        errors: [{ source: this.name, message: `Failed to fetch ${targetUrl.href}`, code: 'FETCH_FAILED', recoverable: true }],
+        durationMs: Date.now() - startTime,
+      };
+    }
+
+    if (!pageResult) {
+      return {
+        source: this.name,
+        version: this.version,
+        timestamp: new Date().toISOString(),
+        findings: [],
+        errors: [{ source: this.name, message: `Failed to fetch ${targetUrl.href}`, code: 'FETCH_FAILED', recoverable: true }],
+        durationMs: Date.now() - startTime,
+      };
+    }
+
+    try {
+      const { headers, html, finalUrl } = pageResult;
 
       // 2. Check security headers
-      findings.push(...this.checkHeaders(headers, targetUrl.href));
+      findings.push(...this.checkHeaders(headers, finalUrl.href));
 
       // 3. Check CORS
-      findings.push(...this.checkCORS(headers, targetUrl.href));
+      findings.push(...this.checkCORS(headers, finalUrl.href));
 
-      // 4. Extract and fetch JS bundles (with concurrency limit)
-      const scriptUrls = this.extractScriptUrls(html, targetUrl);
-      let totalJsSize = 0;
-      const jsContents: Map<string, string> = new Map();
-
-      // Fetch JS bundles with concurrency limit to avoid resource exhaustion
-      const jsQueue = [...scriptUrls];
-      const jsResults = await this.fetchJsWithConcurrency(jsQueue, MAX_CONCURRENT_JS_FETCHES, JS_TIMEOUT);
-      for (const [url, content] of jsResults) {
-        if (totalJsSize + content.length > MAX_TOTAL_JS_SIZE) break;
-        totalJsSize += content.length;
-        jsContents.set(url, content);
-      }
+      // 4. Extract and fetch JS bundles using a strict total byte budget.
+      const scriptUrls = this.extractScriptUrls(html, finalUrl);
+      const jsContents = await this.fetchJavaScriptBundles(scriptUrls);
 
       // 5. Check inline scripts
       const inlineScripts = this.extractInlineScripts(html);
       for (const script of inlineScripts) {
-        jsContents.set('inline', jsContents.get('inline') + '\n' + script || script);
+        const existingInline = jsContents.get('inline');
+        jsContents.set('inline', existingInline ? `${existingInline}\n${script}` : script);
       }
 
       // 6. Scan JS content for exposed keys
       for (const [sourceUrl, content] of jsContents) {
-        findings.push(...this.scanForKeys(content, sourceUrl, targetUrl.href));
-        findings.push(...this.scanForJSPatterns(content, sourceUrl, targetUrl.href));
+        findings.push(...this.scanForKeys(content, sourceUrl));
+        findings.push(...this.scanForJSPatterns(content, sourceUrl));
       }
 
       // 7. Also scan HTML for keys
-      findings.push(...this.scanForKeys(html, targetUrl.href, targetUrl.href));
+      findings.push(...this.scanForKeys(html, finalUrl.href));
 
       // 8. Check infrastructure probes
       for (const check of INFRA_CHECKS) {
-        await this.probeInfra(check, targetUrl, findings);
+        await this.probeInfra(check, finalUrl, findings);
         await this.sleep(PROBE_DELAY_MS); // Rate limit probes
       }
 
       // 9. Check source maps
-      findings.push(...await this.checkSourceMaps(scriptUrls, targetUrl.href));
+      findings.push(...await this.checkSourceMaps(scriptUrls));
 
       // 10. Check cookie flags
-      findings.push(...this.checkCookies(headers, targetUrl.href));
+      findings.push(...this.checkCookies(headers, finalUrl.href));
 
       // 11. SSL/TLS check (HTTPS only)
-      if (targetUrl.protocol === 'https:') {
-        findings.push(...this.checkSSL(targetUrl));
+      if (finalUrl.protocol === 'https:') {
+        findings.push(...this.checkSSL(finalUrl));
       }
-
     } catch (err: any) {
       errors.push({
         source: this.name,
@@ -225,7 +257,7 @@ This addresses APP 11.1 (Security) and APP 6.1 (Use/Disclosure).`,
 
   // ─── Key Detection ──────────────────────────────────────────────────────
 
-  private scanForKeys(content: string, sourceUrl: string, pageUrl: string): AttestLensFinding[] {
+  private scanForKeys(content: string, sourceUrl: string): AttestLensFinding[] {
     const findings: AttestLensFinding[] = [];
     // Truncate content for regex scanning to prevent ReDoS on very large inputs
     const scanContent = content.length > 1_000_000 ? content.substring(0, 1_000_000) : content;
@@ -265,9 +297,9 @@ This addresses APP 11.1 (Security) and APP 6.1 (Use/Disclosure).`,
 
   // ─── JS Pattern Analysis ────────────────────────────────────────────────
 
-  private scanForJSPatterns(content: string, sourceUrl: string, pageUrl: string): AttestLensFinding[] {
+  private scanForJSPatterns(content: string, sourceUrl: string): AttestLensFinding[] {
     const findings: AttestLensFinding[] = [];
-    const isMinified = sourceUrl.endsWith('.min.js') || content.split('\n').length < 10;
+    const isMinified = sourceUrl.includes('.min.js') || content.split('\n').length < 10;
     // Truncate content for regex scanning to prevent ReDoS
     const scanContent = content.length > 1_000_000 ? content.substring(0, 1_000_000) : content;
 
@@ -300,7 +332,11 @@ This addresses APP 11.1 (Security) and APP 6.1 (Use/Disclosure).`,
   private async probeInfra(check: InfraCheck, baseUrl: URL, findings: AttestLensFinding[]): Promise<void> {
     try {
       const checkUrl = new URL(check.path, baseUrl).href;
-      const response = await this.fetchWithTimeout(checkUrl, REQUEST_TIMEOUT, check.method);
+      const response = await this.fetchGuardedText(checkUrl, {
+        timeoutMs: REQUEST_TIMEOUT,
+        method: check.method,
+        blockBehavior: 'skip',
+      });
 
       if (response && check.vulnerableStatuses.includes(response.status)) {
         // Verify content patterns if specified
@@ -327,26 +363,28 @@ This addresses APP 11.1 (Security) and APP 6.1 (Use/Disclosure).`,
 
   // ─── Source Map Check ────────────────────────────────────────────────────
 
-  private async checkSourceMaps(scriptUrls: string[], pageUrl: string): Promise<AttestLensFinding[]> {
+  private async checkSourceMaps(scriptUrls: string[]): Promise<AttestLensFinding[]> {
     const findings: AttestLensFinding[] = [];
+    const sourceMapPattern = JS_PATTERNS.find(p => p.id === 'AL-JS-007');
+    if (!sourceMapPattern) return findings;
 
     for (const scriptUrl of scriptUrls.slice(0, 10)) { // Check first 10 scripts
       try {
-        const mapUrl = scriptUrl + '.map';
-        const response = await fetch(mapUrl, {
-          headers: { 'User-Agent': USER_AGENT },
-          signal: AbortSignal.timeout(5000),
+        const mapUrl = this.buildSourceMapUrl(scriptUrl);
+        const response = await this.fetchGuardedText(mapUrl, {
+          timeoutMs: 5000,
+          blockBehavior: 'skip',
         });
 
-        if (response.ok) {
+        if (response?.ok) {
           findings.push(this.createFinding({
             sourceRule: 'AL-JS-007',
             severity: 'low',
             category: 'JS Security',
-            title: 'JavaScript Source Map Available',
-            description: JS_PATTERNS.find(p => p.id === 'AL-JS-007')!.description,
-            fixPrompt: JS_PATTERNS.find(p => p.id === 'AL-JS-007')!.fixPrompt,
-            url: mapUrl,
+            title: sourceMapPattern.title,
+            description: sourceMapPattern.description,
+            fixPrompt: sourceMapPattern.fixPrompt,
+            url: response.finalUrl.href,
           }));
           break; // One source map finding is enough
         }
@@ -375,7 +413,6 @@ This addresses APP 11.1 (Security) and APP 6.1 (Use/Disclosure).`,
       const cookieName = cookie.split('=')[0]?.trim();
       const hasSecure = /;\s*secure/i.test(cookie);
       const hasHttpOnly = /;\s*httponly/i.test(cookie);
-      const hasSameSite = /;\s*samesite/i.test(cookie);
 
       if (!hasSecure && url.startsWith('https://')) {
         findings.push(this.createFinding({
@@ -436,58 +473,53 @@ This addresses APP 11.1 (Security).`,
 
   // ─── Helper Methods ─────────────────────────────────────────────────────
 
-  private async fetchJsWithConcurrency(
+  private async fetchJavaScriptBundles(
     urls: string[],
-    concurrency: number,
-    timeoutMs: number,
+    maxTotalBytes: number = MAX_TOTAL_JS_SIZE,
   ): Promise<Map<string, string>> {
     const results = new Map<string, string>();
-    let index = 0;
+    let remainingJsBudget = maxTotalBytes;
 
-    const worker = async () => {
-      while (index < urls.length) {
-        const url = urls[index++];
-        try {
-          const response = await this.fetchWithTimeout(url, timeoutMs);
-          if (response && response.text) {
-            results.set(url, response.text);
-          }
-        } catch {
-          // Skip failed JS bundles
-        }
+    for (const url of urls) {
+      if (remainingJsBudget <= 0) break;
+
+      const response = await this.fetchGuardedText(url, {
+        timeoutMs: JS_TIMEOUT,
+        maxBytes: remainingJsBudget,
+        blockBehavior: 'skip',
+      });
+
+      if (!response || !response.ok) {
+        continue;
       }
-    };
 
-    const workers = Array.from({ length: Math.min(concurrency, urls.length) }, () => worker());
-    await Promise.all(workers);
+      if (response.bodyExceeded) {
+        break;
+      }
+
+      remainingJsBudget -= Buffer.byteLength(response.text);
+      results.set(response.finalUrl.href, response.text);
+    }
+
     return results;
   }
 
-  private async fetchPage(url: URL): Promise<{ response: Response; headers: Headers; html: string } | null> {
-    try {
-      const response = await fetch(url.href, {
-        headers: {
-          'User-Agent': USER_AGENT,
-          'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-          'Accept-Language': 'en-US,en;q=0.5',
-        },
-        signal: AbortSignal.timeout(REQUEST_TIMEOUT),
-        redirect: 'follow',
-      });
+  private async fetchPage(url: URL): Promise<{ headers: Headers; html: string; finalUrl: URL } | null> {
+    const response = await this.fetchGuardedText(url, {
+      timeoutMs: REQUEST_TIMEOUT,
+      maxBytes: MAX_HTML_SIZE,
+      blockBehavior: 'throw',
+      headers: {
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+        'Accept-Language': 'en-US,en;q=0.5',
+      },
+    });
 
-      if (!response.ok) {
-        return null;
-      }
-
-      const html = await response.text();
-      if (html.length > MAX_HTML_SIZE) {
-        return null; // Skip oversized pages
-      }
-
-      return { response, headers: response.headers, html };
-    } catch {
+    if (!response || !response.ok || response.bodyExceeded) {
       return null;
     }
+
+    return { headers: response.headers, html: response.text, finalUrl: response.finalUrl };
   }
 
   private extractScriptUrls(html: string, baseUrl: URL): string[] {
@@ -525,20 +557,224 @@ This addresses APP 11.1 (Security).`,
     return scripts;
   }
 
-  private async fetchWithTimeout(url: string, timeoutMs: number, method: string = 'GET'): Promise<{ status: number; text: string } | null> {
+  private buildSourceMapUrl(scriptUrl: string): string {
     try {
-      const response = await fetch(url, {
-        method,
-        headers: { 'User-Agent': USER_AGENT },
-        signal: AbortSignal.timeout(timeoutMs),
-        redirect: 'follow',
-      });
-
-      const text = await response.text();
-      return { status: response.status, text };
+      const url = new URL(scriptUrl);
+      url.pathname = `${url.pathname}.map`;
+      return url.toString();
     } catch {
-      return null;
+      return `${scriptUrl}.map`;
     }
+  }
+
+  private async fetchGuardedText(url: URL | string, options: GuardedFetchOptions): Promise<GuardedFetchResult | null> {
+    const headers = new Headers(options.headers);
+    headers.set('User-Agent', USER_AGENT);
+
+    let currentUrl = typeof url === 'string' ? new URL(url) : new URL(url.href);
+    let method = options.method ?? 'GET';
+
+    for (let redirectCount = 0; redirectCount <= MAX_REDIRECTS; redirectCount++) {
+      try {
+        await this.assertPublicScanTarget(currentUrl);
+      } catch (err) {
+        if (err instanceof BlockedUrlError && options.blockBehavior === 'throw') {
+          throw err;
+        }
+        return null;
+      }
+
+      let response: Response;
+      try {
+        response = await fetch(currentUrl.href, {
+          method,
+          headers,
+          signal: AbortSignal.timeout(options.timeoutMs),
+          redirect: 'manual',
+        });
+      } catch {
+        return null;
+      }
+
+      if (this.isRedirectStatus(response.status)) {
+        if (redirectCount === MAX_REDIRECTS) {
+          return null;
+        }
+
+        const location = response.headers.get('location');
+        if (!location) {
+          return null;
+        }
+
+        currentUrl = new URL(location, currentUrl);
+        if (response.status === 303 && method !== 'HEAD') {
+          method = 'GET';
+        }
+        continue;
+      }
+
+      const body = await this.readResponseText(response, options.maxBytes ?? Number.POSITIVE_INFINITY);
+      return {
+        status: response.status,
+        ok: response.ok,
+        headers: response.headers,
+        text: body.text,
+        finalUrl: currentUrl,
+        bodyExceeded: body.bodyExceeded,
+      };
+    }
+
+    return null;
+  }
+
+  private async readResponseText(
+    response: Response,
+    maxBytes: number,
+  ): Promise<{ text: string; bodyExceeded: boolean }> {
+    const contentLength = Number(response.headers.get('content-length'));
+    if (Number.isFinite(maxBytes) && Number.isFinite(contentLength) && contentLength > maxBytes) {
+      await response.body?.cancel();
+      return { text: '', bodyExceeded: true };
+    }
+
+    if (!response.body || !Number.isFinite(maxBytes)) {
+      const text = await response.text();
+      if (Number.isFinite(maxBytes) && Buffer.byteLength(text) > maxBytes) {
+        return { text: '', bodyExceeded: true };
+      }
+      return { text, bodyExceeded: false };
+    }
+
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let bytesRead = 0;
+    let text = '';
+
+    try {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        if (!value) continue;
+
+        bytesRead += value.byteLength;
+        if (bytesRead > maxBytes) {
+          await reader.cancel();
+          return { text: '', bodyExceeded: true };
+        }
+
+        text += decoder.decode(value, { stream: true });
+      }
+
+      text += decoder.decode();
+      return { text, bodyExceeded: false };
+    } finally {
+      reader.releaseLock();
+    }
+  }
+
+  private isRedirectStatus(status: number): boolean {
+    return status === 301 || status === 302 || status === 303 || status === 307 || status === 308;
+  }
+
+  private async assertPublicScanTarget(url: URL): Promise<void> {
+    if (!['http:', 'https:'].includes(url.protocol)) {
+      throw new BlockedUrlError(url.href, `Unsupported protocol: ${url.protocol}`);
+    }
+
+    const hostname = this.normalizeHost(url.hostname);
+    if (!hostname) {
+      throw new BlockedUrlError(url.href, 'URL is missing a hostname');
+    }
+
+    if (this.isLocalHostname(hostname)) {
+      throw new BlockedUrlError(
+        url.href,
+        `Target resolves to a private/internal host: ${hostname}. SSRF protection.`,
+      );
+    }
+
+    if (isIP(hostname) !== 0) {
+      if (!this.isPublicIpAddress(hostname)) {
+        throw new BlockedUrlError(
+          url.href,
+          `Target resolves to a private/internal IP: ${hostname}. SSRF protection.`,
+        );
+      }
+      return;
+    }
+
+    const addresses = await this.lookupHostname(hostname);
+    for (const entry of addresses) {
+      if (!this.isPublicIpAddress(entry.address)) {
+        throw new BlockedUrlError(
+          url.href,
+          `Target resolves to a private/internal IP: ${entry.address}. SSRF protection.`,
+        );
+      }
+    }
+  }
+
+  private async lookupHostname(hostname: string): Promise<Array<{ address: string; family: number }>> {
+    return lookup(hostname, { all: true, verbatim: true });
+  }
+
+  private normalizeHost(hostname: string): string {
+    return hostname.replace(/^\[(.*)\]$/, '$1').replace(/\.$/, '').toLowerCase();
+  }
+
+  private isLocalHostname(hostname: string): boolean {
+    return hostname === 'localhost' || hostname.endsWith('.localhost') || hostname.endsWith('.local');
+  }
+
+  private isPublicIpAddress(address: string): boolean {
+    const normalized = this.normalizeHost(address);
+
+    if (normalized.startsWith('::ffff:')) {
+      const mappedIPv4 = normalized.substring('::ffff:'.length);
+      if (isIP(mappedIPv4) === 4) {
+        return this.isPublicIPv4(mappedIPv4);
+      }
+    }
+
+    const family = isIP(normalized);
+    if (family === 4) return this.isPublicIPv4(normalized);
+    if (family === 6) return this.isPublicIPv6(normalized);
+    return true;
+  }
+
+  private isPublicIPv4(address: string): boolean {
+    const octets = address.split('.').map(Number);
+    if (octets.length !== 4 || octets.some(part => !Number.isInteger(part) || part < 0 || part > 255)) {
+      return false;
+    }
+
+    const [a, b, c] = octets;
+
+    if (a === 0 || a === 10 || a === 127) return false;
+    if (a === 100 && b >= 64 && b <= 127) return false; // RFC 6598 CGNAT
+    if (a === 169 && b === 254) return false;
+    if (a === 172 && b >= 16 && b <= 31) return false;
+    if (a === 192 && b === 168) return false;
+    if (a === 192 && b === 0) return false;
+    if (a === 192 && b === 88 && c === 99) return false;
+    if (a === 198 && (b === 18 || b === 19)) return false;
+    if (a === 198 && b === 51 && c === 100) return false;
+    if (a === 203 && b === 0 && c === 113) return false;
+    if (a >= 224) return false; // Multicast + reserved
+
+    return true;
+  }
+
+  private isPublicIPv6(address: string): boolean {
+    const normalized = address.toLowerCase();
+
+    if (normalized === '::' || normalized === '::1') return false;
+    if (/^fe[89ab][0-9a-f]:/i.test(normalized)) return false; // fe80::/10
+    if (/^f[cd][0-9a-f]{2}:/i.test(normalized)) return false; // fc00::/7
+    if (/^ff[0-9a-f]{2}:/i.test(normalized)) return false; // ff00::/8
+    if (normalized.startsWith('2001:db8:')) return false; // documentation range
+
+    return true;
   }
 
   private truncateMatch(match: string): string {
@@ -614,8 +850,5 @@ This addresses APP 11.1 (Security).`,
     return Array.from(seen.values());
   }
 }
-
-// Import InfraCheck type from the rules file
-import type { InfraCheck } from './rules/infra-checks.js';
 
 export default UrlScanAdapter;
