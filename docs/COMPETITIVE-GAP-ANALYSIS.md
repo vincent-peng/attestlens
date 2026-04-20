@@ -26,10 +26,13 @@ The vibe-coding security scanner market has exploded. There are now **15+ compet
 | **OneTrust** | Enterprise | $$$$ | ❌ | ❌ | ✅ (full suite) |
 | **AttestLens** | CLI/OSS | Free | ✅ | ✅ | ✅ |
 | **Shannon** (Keygraph) | CLI+Docker | Lite: AGPL / Pro: Commercial | ✅ | ✅ (live exploit) | ❌ |
+| **Pentest-Swarm-AI** (Armur) | CLI+Docker | Apache 2.0 | ✅ | ✅ (live exploit) | ❌ |
 
 **Critical insight:** ZERO tools combine security scanning with Australian Privacy Act (APP/NDB) compliance mapping. That's our moat. But we need to close the security scanning gaps first — nobody will use a compliance tool that can't find vulnerabilities.
 
-**New entrant (April 2026):** Shannon (Keygraph) — autonomous AI pentester. Finds + **proves** exploits (SQLi, XSS, SSRF, auth bypass) with working PoCs. Open-core model (Lite AGPL, Pro commercial). 20+ confirmed vulns in OWASP Juice Shop. **No compliance mapping.** Directly complementary with AttestLens — see §9.
+**New entrants (April 2026):** Shannon (Keygraph) — autonomous AI pentester. Finds + **proves** exploits (SQLi, XSS, SSRF, auth bypass) with working PoCs. Open-core model (Lite AGPL, Pro commercial). 20+ confirmed vulns in OWASP Juice Shop. **No compliance mapping.** Directly complementary with AttestLens — see §9.
+
+Pentest-Swarm-AI (Armur) — stigmergic swarm pentester. 4 agent types (Recon/Classify/Exploit/Report) coordinate via pheromone-weighted blackboard. Go-based, Apache 2.0, Claude API. MCP server, SARIF output, GitHub Action. Alpha swarm mode. **No compliance mapping.** Complementary — see §10.
 
 ---
 
@@ -447,3 +450,175 @@ See `docs/SHANNON-ADAPTER-SPEC.md` for the deferred research note and future des
 **Important:** Shannon integration is exploratory and explicitly out of scope for the current shipped roadmap. It should not widen current CLI, MCP, or schema contracts until post-`v0.2.0` prioritization and a full trust-boundary design are approved.
 
 **Core idea:** Import Shannon scan results (JSON) → auto-map findings to APP/NDB → generate compliance attestation pack. "From pentest to attestation in 5 minutes."
+
+---
+
+## 10. Pentest-Swarm-AI (Armur) — Deep Dive
+
+**Added:** 2026-04-20
+**Repo:** <https://github.com/Armur-Ai/Pentest-Swarm-AI>
+
+### What Pentest-Swarm-AI Does
+
+Autonomous pentester using a **stigmergic swarm** architecture (not a pipeline):
+
+- **Stigmergy** — agents coordinate by reading/writing findings on a shared blackboard (Postgres + pgvector). Pheromone weights bias agents toward promising attack paths; weights decay over time so stale paths die.
+- **Emergence** — attack chains emerge from blackboard state, not a central planner. Recon finding wakes classifier → high-severity wakes exploit agent → exploit results feed back and wake report agent.
+- **Decentralization** — each agent has its own trigger predicate. Add a new agent and it joins without rewiring.
+
+4 agent types: Recon (8 ProjectDiscovery tools), Classify (CVE mapping + CVSS scoring), Exploit (attack chain builder), Report (MD/HTML/JSON/SARIF output).
+
+Uses Claude API. Runs via `brew`, `docker`, or `go install`.
+
+### Feature Status
+
+| Feature | Status |
+|---|---|
+| Sequential 5-phase runner | Stable |
+| Stigmergic swarm scheduler | Alpha |
+| ProjectDiscovery toolchain | Stable |
+| MCP server | Beta |
+| VS Code extension | Beta |
+| GitHub Action (SARIF) | Beta |
+| Live dashboard | Alpha |
+| Burp MCP / Metasploit / ZAP adapters | Planned |
+
+### Their Competitive Table (Our Intel)
+
+Pentest-Swarm's own comparison table maps the AI pentester landscape:
+
+| Tool | Architecture | Executes? | Memory | MCP | Swarm? |
+|---|---|---|---|---|---|
+| Pentest-Swarm-AI | Stigmergic blackboard | ✅ | pgvector + pheromones | ✅ | ✅ real |
+| Shannon | White-box + browser | ✅ | Session state | ❌ | Pipeline |
+| PentAGI | 4 agents + planner | ✅ | pgvector | Partial | Pipeline |
+| PentestGPT | Single-agent ReAct | Suggests | None | ❌ | No |
+| HexStrike | MCP tool wrapper | Delegates | Stateless | ✅ | No |
+| Pentest-R1 | RL-tuned LLM | ✅ | Trajectory | ❌ | No |
+| HackingBuddyGPT | Single-agent | ✅ | Run logs | ❌ | No |
+
+This is useful market intel — confirms Shannon, PentAGI, and HexStrike as the serious pentest tools, and PentestGPT as suggestion-only.
+
+### What Pentest-Swarm Does NOT Do
+
+- ❌ No compliance mapping (APP, NDB, GDPR — nothing)
+- ❌ No questionnaire-based assessment
+- ❌ No attestation artifacts
+- ❌ No evidence of remediation tracking
+
+Same gap as every other pentest tool. AttestLens's lane.
+
+### Relevance to AttestLens
+
+1. **MCP distribution validates our approach** — Another security tool going MCP-first. The developer tooling channel is converging on MCP.
+
+2. **SARIF output is a promising transport format** — Pentest-Swarm outputs SARIF, which is an industry standard (OASIS) for static analysis results. This is a useful research direction for future import work:
+   - SARIF is supported by: Semgrep, CodeQL, SonarQube, GitHub Code Scanning, Snyk, Checkmarx, and now Pentest-Swarm
+   - A SARIF importer could eventually give us findings from many tools through one intake format
+   - This may be a better long-term direction than maintaining many per-tool adapters, but it does **not** remove the need for trust-boundary controls, source-specific validation, and evidence isolation
+   - Recommendation: treat SARIF as a **preferred research direction** for post-M2 import work, not as an approved roadmap pivot or live interface change
+
+3. **Apache 2.0 license** — More permissive than Shannon's AGPL-3.0. If we ever embed any reference logic, Apache is safe. AGPL is not.
+
+4. **Pheromone/decay concept** — Interesting but not directly applicable to compliance. What IS applicable: the idea that findings have **weight/confidence** that can change over time. Our mapping engine already uses confidence scores.
+
+### AttestLens vs Pentest-Swarm Positioning
+
+| | Pentest-Swarm-AI | AttestLens |
+|---|---|---|
+| **Core job** | Find + exploit vulns via swarm | Map findings → APP/NDB + generate attestation |
+| **Output** | Security report (SARIF/MD/HTML) | Compliance attestation (PDF) |
+| **Buyer** | Security teams, bug bounty hunters | Agencies, MSPs, compliance officers |
+| **Regulatory** | None | AU Privacy Act / NDB |
+| **Distribution** | CLI + Docker + MCP | MCP + CLI + per-stack pages |
+| **Moat** | Swarm architecture + pheromones | Evidence graph + attestation chain + APP/NDB mapping |
+
+**Same conclusion as Shannon:** Complementary, not competitive. Agencies could run Pentest-Swarm for finding vulns, then import SARIF into AttestLens for the compliance pack.
+
+---
+
+## 11. Research Direction: SARIF as a Preferred Import Transport
+
+**Added:** 2026-04-20
+
+### Why SARIF Over Per-Tool Adapters
+
+The original Shannon adapter spec proposed a `PentestImport` schema with per-tool parsers. That works but doesn't scale — every new pentest tool needs a new adapter.
+
+SARIF (Static Analysis Results Interchange Format) is an OASIS standard with wide adoption:
+
+| Tool | SARIF Support |
+|---|---|
+| **Pentest-Swarm-AI** | ✅ Native output |
+| **Semgrep** | ✅ Native output |
+| **CodeQL** | ✅ Native output |
+| **GitHub Code Scanning** | ✅ Native input/output |
+| **SonarQube** | ✅ Export |
+| **Snyk** | ✅ Via `snyk sarif` |
+| **Checkmarx** | ✅ Export |
+| **Shannon** | ❌ (JSON only — would need a converter) |
+
+### Proposed Research Architecture
+
+```
+┌─────────────────┐     ┌──────────────────────┐     ┌──────────────────────┐
+│  Any SARIF Tool │────▶│   Raw Intake         │────▶│ Quarantine /         │
+│  (Semgrep,      │     │   + Producer Check   │     │ Validation           │
+│   Pentest-Swarm,│     └──────────────────────┘     └──────────┬───────────┘
+│   CodeQL, etc.) │                                            │
+└─────────────────┘                                            ▼
+                                                       ┌──────────────────────┐
+                                                       │ Sanitized            │
+                                                       │ Normalization        │
+                                                       │ (+ optional Shannon  │
+                                                       │  JSON research       │
+                                                       │  converter)          │
+                                                       └──────────┬───────────┘
+                                                                  │
+                                                                  ▼
+                                                       ┌──────────────────────┐
+                                                       │ Mapping Engine       │
+                                                       │ + Finding Merge      │
+                                                       └──────────┬───────────┘
+                                                                  │
+                                                                  ▼
+                                                       ┌──────────────────────┐
+                                                       │ Report / Evidence    │
+                                                       │ Rendering            │
+                                                       └──────────────────────┘
+```
+
+Important guardrails for this research direction:
+
+- SARIF is a **transport/input format**, not a trust signal
+- imported third-party evidence is **untrusted and sensitive by default**
+- raw imported evidence must never flow directly into normal PDF/HTML/Markdown reports or public MCP payloads
+- if raw evidence is retained at all, it must stay in a separate raw-evidence or evidence-bundle path with stricter access controls
+- this section does **not** approve any live `ScanSource`, CLI, MCP, or report-schema changes; any future provenance fields remain internal research placeholders until a separate post-M2 design is approved
+
+### SARIF → APP/NDB Mapping Hints
+
+SARIF may expose tags and metadata that help drive a first-pass classification, but these are **advisory metadata**, not guaranteed identifiers. Producer and version variation should be expected.
+
+| SARIF `rule.properties.tags` | APP/NDB Mapping |
+|---|---|
+| `security`, `injection` | APP 11.1, NDB |
+| `authentication` | APP 11.1, APP 6 |
+| `authorization`, `access-control` | APP 6, APP 11.1 |
+| `xss` | APP 11.1, NDB |
+| `secrets`, `credential` | APP 11.1, NDB |
+| `misconfiguration` | APP 11.1 |
+| `ssrf` | APP 11.1, APP 8 |
+| `info-disclosure` | APP 11.1, APP 6 |
+
+### Implementation Notes
+
+- Validate SARIF schema version (2.1.0 is current OASIS standard)
+- Validate producer/tool identity when possible (for example `run.tool.driver.name`), but do not trust it blindly
+- Treat `result.level`, `rule.properties.tags`, `result.ruleId`, and `result.locations` as advisory metadata that may be absent, weak, or producer-specific
+- Require fallback classification when tags, rule IDs, or locations are missing or too weak for confident mapping
+- Confidence-score all imported findings lower than native AttestLens findings (imported = secondary evidence)
+- Keep a raw intake copy for audit/debug instead of trusting only the normalized shape
+- Any future provenance metadata should remain internal research placeholders until a separate post-M2 import contract is approved
+
+This remains a **deferred research direction** pending M2 completion and design-partner validation.

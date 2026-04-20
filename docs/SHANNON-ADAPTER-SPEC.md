@@ -254,7 +254,29 @@ Until those conditions are met, this remains research only.
 
 ## 13. Future Extensions
 
-- generic pentest import for other tools such as CheckVibe, Snyk, or GitHub code scanning
+- **SARIF as a preferred research direction** (see §11 of COMPETITIVE-GAP-ANALYSIS.md) — explore whether a quarantined SARIF intake can cover output from Pentest-Swarm-AI, Semgrep, CodeQL, SonarQube, Snyk, GitHub Code Scanning, etc.
+- **Shannon JSON → SARIF converter** — research whether Shannon's native JSON can be normalized into a quarantined SARIF-shaped intake before any later import design is approved
 - optional evidence bundle generation with stronger access controls
 - richer provenance tracking for imported versus native findings
 - a later live Shannon integration only if real demand justifies it
+
+### Why SARIF Over Per-Tool Adapters
+
+The original design in §10 of this spec proposed a `PentestImport` schema with per-tool parsers. That approach doesn't scale — every new pentest tool needs a new adapter.
+
+SARIF (Static Analysis Results Interchange Format) is an OASIS standard (v2.1.0) with wide adoption:
+- Pentest-Swarm-AI outputs SARIF natively
+- Semgrep, CodeQL, SonarQube, Snyk, Checkmarx, GitHub Code Scanning all support SARIF
+- One importer handles 80%+ of tools instead of N per-tool adapters
+- Shannon JSON could use an **offline research normalization step** into a quarantined SARIF-shaped intake if that later proves useful
+
+Guardrails that still apply if this research continues:
+
+- parsing must fail closed on malformed or version-incompatible input
+- schema-version checks are mandatory before normalization
+- any future import path must keep existing root restrictions, reject symlinks/escaped paths, and validate file type/size before parsing
+- raw imported evidence must stay isolated from normal PDF/HTML/Markdown reports and public MCP payloads
+- producer-specific metadata such as tags, rule IDs, levels, and locations remain advisory; fallback classification is required when they are missing or weak
+- no live `ScanSource`, CLI, MCP, or report-schema changes are approved by this note
+
+See `docs/COMPETITIVE-GAP-ANALYSIS.md` §11 for the broader research architecture and market context.
