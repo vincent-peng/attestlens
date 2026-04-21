@@ -12,6 +12,7 @@ import type {
   QuestionnairePrincipleResult,
   QuestionnaireResponse,
   QuestionnaireSession as QuestionnaireSessionType,
+  TransitionalQuestionnaireSession,
 } from '../schema/index.js';
 import {
   LEGACY_QUESTION_BANK_V1,
@@ -31,12 +32,297 @@ export interface SessionPaths {
   scanSnapshotPath: string;
 }
 
+export interface PreparedQuestionnaireSession {
+  session: QuestionnaireSessionType;
+  didUpgrade: boolean;
+}
+
+const SESSION_INTEGRITY_FAILURE =
+  'Attestation session integrity check failed. Start a new attestation session.';
+
 function slugifyTarget(targetName: string): string {
   return targetName
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/^-+|-+$/g, '')
     .slice(0, 80) || 'target';
+}
+
+function serializeQuestionForHash(question: Question): Record<string, unknown> {
+  return {
+    id: question.id,
+    appPrinciple: question.appPrinciple,
+    question: question.question,
+    type: question.type,
+    options: question.options,
+    required: question.required,
+    role: question.role,
+    passOn: question.passOn,
+    blocking: question.blocking,
+    minimumSelectedOptions: question.minimumSelectedOptions,
+    failOnOptions: question.failOnOptions,
+    helpText: question.helpText,
+    dependsOn: question.dependsOn ? {
+      questionId: question.dependsOn.questionId,
+      answers: [...question.dependsOn.answers],
+    } : undefined,
+    relatedFindings: question.relatedFindings,
+  };
+}
+
+function questionsExactlyMatch(left: Question[], right: Question[]): boolean {
+  if (left.length !== right.length) {
+    return false;
+  }
+
+  return left.every((question, index) =>
+    JSON.stringify(serializeQuestionForHash(question)) === JSON.stringify(serializeQuestionForHash(right[index]!)),
+  );
+}
+
+function principlesExactlyMatch(left: APPPrinciple[], right: APPPrinciple[]): boolean {
+  return left.length === right.length && left.every((principle, index) => principle === right[index]);
+}
+
+function getKnownQuestionBank(version: string): Question[] | null {
+  if (version === QUESTIONNAIRE_VERSION) {
+    return QUESTION_BANK;
+  }
+
+  if (version === LEGACY_QUESTIONNAIRE_VERSION) {
+    return LEGACY_QUESTION_BANK_V1;
+  }
+
+  return null;
+}
+
+function assertSessionQuestionRefs(
+  session: Pick<QuestionnaireSessionType, 'answers' | 'currentQuestionId' | 'sessionQuestions'>,
+): void {
+  const questionIds = new Set(session.sessionQuestions.map((question) => question.id));
+
+  for (const answer of session.answers) {
+    if (!questionIds.has(answer.questionId)) {
+      throw new Error(SESSION_INTEGRITY_FAILURE);
+    }
+  }
+
+  if (session.currentQuestionId && !questionIds.has(session.currentQuestionId)) {
+    throw new Error(SESSION_INTEGRITY_FAILURE);
+  }
+}
+
+function buildLegacySessionPrinciples(session: LegacyQuestionnaireSession | QuestionnaireSessionType): APPPrinciple[] {
+  const principleSet = new Set<APPPrinciple>(session.principleResults.map((result) => result.principle));
+
+  for (const answer of session.answers) {
+    const question = LEGACY_QUESTION_BANK_V1.find((candidate) => candidate.id === answer.questionId);
+    if (question) {
+      principleSet.add(question.appPrinciple);
+    }
+  }
+
+  return Array.from(principleSet);
+}
+
+export function buildQuestionSetHash(params: {
+  questionnaireVersion: string;
+  findingsHash: string;
+  principles: APPPrinciple[];
+  sessionQuestions: Question[];
+}): string {
+  return crypto
+    .createHash('sha256')
+    .update(JSON.stringify({
+      questionnaireVersion: params.questionnaireVersion,
+      findingsHash: params.findingsHash,
+      principles: [...params.principles],
+      sessionQuestions: params.sessionQuestions.map((question) => serializeQuestionForHash(question)),
+    }))
+    .digest('hex')
+    .substring(0, 32);
+}
+
+function normalizeFindingsHash(findingsHash: string, findings: AttestLensFinding[]): void {
+  const recomputedFindingsHash = buildFindingsHash(findings);
+  if (recomputedFindingsHash !== findingsHash) {
+    throw new Error(SESSION_INTEGRITY_FAILURE);
+  }
+}
+
+function upgradeLegacyQuestionnaireSession(
+  session: LegacyQuestionnaireSession,
+  findingsHash: string,
+): QuestionnaireSessionType {
+  const principles = buildLegacySessionPrinciples(session);
+  const sessionQuestions = buildFrozenSessionQuestions(principles, LEGACY_QUESTION_BANK_V1);
+  const questionSetHash = buildQuestionSetHash({
+    questionnaireVersion: LEGACY_QUESTIONNAIRE_VERSION,
+    findingsHash,
+    principles,
+    sessionQuestions,
+  });
+
+  const upgraded: QuestionnaireSessionType = {
+    ...session,
+    version: '1.2',
+    questionnaireVersion: LEGACY_QUESTIONNAIRE_VERSION,
+    findingsHash,
+    principles,
+    sessionQuestions,
+    questionSetHash,
+  };
+  assertSessionQuestionRefs(upgraded);
+  return upgraded;
+}
+
+function upgradeCanonicalQuestionnaireSession(
+  session: TransitionalQuestionnaireSession,
+  findingsHash: string,
+  expectedPrinciples: APPPrinciple[],
+  expectedQuestions: Question[],
+): QuestionnaireSessionType {
+  if (session.questionnaireVersion !== QUESTIONNAIRE_VERSION) {
+    throw new Error(SESSION_INTEGRITY_FAILURE);
+  }
+
+  if (!principlesExactlyMatch(session.principles, expectedPrinciples)) {
+    throw new Error(SESSION_INTEGRITY_FAILURE);
+  }
+
+  if (!questionsExactlyMatch(session.sessionQuestions, expectedQuestions)) {
+    throw new Error(SESSION_INTEGRITY_FAILURE);
+  }
+
+  const upgraded: QuestionnaireSessionType = {
+    ...session,
+    version: '1.2',
+    findingsHash,
+    questionSetHash: buildQuestionSetHash({
+      questionnaireVersion: session.questionnaireVersion,
+      findingsHash,
+      principles: session.principles,
+      sessionQuestions: session.sessionQuestions,
+    }),
+  };
+  assertSessionQuestionRefs(upgraded);
+  return upgraded;
+}
+
+function validateCurrentQuestionnaireSession(
+  session: QuestionnaireSessionType,
+  findingsHash: string,
+  expectedPrinciples: APPPrinciple[],
+  expectedQuestions: Question[],
+): QuestionnaireSessionType {
+  if (session.questionnaireVersion === QUESTIONNAIRE_VERSION) {
+    if (!principlesExactlyMatch(session.principles, expectedPrinciples)) {
+      throw new Error(SESSION_INTEGRITY_FAILURE);
+    }
+
+    if (!questionsExactlyMatch(session.sessionQuestions, expectedQuestions)) {
+      throw new Error(SESSION_INTEGRITY_FAILURE);
+    }
+
+    const expectedHash = buildQuestionSetHash({
+      questionnaireVersion: session.questionnaireVersion,
+      findingsHash,
+      principles: expectedPrinciples,
+      sessionQuestions: expectedQuestions,
+    });
+
+    if (session.questionSetHash !== expectedHash) {
+      throw new Error(SESSION_INTEGRITY_FAILURE);
+    }
+
+    const validated = {
+      ...session,
+      findingsHash,
+      principles: expectedPrinciples,
+      sessionQuestions: expectedQuestions,
+      questionSetHash: expectedHash,
+    };
+    assertSessionQuestionRefs(validated);
+    return validated;
+  }
+
+  if (session.questionnaireVersion === LEGACY_QUESTIONNAIRE_VERSION) {
+    const expectedLegacyPrinciples = buildLegacySessionPrinciples(session);
+    const expectedLegacyQuestions = buildFrozenSessionQuestions(expectedLegacyPrinciples, LEGACY_QUESTION_BANK_V1);
+    if (!principlesExactlyMatch(session.principles, expectedLegacyPrinciples)) {
+      throw new Error(SESSION_INTEGRITY_FAILURE);
+    }
+
+    if (!questionsExactlyMatch(session.sessionQuestions, expectedLegacyQuestions)) {
+      throw new Error(SESSION_INTEGRITY_FAILURE);
+    }
+
+    const expectedHash = buildQuestionSetHash({
+      questionnaireVersion: session.questionnaireVersion,
+      findingsHash,
+      principles: expectedLegacyPrinciples,
+      sessionQuestions: expectedLegacyQuestions,
+    });
+
+    if (session.questionSetHash !== expectedHash) {
+      throw new Error(SESSION_INTEGRITY_FAILURE);
+    }
+
+    const validated = {
+      ...session,
+      findingsHash,
+      principles: expectedLegacyPrinciples,
+      sessionQuestions: expectedLegacyQuestions,
+      questionSetHash: expectedHash,
+    };
+    assertSessionQuestionRefs(validated);
+    return validated;
+  }
+
+  if (!getKnownQuestionBank(session.questionnaireVersion)) {
+    throw new Error(SESSION_INTEGRITY_FAILURE);
+  }
+
+  throw new Error(SESSION_INTEGRITY_FAILURE);
+}
+
+export function prepareQuestionnaireSessionForResume(params: {
+  session: AnyQuestionnaireSessionType;
+  findings: AttestLensFinding[];
+  expectedPrinciples: APPPrinciple[];
+  expectedQuestions: Question[];
+}): PreparedQuestionnaireSession {
+  normalizeFindingsHash(params.session.findingsHash, params.findings);
+  const findingsHash = buildFindingsHash(params.findings);
+
+  if (params.session.version === '1.0') {
+    return {
+      session: upgradeLegacyQuestionnaireSession(params.session, findingsHash),
+      didUpgrade: true,
+    };
+  }
+
+  if (params.session.version === '1.1') {
+    return {
+      session: upgradeCanonicalQuestionnaireSession(
+        params.session,
+        findingsHash,
+        params.expectedPrinciples,
+        params.expectedQuestions,
+      ),
+      didUpgrade: true,
+    };
+  }
+
+  return {
+    session: validateCurrentQuestionnaireSession(
+      params.session,
+      findingsHash,
+      params.expectedPrinciples,
+      params.expectedQuestions,
+    ),
+    didUpgrade: false,
+  };
 }
 
 export function buildSessionPaths(outputDir: string, targetName: string, sessionId: string): SessionPaths {
@@ -76,9 +362,15 @@ export function createQuestionnaireSession(params: {
   currentQuestionId?: string;
 }): QuestionnaireSessionType {
   const now = new Date().toISOString();
+  const questionSetHash = buildQuestionSetHash({
+    questionnaireVersion: params.questionnaireVersion,
+    findingsHash: params.findingsHash,
+    principles: params.principles,
+    sessionQuestions: params.sessionQuestions,
+  });
   return {
     id: params.id || crypto.randomUUID(),
-    version: '1.1',
+    version: '1.2',
     questionnaireVersion: params.questionnaireVersion,
     status: 'in_progress',
     target: params.target,
@@ -89,6 +381,7 @@ export function createQuestionnaireSession(params: {
     findingsHash: params.findingsHash,
     principles: params.principles,
     sessionQuestions: params.sessionQuestions,
+    questionSetHash,
     answers: [],
     principleResults: params.principleResults,
     currentQuestionId: params.currentQuestionId,
@@ -110,36 +403,6 @@ export async function saveQuestionnaireSession(session: QuestionnaireSessionType
 export async function loadQuestionnaireSession(sessionPath: string): Promise<AnyQuestionnaireSessionType> {
   const raw = JSON.parse(await fs.readFile(path.resolve(sessionPath), 'utf-8'));
   return AnyQuestionnaireSession.parse(raw);
-}
-
-export function upgradeQuestionnaireSession(
-  session: AnyQuestionnaireSessionType,
-): QuestionnaireSessionType {
-  if (session.version === '1.1') {
-    return session;
-  }
-
-  const principles = buildLegacySessionPrinciples(session);
-  return {
-    ...session,
-    version: '1.1',
-    questionnaireVersion: LEGACY_QUESTIONNAIRE_VERSION,
-    principles,
-    sessionQuestions: buildFrozenSessionQuestions(principles, LEGACY_QUESTION_BANK_V1),
-  };
-}
-
-function buildLegacySessionPrinciples(session: LegacyQuestionnaireSession): APPPrinciple[] {
-  const principleSet = new Set<APPPrinciple>(session.principleResults.map((result) => result.principle));
-
-  for (const answer of session.answers) {
-    const question = LEGACY_QUESTION_BANK_V1.find((candidate) => candidate.id === answer.questionId);
-    if (question) {
-      principleSet.add(question.appPrinciple);
-    }
-  }
-
-  return Array.from(principleSet);
 }
 
 export async function writeScanSnapshot(snapshotPath: string, payload: unknown): Promise<void> {
@@ -185,4 +448,5 @@ export function completeQuestionnaireSession(
 export {
   LEGACY_QUESTIONNAIRE_VERSION,
   QUESTIONNAIRE_VERSION,
+  SESSION_INTEGRITY_FAILURE,
 };

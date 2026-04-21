@@ -194,16 +194,26 @@ export const LegacyQuestionnaireSession = QuestionnaireSessionBase.extend({
 });
 export type LegacyQuestionnaireSession = z.infer<typeof LegacyQuestionnaireSession>;
 
-export const QuestionnaireSession = QuestionnaireSessionBase.extend({
+export const TransitionalQuestionnaireSession = QuestionnaireSessionBase.extend({
   version: z.literal('1.1'),
   questionnaireVersion: z.string(),
   principles: z.array(APPPrinciple),
   sessionQuestions: z.array(Question),
 });
+export type TransitionalQuestionnaireSession = z.infer<typeof TransitionalQuestionnaireSession>;
+
+export const QuestionnaireSession = QuestionnaireSessionBase.extend({
+  version: z.literal('1.2'),
+  questionnaireVersion: z.string(),
+  principles: z.array(APPPrinciple),
+  sessionQuestions: z.array(Question),
+  questionSetHash: z.string(),
+});
 export type QuestionnaireSession = z.infer<typeof QuestionnaireSession>;
 
 export const AnyQuestionnaireSession = z.union([
   LegacyQuestionnaireSession,
+  TransitionalQuestionnaireSession,
   QuestionnaireSession,
 ]);
 export type AnyQuestionnaireSession = z.infer<typeof AnyQuestionnaireSession>;

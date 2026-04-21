@@ -29,17 +29,18 @@ export {
   buildFrozenSessionQuestions,
   buildFindingsHash,
   buildSessionPaths,
+  buildQuestionSetHash,
   completeQuestionnaireSession,
   createQuestionnaireSession,
   ensureSessionDirectory,
   loadQuestionnaireSession,
   loadScanSnapshot,
+  prepareQuestionnaireSessionForResume,
   saveQuestionnaireSession,
-  upgradeQuestionnaireSession,
   updateSessionProgress,
   writeScanSnapshot,
 } from './session.js';
-export type { SessionTarget, SessionPaths } from './session.js';
+export type { PreparedQuestionnaireSession, SessionTarget, SessionPaths } from './session.js';
 export {
   createInteractivePromptRunner,
 } from './prompts.js';

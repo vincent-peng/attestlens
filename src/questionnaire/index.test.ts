@@ -4,7 +4,13 @@ import path from 'node:path';
 
 import { afterEach, describe, expect, it } from 'vitest';
 
-import type { LegacyQuestionnaireSession, Question, QuestionnaireResponse, QuestionnaireSession } from '../schema/index.js';
+import type {
+  AttestLensFinding,
+  LegacyQuestionnaireSession,
+  Question,
+  QuestionnaireResponse,
+  QuestionnaireSession,
+} from '../schema/index.js';
 import {
   LEGACY_QUESTION_BANK_V1,
   LEGACY_QUESTIONNAIRE_VERSION,
@@ -13,13 +19,14 @@ import {
   aggregatePrincipleResults,
   buildFindingsHash,
   buildFrozenSessionQuestions,
+  buildQuestionSetHash,
   buildSessionPaths,
   createQuestionnaireSession,
   evaluateResponse,
   getApplicableQuestionsForPrinciple,
   loadQuestionnaireSession,
+  prepareQuestionnaireSessionForResume,
   saveQuestionnaireSession,
-  upgradeQuestionnaireSession,
 } from './index.js';
 
 const tempDirs: string[] = [];
@@ -38,6 +45,44 @@ function makeResponse(
 afterEach(async () => {
   await Promise.all(tempDirs.splice(0).map((directory) => fs.rm(directory, { recursive: true, force: true })));
 });
+
+function makeCurrentSession(
+  overrides: Partial<QuestionnaireSession> = {},
+): QuestionnaireSession {
+  const principles = overrides.principles || ['APP_1'];
+  const findingsHash = overrides.findingsHash || buildFindingsHash([]);
+  const questionnaireVersion = overrides.questionnaireVersion || QUESTIONNAIRE_VERSION;
+  const sessionQuestions = overrides.sessionQuestions || buildFrozenSessionQuestions(principles);
+
+  return {
+    id: overrides.id || 'session-001',
+    version: '1.2',
+    questionnaireVersion,
+    status: overrides.status || 'in_progress',
+    target: overrides.target || {
+      kind: 'path',
+      name: 'Example App',
+      path: '/tmp/example-app',
+    },
+    startedAt: overrides.startedAt || new Date().toISOString(),
+    updatedAt: overrides.updatedAt || new Date().toISOString(),
+    completedAt: overrides.completedAt,
+    strictMode: overrides.strictMode ?? false,
+    scanSnapshotPath: overrides.scanSnapshotPath || '/tmp/example-app/scan-results.json',
+    findingsHash,
+    principles,
+    sessionQuestions,
+    questionSetHash: overrides.questionSetHash || buildQuestionSetHash({
+      questionnaireVersion,
+      findingsHash,
+      principles,
+      sessionQuestions,
+    }),
+    answers: overrides.answers || [],
+    principleResults: overrides.principleResults || aggregatePrincipleResults(principles, [], sessionQuestions),
+    currentQuestionId: overrides.currentQuestionId,
+  };
+}
 
 describe('question bank coverage and flow', () => {
   it('covers every APP/NDB principle with at least one question', () => {
@@ -121,6 +166,21 @@ describe('question bank coverage and flow', () => {
       'Q-APP5-001',
       'Q-APP5-003',
       'Q-APP5-002',
+    ]);
+  });
+
+  it('gates APP 2 follow-up questions behind the anonymity exception path', () => {
+    const anonymousFlow = getApplicableQuestionsForPrinciple('APP_2', [
+      makeResponse('Q-APP2-001', true),
+    ]);
+    expect(anonymousFlow.map((question) => question.id)).toEqual(['Q-APP2-001']);
+
+    const identifiedFlow = getApplicableQuestionsForPrinciple('APP_2', [
+      makeResponse('Q-APP2-001', false),
+    ]);
+    expect(identifiedFlow.map((question) => question.id)).toEqual([
+      'Q-APP2-001',
+      'Q-APP2-002',
     ]);
   });
 });
@@ -230,10 +290,56 @@ describe('questionnaire evaluator', () => {
       status: 'fail',
     });
   });
+
+  it('marks APP 2 as pass when anonymity is available and skips the exception control', () => {
+    const result = aggregatePrincipleResults(['APP_2'], [
+      makeResponse('Q-APP2-001', true),
+    ])[0];
+
+    expect(result).toMatchObject({
+      principle: 'APP_2',
+      status: 'pass',
+    });
+  });
+
+  it('keeps APP 2 unknown until the exception control is answered when anonymity is not available', () => {
+    const result = aggregatePrincipleResults(['APP_2'], [
+      makeResponse('Q-APP2-001', false),
+    ])[0];
+
+    expect(result).toMatchObject({
+      principle: 'APP_2',
+      status: 'unknown',
+    });
+  });
+
+  it('marks APP 2 pass when the identification exception is documented', () => {
+    const result = aggregatePrincipleResults(['APP_2'], [
+      makeResponse('Q-APP2-001', false),
+      makeResponse('Q-APP2-002', true),
+    ])[0];
+
+    expect(result).toMatchObject({
+      principle: 'APP_2',
+      status: 'pass',
+    });
+  });
+
+  it('marks APP 2 fail when the identification exception is not documented', () => {
+    const result = aggregatePrincipleResults(['APP_2'], [
+      makeResponse('Q-APP2-001', false),
+      makeResponse('Q-APP2-002', false),
+    ])[0];
+
+    expect(result).toMatchObject({
+      principle: 'APP_2',
+      status: 'fail',
+    });
+  });
 });
 
 describe('questionnaire session persistence', () => {
-  it('round-trips a 1.1 session through session.json with frozen question metadata', async () => {
+  it('round-trips a 1.2 session through session.json with frozen question metadata and integrity hash', async () => {
     const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'attestlens-questionnaire-'));
     tempDirs.push(tempDir);
 
@@ -262,9 +368,9 @@ describe('questionnaire session persistence', () => {
     await saveQuestionnaireSession(session, paths.sessionPath);
     const loaded = await loadQuestionnaireSession(paths.sessionPath);
 
-    expect(loaded.version).toBe('1.1');
-    if (loaded.version !== '1.1') {
-      throw new Error('Expected a 1.1 questionnaire session');
+    expect(loaded.version).toBe('1.2');
+    if (loaded.version !== '1.2') {
+      throw new Error('Expected a 1.2 questionnaire session');
     }
 
     expect(loaded).toEqual<QuestionnaireSession>({
@@ -278,6 +384,125 @@ describe('questionnaire session persistence', () => {
       'Q-APP1-002',
       'Q-APP1-003',
     ]);
+    expect(loaded.questionSetHash).toBeTruthy();
+  });
+
+  it('validates a canonical 1.2 session against the frozen snapshot', () => {
+    const session = makeCurrentSession({
+      principles: ['APP_1'],
+      currentQuestionId: 'Q-APP1-001',
+    });
+
+    const prepared = prepareQuestionnaireSessionForResume({
+      session,
+      findings: [],
+      expectedPrinciples: ['APP_1'],
+      expectedQuestions: buildFrozenSessionQuestions(['APP_1']),
+    });
+
+    expect(prepared.didUpgrade).toBe(false);
+    expect(prepared.session.version).toBe('1.2');
+  });
+
+  it('rejects tampered 1.2 sessions when frozen questions no longer match the canonical set', () => {
+    const session = makeCurrentSession({
+      principles: ['APP_1'],
+      sessionQuestions: buildFrozenSessionQuestions(['APP_1']).filter((question) => question.id !== 'Q-APP1-002'),
+    });
+
+    expect(() => prepareQuestionnaireSessionForResume({
+      session,
+      findings: [],
+      expectedPrinciples: ['APP_1'],
+      expectedQuestions: buildFrozenSessionQuestions(['APP_1']),
+    })).toThrow(/integrity check failed/i);
+  });
+
+  it('rejects tampered 1.2 sessions when the principles no longer match the frozen snapshot', () => {
+    const session = makeCurrentSession({
+      principles: ['APP_1'],
+      sessionQuestions: buildFrozenSessionQuestions(['APP_1']),
+    });
+
+    expect(() => prepareQuestionnaireSessionForResume({
+      session,
+      findings: [],
+      expectedPrinciples: ['APP_1', 'APP_2'],
+      expectedQuestions: buildFrozenSessionQuestions(['APP_1', 'APP_2']),
+    })).toThrow(/integrity check failed/i);
+  });
+
+  it('rejects 1.2 resumes when the frozen scan findings hash no longer matches', () => {
+    const session = makeCurrentSession({
+      findingsHash: buildFindingsHash([]),
+    });
+    const findings: AttestLensFinding[] = [{
+      id: 'FIND-001',
+      source: 'guardvibe',
+      sourceRule: 'VS-HARDKEY',
+      severity: 'high',
+      category: 'Security',
+      title: 'Hardcoded secret',
+      description: 'Detected secret in source',
+      appMappings: [],
+      evidence: {
+        timestamp: new Date().toISOString(),
+        scannerVersion: '0.1.0',
+        rawOutput: {},
+      },
+    }];
+
+    expect(() => prepareQuestionnaireSessionForResume({
+      session,
+      findings,
+      expectedPrinciples: [],
+      expectedQuestions: [],
+    })).toThrow(/integrity check failed/i);
+  });
+
+  it('upgrades canonical 1.1 sessions to 1.2 only when they exactly match the canonical frozen set', () => {
+    const principles = ['APP_1'] as const;
+    const sessionQuestions = buildFrozenSessionQuestions([...principles]);
+    const findingsHash = buildFindingsHash([]);
+    const transitionalSession = {
+      ...makeCurrentSession({
+        principles: [...principles],
+        findingsHash,
+        sessionQuestions,
+      }),
+      version: '1.1' as const,
+    };
+    delete (transitionalSession as unknown as Record<string, unknown>).questionSetHash;
+
+    const prepared = prepareQuestionnaireSessionForResume({
+      session: transitionalSession,
+      findings: [],
+      expectedPrinciples: [...principles],
+      expectedQuestions: sessionQuestions,
+    });
+
+    expect(prepared.didUpgrade).toBe(true);
+    expect(prepared.session.version).toBe('1.2');
+    expect(prepared.session.questionSetHash).toBeTruthy();
+  });
+
+  it('fails closed for non-canonical 1.1 sessions', () => {
+    const principles = ['APP_1'] as const;
+    const transitionalSession = {
+      ...makeCurrentSession({
+        principles: [...principles],
+        sessionQuestions: buildFrozenSessionQuestions([...principles]).filter((question) => question.id !== 'Q-APP1-002'),
+      }),
+      version: '1.1' as const,
+    };
+    delete (transitionalSession as unknown as Record<string, unknown>).questionSetHash;
+
+    expect(() => prepareQuestionnaireSessionForResume({
+      session: transitionalSession,
+      findings: [],
+      expectedPrinciples: [...principles],
+      expectedQuestions: buildFrozenSessionQuestions([...principles]),
+    })).toThrow(/integrity check failed/i);
   });
 
   it('upgrades legacy 1.0 sessions once and freezes the legacy question set', () => {
@@ -294,7 +519,7 @@ describe('questionnaire session persistence', () => {
       updatedAt: new Date().toISOString(),
       strictMode: false,
       scanSnapshotPath: '/tmp/legacy-app/scan-results.json',
-      findingsHash: 'legacy-hash',
+      findingsHash: buildFindingsHash([]),
       answers: [
         makeResponse('Q-APP5-001', true),
       ],
@@ -302,9 +527,16 @@ describe('questionnaire session persistence', () => {
       currentQuestionId: 'Q-APP5-002',
     };
 
-    const upgraded = upgradeQuestionnaireSession(legacySession);
+    const prepared = prepareQuestionnaireSessionForResume({
+      session: legacySession,
+      findings: [],
+      expectedPrinciples: ['APP_5'],
+      expectedQuestions: buildFrozenSessionQuestions(['APP_5']),
+    });
+    const upgraded = prepared.session;
 
-    expect(upgraded.version).toBe('1.1');
+    expect(prepared.didUpgrade).toBe(true);
+    expect(upgraded.version).toBe('1.2');
     expect(upgraded.questionnaireVersion).toBe(LEGACY_QUESTIONNAIRE_VERSION);
     expect(upgraded.principles).toEqual(['APP_5']);
     expect(upgraded.sessionQuestions.map((question) => question.id)).toEqual([
@@ -312,5 +544,6 @@ describe('questionnaire session persistence', () => {
       'Q-APP5-002',
     ]);
     expect(upgraded.sessionQuestions.some((question) => question.id === 'Q-APP5-003')).toBe(false);
+    expect(upgraded.questionSetHash).toBeTruthy();
   });
 });

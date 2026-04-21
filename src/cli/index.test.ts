@@ -8,7 +8,9 @@ import { promisify } from 'node:util';
 import { describe, expect, it } from 'vitest';
 
 import {
+  buildFindingsHash,
   LEGACY_QUESTION_BANK_V1,
+  QUESTIONNAIRE_VERSION,
   loadQuestionnaireSession,
   loadScanSnapshot,
   type AttestationPromptRunner,
@@ -154,13 +156,14 @@ describe('CLI attest command', () => {
 
       expect(session.target.kind).toBe('path');
       expect(session.target.path).toBe(projectDir);
-      expect(session.version).toBe('1.1');
-      if (session.version !== '1.1') {
-        throw new Error('Expected a frozen 1.1 questionnaire session');
+      expect(session.version).toBe('1.2');
+      if (session.version !== '1.2') {
+        throw new Error('Expected a frozen 1.2 questionnaire session');
       }
       expect(session.questionnaireVersion).toBeTruthy();
       expect(session.principles.length).toBeGreaterThan(0);
       expect(session.sessionQuestions.length).toBeGreaterThan(0);
+      expect(session.questionSetHash).toBeTruthy();
       expect(snapshot.target.path).toBe(projectDir);
       await expect(fs.stat(result.sessionPath)).resolves.toBeTruthy();
       await expect(fs.stat(result.scanSnapshotPath)).resolves.toBeTruthy();
@@ -262,7 +265,7 @@ describe('CLI attest command', () => {
         updatedAt: new Date().toISOString(),
         strictMode: false,
         scanSnapshotPath: snapshotPath,
-        findingsHash: 'legacy-hash',
+        findingsHash: buildFindingsHash([]),
         answers: [],
         principleResults: [
           {
@@ -286,9 +289,9 @@ describe('CLI attest command', () => {
       expect(saved.status).toBe('saved');
 
       const upgraded = await loadQuestionnaireSession(sessionPath);
-      expect(upgraded.version).toBe('1.1');
-      if (upgraded.version !== '1.1') {
-        throw new Error('Expected upgraded 1.1 session');
+      expect(upgraded.version).toBe('1.2');
+      if (upgraded.version !== '1.2') {
+        throw new Error('Expected upgraded 1.2 session');
       }
 
       expect(upgraded.sessionQuestions.map((question) => question.id)).toEqual(
@@ -297,6 +300,117 @@ describe('CLI attest command', () => {
           .map((question) => question.id),
       );
       expect(upgraded.sessionQuestions.some((question) => question.id === 'Q-APP5-003')).toBe(false);
+      expect(upgraded.questionSetHash).toBeTruthy();
+    } finally {
+      await fs.rm(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it('fails closed when a transitional 1.1 session has a tampered frozen question set', async () => {
+    const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'attestlens-attest-tampered-'));
+    const sessionDir = path.join(tempDir, 'attest', 'example-app', 'session-tampered');
+    const sessionPath = path.join(sessionDir, 'session.json');
+    const snapshotPath = path.join(sessionDir, 'scan-results.json');
+
+    try {
+      await fs.mkdir(sessionDir, { recursive: true });
+      await fs.writeFile(snapshotPath, JSON.stringify({
+        targetType: 'path',
+        targetPath: '/tmp/example-app',
+        target: {
+          name: 'Example App',
+          path: '/tmp/example-app',
+        },
+        findings: [],
+        results: [],
+        errors: [],
+        totalDurationMs: 10,
+      }, null, 2));
+
+      await fs.writeFile(sessionPath, JSON.stringify({
+        id: 'session-tampered',
+        version: '1.1',
+        questionnaireVersion: QUESTIONNAIRE_VERSION,
+        status: 'in_progress',
+        target: {
+          kind: 'path',
+          name: 'Example App',
+          path: '/tmp/example-app',
+        },
+        startedAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        strictMode: false,
+        scanSnapshotPath: snapshotPath,
+        findingsHash: '4f53cda18c2baa0c0354bb5f9a3ecbe5',
+        principles: ['APP_1'],
+        sessionQuestions: [
+          LEGACY_QUESTION_BANK_V1[0],
+        ],
+        answers: [],
+        principleResults: [
+          {
+            principle: 'APP_1',
+            status: 'unknown',
+            confidence: 0,
+            rationale: 'Awaiting required questionnaire answers: Q-APP1-001',
+            answeredQuestionIds: [],
+          },
+        ],
+        currentQuestionId: 'Q-APP1-001',
+      }, null, 2));
+
+      await expect(executeAttestCommand(undefined, {
+        resume: sessionPath,
+        output: tempDir,
+        format: 'json',
+        strict: false,
+      }, makePromptRunner({ saveAfter: 0 }))).rejects.toThrow(/integrity check failed/i);
+    } finally {
+      await fs.rm(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it('does not rewrite completed sessions when resume is rejected as already finished', async () => {
+    const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'attestlens-attest-completed-'));
+    const sessionDir = path.join(tempDir, 'attest', 'example-app', 'session-complete');
+    const sessionPath = path.join(sessionDir, 'session.json');
+
+    try {
+      await fs.mkdir(sessionDir, { recursive: true });
+      const sessionPayload = {
+        id: 'session-complete',
+        version: '1.2',
+        questionnaireVersion: QUESTIONNAIRE_VERSION,
+        status: 'completed',
+        target: {
+          kind: 'path',
+          name: 'Example App',
+          path: '/tmp/example-app',
+        },
+        startedAt: new Date().toISOString(),
+        updatedAt: '2026-04-20T10:00:00.000Z',
+        completedAt: '2026-04-20T10:10:00.000Z',
+        strictMode: false,
+        scanSnapshotPath: path.join(sessionDir, 'scan-results.json'),
+        findingsHash: '4f53cda18c2baa0c0354bb5f9a3ecbe5',
+        principles: ['APP_1'],
+        sessionQuestions: [],
+        questionSetHash: 'frozen-hash',
+        answers: [],
+        principleResults: [],
+      };
+      await fs.writeFile(sessionPath, JSON.stringify(sessionPayload, null, 2));
+      const before = await fs.readFile(sessionPath, 'utf-8');
+
+      await expect(executeAttestCommand(undefined, {
+        resume: sessionPath,
+        output: tempDir,
+        format: 'json',
+        strict: false,
+      }, makePromptRunner({ saveAfter: 0 }))).rejects.toThrow(/already completed/i);
+
+      const after = await fs.readFile(sessionPath, 'utf-8');
+      expect(after).toBe(before);
     } finally {
       await fs.rm(tempDir, { recursive: true, force: true });
     }

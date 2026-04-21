@@ -288,7 +288,7 @@ export const QUESTION_BANK: Question[] = [
     question: 'Can individuals interact with your service anonymously or using a pseudonym where that is lawful and practicable?',
     type: 'yes_no',
     required: true,
-    role: 'control',
+    role: 'applicability_gate',
     passOn: 'yes',
     blocking: true,
     helpText: 'APP 2 requires entities to give individuals the option of not identifying themselves, or of using a pseudonym, unless this is impracticable or unlawful.',
@@ -302,6 +302,10 @@ export const QUESTION_BANK: Question[] = [
     role: 'control',
     passOn: 'yes',
     blocking: true,
+    dependsOn: {
+      questionId: 'Q-APP2-001',
+      answers: [false, 'no'],
+    },
     helpText: 'This captures the minimum governance evidence for APP 2 exceptions when real-world identity is necessary.',
   },
   {

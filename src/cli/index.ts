@@ -26,15 +26,17 @@ import {
 } from '../report/generator.js';
 import {
   buildAttestationScanSnapshot,
+  buildFrozenSessionQuestions,
   createInteractivePromptRunner,
+  deriveQuestionnairePrinciples,
   initializeAttestationSession,
   loadQuestionnaireSession,
   loadScanSnapshot,
+  prepareQuestionnaireSessionForResume,
   runAttestationSession,
   saveQuestionnaireSession,
-  upgradeQuestionnaireSession,
 } from '../questionnaire/index.js';
-import type { AttestLensFinding } from '../schema/index.js';
+import type { AttestLensFinding, QuestionnaireSession } from '../schema/index.js';
 import type { ReportFormat, ReportOptions } from '../report/generator.js';
 import type { ScannerError, ScannerResult } from '../scanner/types.js';
 import type { AttestationPromptRunner, AttestationScanSnapshot, SessionTarget } from '../questionnaire/index.js';
@@ -452,15 +454,25 @@ export async function executeAttestCommand(
   if (options.resume) {
     sessionPath = path.resolve(options.resume);
     const loadedSession = await loadQuestionnaireSession(sessionPath);
-    session = upgradeQuestionnaireSession(loadedSession);
-    if (loadedSession.version !== session.version) {
-      await saveQuestionnaireSession(session, sessionPath);
-    }
-    if (session.status === 'completed') {
+    if (loadedSession.status === 'completed') {
       throw new Error(`Attestation session is already completed: ${sessionPath}`);
     }
 
-    snapshot = await loadScanSnapshot<AttestationScanSnapshot>(session.scanSnapshotPath);
+    snapshot = await loadScanSnapshot<AttestationScanSnapshot>(loadedSession.scanSnapshotPath);
+    const expectedPrinciples = deriveQuestionnairePrinciples(snapshot.findings);
+    const expectedQuestions = buildFrozenSessionQuestions(expectedPrinciples);
+    const preparedSession = prepareQuestionnaireSessionForResume({
+      session: loadedSession,
+      findings: snapshot.findings,
+      expectedPrinciples,
+      expectedQuestions,
+    });
+
+    session = preparedSession.session;
+    if (preparedSession.didUpgrade) {
+      await saveQuestionnaireSession(session, sessionPath);
+    }
+
     scanSnapshotPath = session.scanSnapshotPath;
     sessionTarget = session.target.kind === 'url'
       ? { kind: 'url', name: session.target.name, url: session.target.url! }
@@ -553,7 +565,7 @@ export async function executeAttestCommand(
   );
   report.metadata.scannerVersions = getScannerVersions(snapshot);
 
-  const reportPaths = await writeReportFiles(report, reportOptions);
+  const reportPaths = await writeReportFiles(report, reportOptions, runResult.session);
   const questionnaireSummary = summarizeQuestionnaireResults(report);
 
   console.log('');
@@ -683,7 +695,11 @@ function buildReportFilename(targetName: string, timestamp: string): string {
   return `attestlens-report-${slug}-${timestamp.split('T')[0]}`;
 }
 
-async function writeReportFiles(report: any, reportOptions: ReportOptions): Promise<Array<{ label: string; path: string }>> {
+async function writeReportFiles(
+  report: any,
+  reportOptions: ReportOptions,
+  questionnaireSession?: QuestionnaireSession,
+): Promise<Array<{ label: string; path: string }>> {
   const outputDir = path.resolve(reportOptions.outputDir);
   await fs.mkdir(outputDir, { recursive: true });
 
@@ -691,11 +707,11 @@ async function writeReportFiles(report: any, reportOptions: ReportOptions): Prom
   const outputs: Array<{ label: string; path: string }> = [];
 
   for (const format of reportOptions.formats) {
-    const filePath = path.join(outputDir, `${filename}.${format === 'markdown' ? 'md' : format}`);
+      const filePath = path.join(outputDir, `${filename}.${format === 'markdown' ? 'md' : format}`);
 
     switch (format) {
       case 'html':
-        await fs.writeFile(filePath, generateHTMLReport(report, reportOptions));
+        await fs.writeFile(filePath, generateHTMLReport(report, reportOptions, questionnaireSession));
         outputs.push({ label: 'HTML report', path: filePath });
         break;
       case 'json':
@@ -703,11 +719,11 @@ async function writeReportFiles(report: any, reportOptions: ReportOptions): Prom
         outputs.push({ label: 'JSON report', path: filePath });
         break;
       case 'markdown':
-        await fs.writeFile(filePath, generateMarkdownReport(report));
+        await fs.writeFile(filePath, generateMarkdownReport(report, questionnaireSession));
         outputs.push({ label: 'Markdown report', path: filePath });
         break;
       case 'pdf':
-        await fs.writeFile(filePath, await generatePDFReport(report, reportOptions));
+        await fs.writeFile(filePath, await generatePDFReport(report, reportOptions, questionnaireSession));
         outputs.push({ label: 'PDF report', path: filePath });
         break;
     }

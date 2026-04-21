@@ -2,7 +2,13 @@ import { describe, it, expect } from 'vitest';
 import { buildComplianceReport, generateJSONReport, generateMarkdownReport, generatePDFReport } from './generator.js';
 import type { AttestLensFinding, QuestionnaireSession } from '../schema/index.js';
 import type { ReportOptions } from './generator.js';
-import { buildFrozenSessionQuestions, QUESTIONNAIRE_VERSION } from '../questionnaire/index.js';
+import {
+  LEGACY_QUESTIONNAIRE_VERSION,
+  QUESTIONNAIRE_VERSION,
+  buildFindingsHash,
+  buildFrozenSessionQuestions,
+  buildQuestionSetHash,
+} from '../questionnaire/index.js';
 
 function makeFinding(overrides: Partial<AttestLensFinding> = {}): AttestLensFinding {
   return {
@@ -36,10 +42,13 @@ function makeQuestionnaireSession(
   overrides: Partial<QuestionnaireSession> = {},
 ): QuestionnaireSession {
   const principles = overrides.principles || ['APP_1'];
+  const findingsHash = overrides.findingsHash || buildFindingsHash([]);
+  const sessionQuestions = overrides.sessionQuestions || buildFrozenSessionQuestions(principles);
+  const questionnaireVersion = overrides.questionnaireVersion || QUESTIONNAIRE_VERSION;
   return {
     id: overrides.id || 'session-001',
-    version: '1.1',
-    questionnaireVersion: overrides.questionnaireVersion || QUESTIONNAIRE_VERSION,
+    version: '1.2',
+    questionnaireVersion,
     status: overrides.status || 'completed',
     target: overrides.target || {
       kind: 'path',
@@ -51,9 +60,15 @@ function makeQuestionnaireSession(
     completedAt: overrides.completedAt || new Date().toISOString(),
     strictMode: overrides.strictMode ?? false,
     scanSnapshotPath: overrides.scanSnapshotPath || '/tmp/test/scan-results.json',
-    findingsHash: overrides.findingsHash || 'hash-123',
+    findingsHash,
     principles,
-    sessionQuestions: overrides.sessionQuestions || buildFrozenSessionQuestions(principles),
+    sessionQuestions,
+    questionSetHash: overrides.questionSetHash || buildQuestionSetHash({
+      questionnaireVersion,
+      findingsHash,
+      principles,
+      sessionQuestions,
+    }),
     answers: overrides.answers || [],
     principleResults: overrides.principleResults || [],
     currentQuestionId: overrides.currentQuestionId,
@@ -265,6 +280,81 @@ describe('generateMarkdownReport', () => {
     expect(md).toContain('Policy is public.');
     expect(md).toContain('#### Evidence Notes');
     expect(md).toContain('docs/privacy-policy.md');
+  });
+
+  it('uses frozen session question text for evidence notes when provided', () => {
+    const session = makeQuestionnaireSession({
+      answers: [
+        {
+          questionId: 'Q-APP1-001',
+          answer: true,
+          timestamp: new Date().toISOString(),
+          note: 'Published on website',
+          evidenceRefs: ['docs/privacy-policy.md'],
+          evaluation: {
+            status: 'pass',
+            confidence: 0.85,
+            rationale: 'Policy is public.',
+          },
+        },
+      ],
+      principleResults: [
+        {
+          principle: 'APP_1',
+          status: 'pass',
+          confidence: 0.85,
+          rationale: 'Policy is public.',
+          answeredQuestionIds: ['Q-APP1-001'],
+        },
+      ],
+      sessionQuestions: buildFrozenSessionQuestions(['APP_1']).map((question) => (
+        question.id === 'Q-APP1-001'
+          ? { ...question, question: 'Frozen session wording for APP 1' }
+          : question
+      )),
+    });
+    const report = buildComplianceReport([], defaultOptions, 1000, session);
+
+    const md = generateMarkdownReport(report, session);
+    expect(md).toContain('Frozen session wording for APP 1');
+    expect(md).not.toContain('Do you have a publicly available privacy policy');
+  });
+
+  it('renders legacy frozen question wording for preserved legacy sessions', () => {
+    const session = makeQuestionnaireSession({
+      questionnaireVersion: LEGACY_QUESTIONNAIRE_VERSION,
+      answers: [
+        {
+          questionId: 'Q-APP1-001',
+          answer: true,
+          timestamp: new Date().toISOString(),
+          note: 'Legacy evidence note',
+          evaluation: {
+            status: 'pass',
+            confidence: 0.8,
+            rationale: 'Legacy control satisfied.',
+          },
+        },
+      ],
+      principleResults: [
+        {
+          principle: 'APP_1',
+          status: 'pass',
+          confidence: 0.8,
+          rationale: 'Legacy control satisfied.',
+          answeredQuestionIds: ['Q-APP1-001'],
+        },
+      ],
+      sessionQuestions: buildFrozenSessionQuestions(['APP_1']).map((question) => (
+        question.id === 'Q-APP1-001'
+          ? { ...question, question: 'Legacy preserved prompt text' }
+          : question
+      )),
+    });
+    const report = buildComplianceReport([], defaultOptions, 1000, session);
+
+    const md = generateMarkdownReport(report, session);
+    expect(md).toContain('Legacy preserved prompt text');
   });
 });
 

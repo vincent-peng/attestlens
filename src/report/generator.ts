@@ -257,7 +257,11 @@ function groupByCategory(findings: AttestLensFinding[]): Map<string, AttestLensF
 
 // ─── HTML Report Generator ───────────────────────────────────────────────────
 
-export function generateHTMLReport(report: ComplianceReport, options: ReportOptions): string {
+export function generateHTMLReport(
+  report: ComplianceReport,
+  options: ReportOptions,
+  questionnaireSession?: QuestionnaireSession,
+): string {
   const primary = options.branding?.primaryColor || '#1a2332';
   const accent = options.branding?.accentColor || '#00b4d8';
   const failRed = '#e63946';
@@ -427,7 +431,7 @@ export function generateHTMLReport(report: ComplianceReport, options: ReportOpti
         `).join('')}
       </tbody>
     </table>
-    ${generateHTMLQuestionnaireSection(report)}
+  ${generateHTMLQuestionnaireSection(report, questionnaireSession)}
   </div>
 
   <!-- Findings -->
@@ -527,7 +531,18 @@ function getQuestionnaireSummaryRows(report: ComplianceReport): Array<{
   }));
 }
 
-function getQuestionnaireEvidenceRows(report: ComplianceReport): Array<{
+function resolveQuestionForEvidence(
+  questionId: string,
+  questionnaireSession?: QuestionnaireSession,
+) {
+  return questionnaireSession?.sessionQuestions.find((question) => question.id === questionId)
+    || getQuestionById(questionId);
+}
+
+function getQuestionnaireEvidenceRowsWithLookup(
+  report: ComplianceReport,
+  questionnaireSession?: QuestionnaireSession,
+): Array<{
   principle: string;
   questionId: string;
   question: string;
@@ -541,7 +556,7 @@ function getQuestionnaireEvidenceRows(report: ComplianceReport): Array<{
   return report.questionnaire
     .filter((response) => response.note || response.evidenceRefs?.length)
     .map((response) => {
-      const question = getQuestionById(response.questionId);
+      const question = resolveQuestionForEvidence(response.questionId, questionnaireSession);
       return {
         principle: question?.appPrinciple || 'UNKNOWN',
         questionId: response.questionId,
@@ -552,14 +567,17 @@ function getQuestionnaireEvidenceRows(report: ComplianceReport): Array<{
     });
 }
 
-function generateHTMLQuestionnaireSection(report: ComplianceReport): string {
+function generateHTMLQuestionnaireSection(
+  report: ComplianceReport,
+  questionnaireSession?: QuestionnaireSession,
+): string {
   if (!report.questionnaire || report.questionnaire.length === 0) {
     return '';
   }
 
   const questionnaireRows = getQuestionnaireSummaryRows(report);
   const unresolvedRows = questionnaireRows.filter((row) => row.status === 'unknown');
-  const evidenceRows = getQuestionnaireEvidenceRows(report);
+  const evidenceRows = getQuestionnaireEvidenceRowsWithLookup(report, questionnaireSession);
   return `
     <h2>Questionnaire Attestation</h2>
     <p>${report.questionnaire.length} questionnaire response${report.questionnaire.length === 1 ? '' : 's'} captured.</p>
@@ -615,7 +633,10 @@ export function generateJSONReport(report: ComplianceReport): string {
 
 // ─── Markdown Report Generator ────────────────────────────────────────────────
 
-export function generateMarkdownReport(report: ComplianceReport): string {
+export function generateMarkdownReport(
+  report: ComplianceReport,
+  questionnaireSession?: QuestionnaireSession,
+): string {
   const lines: string[] = [];
 
   lines.push(`# Privacy Act Compliance Report — ${report.target.name}`);
@@ -659,7 +680,7 @@ export function generateMarkdownReport(report: ComplianceReport): string {
     for (const row of questionnaireRows) {
       lines.push(`| ${row.principle} | ${row.status.toUpperCase()} | ${row.rationale.replace(/\|/g, '\\|')} |`);
     }
-    const evidenceRows = getQuestionnaireEvidenceRows(report);
+    const evidenceRows = getQuestionnaireEvidenceRowsWithLookup(report, questionnaireSession);
     if (evidenceRows.length > 0) {
       lines.push('');
       lines.push(`#### Evidence Notes`);
@@ -719,6 +740,7 @@ export function generateMarkdownReport(report: ComplianceReport): string {
 export async function generatePDFReport(
   report: ComplianceReport,
   options: ReportOptions,
+  questionnaireSession?: QuestionnaireSession,
 ): Promise<Buffer> {
   const { default: PDFDocument } = await import('pdfkit');
   const doc = new PDFDocument({
@@ -752,7 +774,7 @@ export async function generatePDFReport(
 
   renderPDFCover(doc, report, options);
   doc.addPage();
-  renderPDFExecutiveSummary(doc, report);
+  renderPDFExecutiveSummary(doc, report, questionnaireSession);
   doc.addPage();
   renderPDFFindings(doc, report);
   doc.addPage();
@@ -788,7 +810,11 @@ function renderPDFCover(doc: PDFDocument, report: ComplianceReport, options: Rep
   doc.fillColor('#dc2626').fontSize(12).text('CONFIDENTIAL');
 }
 
-function renderPDFExecutiveSummary(doc: PDFDocument, report: ComplianceReport): void {
+function renderPDFExecutiveSummary(
+  doc: PDFDocument,
+  report: ComplianceReport,
+  questionnaireSession?: QuestionnaireSession,
+): void {
   doc.fillColor('#1a2332').fontSize(22).text('Executive Summary');
   doc.moveDown();
 
@@ -827,7 +853,7 @@ function renderPDFExecutiveSummary(doc: PDFDocument, report: ComplianceReport): 
   if (report.questionnaire && report.questionnaire.length > 0) {
     const questionnaireRows = getQuestionnaireSummaryRows(report);
     const unresolvedRows = questionnaireRows.filter((row) => row.status === 'unknown');
-    const evidenceRows = getQuestionnaireEvidenceRows(report);
+    const evidenceRows = getQuestionnaireEvidenceRowsWithLookup(report, questionnaireSession);
     doc.moveDown();
     doc.fontSize(16).fillColor('#1a2332').text('Questionnaire Attestation');
     doc.moveDown(0.5);
