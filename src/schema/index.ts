@@ -116,6 +116,12 @@ export const QuestionDependency = z.object({
 });
 export type QuestionDependency = z.infer<typeof QuestionDependency>;
 
+export const QuestionRole = z.enum(['control', 'applicability_gate', 'evidence']);
+export type QuestionRole = z.infer<typeof QuestionRole>;
+
+export const QuestionPassValue = z.enum(['yes', 'no']);
+export type QuestionPassValue = z.infer<typeof QuestionPassValue>;
+
 export const Question = z.object({
   id: z.string(),
   appPrinciple: APPPrinciple,
@@ -123,6 +129,11 @@ export const Question = z.object({
   type: QuestionType,
   options: z.array(z.string()).optional(),
   required: z.boolean(),
+  role: QuestionRole.optional(),
+  passOn: QuestionPassValue.optional(),
+  blocking: z.boolean().optional(),
+  minimumSelectedOptions: z.number().int().positive().optional(),
+  failOnOptions: z.array(z.string()).optional(),
   helpText: z.string().optional(),
   dependsOn: QuestionDependency.optional(),
   relatedFindings: z.array(z.string()).optional(), // Finding IDs
@@ -159,9 +170,8 @@ export type QuestionnairePrincipleResult = z.infer<typeof QuestionnairePrinciple
 export const QuestionnaireSessionStatus = z.enum(['in_progress', 'completed']);
 export type QuestionnaireSessionStatus = z.infer<typeof QuestionnaireSessionStatus>;
 
-export const QuestionnaireSession = z.object({
+const QuestionnaireSessionBase = z.object({
   id: z.string(),
-  version: z.literal('1.0'),
   status: QuestionnaireSessionStatus,
   target: z.object({
     kind: z.enum(['path', 'url']),
@@ -179,7 +189,24 @@ export const QuestionnaireSession = z.object({
   principleResults: z.array(QuestionnairePrincipleResult),
   currentQuestionId: z.string().optional(),
 });
+export const LegacyQuestionnaireSession = QuestionnaireSessionBase.extend({
+  version: z.literal('1.0'),
+});
+export type LegacyQuestionnaireSession = z.infer<typeof LegacyQuestionnaireSession>;
+
+export const QuestionnaireSession = QuestionnaireSessionBase.extend({
+  version: z.literal('1.1'),
+  questionnaireVersion: z.string(),
+  principles: z.array(APPPrinciple),
+  sessionQuestions: z.array(Question),
+});
 export type QuestionnaireSession = z.infer<typeof QuestionnaireSession>;
+
+export const AnyQuestionnaireSession = z.union([
+  LegacyQuestionnaireSession,
+  QuestionnaireSession,
+]);
+export type AnyQuestionnaireSession = z.infer<typeof AnyQuestionnaireSession>;
 
 // ─── APP Control Assessment ─────────────────────────────────────────────────
 

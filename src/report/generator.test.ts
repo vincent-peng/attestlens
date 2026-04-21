@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { buildComplianceReport, generateJSONReport, generateMarkdownReport, generatePDFReport } from './generator.js';
 import type { AttestLensFinding, QuestionnaireSession } from '../schema/index.js';
 import type { ReportOptions } from './generator.js';
+import { buildFrozenSessionQuestions, QUESTIONNAIRE_VERSION } from '../questionnaire/index.js';
 
 function makeFinding(overrides: Partial<AttestLensFinding> = {}): AttestLensFinding {
   return {
@@ -34,9 +35,11 @@ const defaultOptions: ReportOptions = {
 function makeQuestionnaireSession(
   overrides: Partial<QuestionnaireSession> = {},
 ): QuestionnaireSession {
+  const principles = overrides.principles || ['APP_1'];
   return {
     id: overrides.id || 'session-001',
-    version: '1.0',
+    version: '1.1',
+    questionnaireVersion: overrides.questionnaireVersion || QUESTIONNAIRE_VERSION,
     status: overrides.status || 'completed',
     target: overrides.target || {
       kind: 'path',
@@ -49,6 +52,8 @@ function makeQuestionnaireSession(
     strictMode: overrides.strictMode ?? false,
     scanSnapshotPath: overrides.scanSnapshotPath || '/tmp/test/scan-results.json',
     findingsHash: overrides.findingsHash || 'hash-123',
+    principles,
+    sessionQuestions: overrides.sessionQuestions || buildFrozenSessionQuestions(principles),
     answers: overrides.answers || [],
     principleResults: overrides.principleResults || [],
     currentQuestionId: overrides.currentQuestionId,

@@ -7,7 +7,12 @@ import { promisify } from 'node:util';
 
 import { describe, expect, it } from 'vitest';
 
-import { loadQuestionnaireSession, loadScanSnapshot, type AttestationPromptRunner } from '../questionnaire/index.js';
+import {
+  LEGACY_QUESTION_BANK_V1,
+  loadQuestionnaireSession,
+  loadScanSnapshot,
+  type AttestationPromptRunner,
+} from '../questionnaire/index.js';
 import { executeAttestCommand } from './index.js';
 
 const execFileAsync = promisify(execFile);
@@ -56,9 +61,12 @@ function makePromptRunner(options: {
             answer: true,
           };
         case 'multi_choice':
+          const minimumSelectedOptions = question.minimumSelectedOptions || 1;
           return {
             kind: 'answer',
-            answer: (question.options || []).filter((option) => option !== 'None of the above').slice(0, 2),
+            answer: (question.options || [])
+              .filter((option) => option !== 'None of the above')
+              .slice(0, minimumSelectedOptions),
           };
         case 'text':
           return {
@@ -146,6 +154,13 @@ describe('CLI attest command', () => {
 
       expect(session.target.kind).toBe('path');
       expect(session.target.path).toBe(projectDir);
+      expect(session.version).toBe('1.1');
+      if (session.version !== '1.1') {
+        throw new Error('Expected a frozen 1.1 questionnaire session');
+      }
+      expect(session.questionnaireVersion).toBeTruthy();
+      expect(session.principles.length).toBeGreaterThan(0);
+      expect(session.sessionQuestions.length).toBeGreaterThan(0);
       expect(snapshot.target.path).toBe(projectDir);
       await expect(fs.stat(result.sessionPath)).resolves.toBeTruthy();
       await expect(fs.stat(result.scanSnapshotPath)).resolves.toBeTruthy();
@@ -195,11 +210,93 @@ describe('CLI attest command', () => {
       }, makePromptRunner({ noteQuestionId: 'Q-APP1-001' }));
 
       expect(completed.status).toBe('completed');
-      expect(completed.reportPaths).toHaveLength(4);
+      if (completed.status !== 'completed') {
+        throw new Error('Expected attestation run to complete');
+      }
+      const reportPaths = completed.reportPaths || [];
+      expect(reportPaths).toHaveLength(4);
+      const jsonReportPath = reportPaths.find((report) => report.path.endsWith('.json'))?.path;
+      expect(jsonReportPath).toBeTruthy();
+      const report = JSON.parse(await fs.readFile(jsonReportPath!, 'utf-8'));
+      expect(report.appControls.filter((control: any) => control.status === 'unknown')).toHaveLength(0);
 
       const completedSession = await loadQuestionnaireSession(saved.sessionPath);
       expect(completedSession.status).toBe('completed');
       expect(completedSession.answers.length).toBeGreaterThan(1);
+    } finally {
+      await fs.rm(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it('upgrades a legacy 1.0 session on resume and keeps the frozen legacy question set', async () => {
+    const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'attestlens-attest-legacy-'));
+    const sessionDir = path.join(tempDir, 'attest', 'legacy-app', 'session-legacy');
+    const sessionPath = path.join(sessionDir, 'session.json');
+    const snapshotPath = path.join(sessionDir, 'scan-results.json');
+
+    try {
+      await fs.mkdir(sessionDir, { recursive: true });
+      await fs.writeFile(snapshotPath, JSON.stringify({
+        targetType: 'path',
+        targetPath: '/tmp/legacy-app',
+        target: {
+          name: 'Legacy App',
+          path: '/tmp/legacy-app',
+        },
+        findings: [],
+        results: [],
+        errors: [],
+        totalDurationMs: 10,
+      }, null, 2));
+
+      await fs.writeFile(sessionPath, JSON.stringify({
+        id: 'session-legacy',
+        version: '1.0',
+        status: 'in_progress',
+        target: {
+          kind: 'path',
+          name: 'Legacy App',
+          path: '/tmp/legacy-app',
+        },
+        startedAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        strictMode: false,
+        scanSnapshotPath: snapshotPath,
+        findingsHash: 'legacy-hash',
+        answers: [],
+        principleResults: [
+          {
+            principle: 'APP_5',
+            status: 'unknown',
+            confidence: 0,
+            rationale: 'Awaiting required questionnaire answers: Q-APP5-001',
+            answeredQuestionIds: [],
+          },
+        ],
+        currentQuestionId: 'Q-APP5-001',
+      }, null, 2));
+
+      const saved = await executeAttestCommand(undefined, {
+        resume: sessionPath,
+        output: tempDir,
+        format: 'json',
+        strict: false,
+      }, makePromptRunner({ saveAfter: 0 }));
+
+      expect(saved.status).toBe('saved');
+
+      const upgraded = await loadQuestionnaireSession(sessionPath);
+      expect(upgraded.version).toBe('1.1');
+      if (upgraded.version !== '1.1') {
+        throw new Error('Expected upgraded 1.1 session');
+      }
+
+      expect(upgraded.sessionQuestions.map((question) => question.id)).toEqual(
+        LEGACY_QUESTION_BANK_V1
+          .filter((question) => question.appPrinciple === 'APP_5')
+          .map((question) => question.id),
+      );
+      expect(upgraded.sessionQuestions.some((question) => question.id === 'Q-APP5-003')).toBe(false);
     } finally {
       await fs.rm(tempDir, { recursive: true, force: true });
     }

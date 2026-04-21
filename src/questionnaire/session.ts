@@ -2,14 +2,24 @@ import crypto from 'node:crypto';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 
-import { QuestionnaireSession } from '../schema/index.js';
+import { AnyQuestionnaireSession, QuestionnaireSession } from '../schema/index.js';
 import type {
   APPPrinciple,
+  AnyQuestionnaireSession as AnyQuestionnaireSessionType,
   AttestLensFinding,
+  LegacyQuestionnaireSession,
+  Question,
   QuestionnairePrincipleResult,
   QuestionnaireResponse,
   QuestionnaireSession as QuestionnaireSessionType,
 } from '../schema/index.js';
+import {
+  LEGACY_QUESTION_BANK_V1,
+  LEGACY_QUESTIONNAIRE_VERSION,
+  QUESTION_BANK,
+  QUESTIONNAIRE_VERSION,
+  getQuestionsForPrinciples,
+} from './questions.js';
 
 export type SessionTarget =
   | { kind: 'path'; name: string; path: string; url?: undefined }
@@ -46,19 +56,30 @@ export function buildFindingsHash(findings: AttestLensFinding[]): string {
     .substring(0, 32);
 }
 
+export function buildFrozenSessionQuestions(
+  principles: APPPrinciple[],
+  questions: Question[] = QUESTION_BANK,
+): Question[] {
+  return getQuestionsForPrinciples(principles, questions);
+}
+
 export function createQuestionnaireSession(params: {
   id?: string;
   target: SessionTarget;
   strictMode: boolean;
   scanSnapshotPath: string;
   findingsHash: string;
+  questionnaireVersion: string;
+  principles: APPPrinciple[];
+  sessionQuestions: Question[];
   principleResults: QuestionnairePrincipleResult[];
   currentQuestionId?: string;
 }): QuestionnaireSessionType {
   const now = new Date().toISOString();
   return {
     id: params.id || crypto.randomUUID(),
-    version: '1.0',
+    version: '1.1',
+    questionnaireVersion: params.questionnaireVersion,
     status: 'in_progress',
     target: params.target,
     startedAt: now,
@@ -66,6 +87,8 @@ export function createQuestionnaireSession(params: {
     strictMode: params.strictMode,
     scanSnapshotPath: params.scanSnapshotPath,
     findingsHash: params.findingsHash,
+    principles: params.principles,
+    sessionQuestions: params.sessionQuestions,
     answers: [],
     principleResults: params.principleResults,
     currentQuestionId: params.currentQuestionId,
@@ -84,9 +107,39 @@ export async function saveQuestionnaireSession(session: QuestionnaireSessionType
   await fs.writeFile(sessionPath, JSON.stringify(normalizedSession, null, 2));
 }
 
-export async function loadQuestionnaireSession(sessionPath: string): Promise<QuestionnaireSessionType> {
+export async function loadQuestionnaireSession(sessionPath: string): Promise<AnyQuestionnaireSessionType> {
   const raw = JSON.parse(await fs.readFile(path.resolve(sessionPath), 'utf-8'));
-  return QuestionnaireSession.parse(raw);
+  return AnyQuestionnaireSession.parse(raw);
+}
+
+export function upgradeQuestionnaireSession(
+  session: AnyQuestionnaireSessionType,
+): QuestionnaireSessionType {
+  if (session.version === '1.1') {
+    return session;
+  }
+
+  const principles = buildLegacySessionPrinciples(session);
+  return {
+    ...session,
+    version: '1.1',
+    questionnaireVersion: LEGACY_QUESTIONNAIRE_VERSION,
+    principles,
+    sessionQuestions: buildFrozenSessionQuestions(principles, LEGACY_QUESTION_BANK_V1),
+  };
+}
+
+function buildLegacySessionPrinciples(session: LegacyQuestionnaireSession): APPPrinciple[] {
+  const principleSet = new Set<APPPrinciple>(session.principleResults.map((result) => result.principle));
+
+  for (const answer of session.answers) {
+    const question = LEGACY_QUESTION_BANK_V1.find((candidate) => candidate.id === answer.questionId);
+    if (question) {
+      principleSet.add(question.appPrinciple);
+    }
+  }
+
+  return Array.from(principleSet);
 }
 
 export async function writeScanSnapshot(snapshotPath: string, payload: unknown): Promise<void> {
@@ -128,3 +181,8 @@ export function completeQuestionnaireSession(
     completedAt: now,
   };
 }
+
+export {
+  LEGACY_QUESTIONNAIRE_VERSION,
+  QUESTIONNAIRE_VERSION,
+};

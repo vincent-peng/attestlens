@@ -1,4 +1,11 @@
-export { QUESTION_BANK, getQuestionsForUnknownControls } from './questions.js';
+export {
+  LEGACY_QUESTION_BANK_V1,
+  LEGACY_QUESTIONNAIRE_VERSION,
+  QUESTION_BANK,
+  QUESTIONNAIRE_VERSION,
+  getQuestionsForPrinciples,
+  getQuestionsForUnknownControls,
+} from './questions.js';
 export {
   buildAttestationScanSnapshot,
   deriveQuestionnairePrinciples,
@@ -19,6 +26,7 @@ export {
   evaluateStoredResponse,
 } from './evaluator.js';
 export {
+  buildFrozenSessionQuestions,
   buildFindingsHash,
   buildSessionPaths,
   completeQuestionnaireSession,
@@ -27,6 +35,7 @@ export {
   loadQuestionnaireSession,
   loadScanSnapshot,
   saveQuestionnaireSession,
+  upgradeQuestionnaireSession,
   updateSessionProgress,
   writeScanSnapshot,
 } from './session.js';

@@ -31,6 +31,8 @@ import {
   loadQuestionnaireSession,
   loadScanSnapshot,
   runAttestationSession,
+  saveQuestionnaireSession,
+  upgradeQuestionnaireSession,
 } from '../questionnaire/index.js';
 import type { AttestLensFinding } from '../schema/index.js';
 import type { ReportFormat, ReportOptions } from '../report/generator.js';
@@ -449,7 +451,11 @@ export async function executeAttestCommand(
 
   if (options.resume) {
     sessionPath = path.resolve(options.resume);
-    session = await loadQuestionnaireSession(sessionPath);
+    const loadedSession = await loadQuestionnaireSession(sessionPath);
+    session = upgradeQuestionnaireSession(loadedSession);
+    if (loadedSession.version !== session.version) {
+      await saveQuestionnaireSession(session, sessionPath);
+    }
     if (session.status === 'completed') {
       throw new Error(`Attestation session is already completed: ${sessionPath}`);
     }

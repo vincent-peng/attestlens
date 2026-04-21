@@ -1,5 +1,5 @@
 import { APPInfo, type APPPrinciple, type Question, type QuestionnaireResponse } from '../schema/index.js';
-import { QUESTION_BANK, getQuestionsForUnknownControls } from './questions.js';
+import { QUESTION_BANK } from './questions.js';
 
 export function getQuestionById(questionId: string, questions: Question[] = QUESTION_BANK): Question | undefined {
   return questions.find((question) => question.id === questionId);
@@ -56,8 +56,7 @@ export function getNextQuestion(
 ): Question | undefined {
   const responsesByQuestionId = new Set(responses.map((response) => response.questionId));
   const principleOrder = getQuestionPrincipleOrder(principles);
-  const scopedQuestionIds = new Set(getQuestionsForUnknownControls(principles).map((question) => question.id));
-  const scopedQuestions = questions.filter((question) => scopedQuestionIds.has(question.id));
+  const scopedQuestions = questions.filter((question) => principles.includes(question.appPrinciple));
 
   for (const principle of principleOrder) {
     const principleQuestions = getApplicableQuestions(

@@ -10,9 +10,10 @@ import type {
 import type { ScannerError, ScannerResult } from '../scanner/types.js';
 import { aggregatePrincipleResults, evaluateResponse } from './evaluator.js';
 import { getApplicableQuestions, getNextQuestion } from './flow.js';
-import { QUESTION_BANK } from './questions.js';
 import type { AttestationPromptRunner } from './prompts.js';
 import {
+  QUESTIONNAIRE_VERSION,
+  buildFrozenSessionQuestions,
   buildFindingsHash,
   buildSessionPaths,
   completeQuestionnaireSession,
@@ -109,9 +110,10 @@ function buildRelevantFindings(
 function buildProgress(
   principles: APPPrinciple[],
   responses: QuestionnaireResponse[],
+  sessionQuestions = buildFrozenSessionQuestions(principles),
 ): QuestionProgress {
   const applicableQuestions = getApplicableQuestions(
-    QUESTION_BANK.filter((question) => principles.includes(question.appPrinciple)),
+    sessionQuestions.filter((question) => principles.includes(question.appPrinciple)),
     responses,
   );
   const total = applicableQuestions.length;
@@ -150,14 +152,18 @@ export async function initializeAttestationSession(params: {
   await writeScanSnapshot(paths.scanSnapshotPath, params.snapshot);
 
   const principles = deriveQuestionnairePrinciples(params.snapshot.findings);
-  const principleResults = aggregatePrincipleResults(principles, []);
-  const currentQuestionId = getNextQuestion(principles, [])?.id;
+  const sessionQuestions = buildFrozenSessionQuestions(principles);
+  const principleResults = aggregatePrincipleResults(principles, [], sessionQuestions);
+  const currentQuestionId = getNextQuestion(principles, [], sessionQuestions)?.id;
   const session = createQuestionnaireSession({
     id: sessionId,
     target: params.target,
     strictMode: params.strictMode,
     scanSnapshotPath: paths.scanSnapshotPath,
     findingsHash: buildFindingsHash(params.snapshot.findings),
+    questionnaireVersion: QUESTIONNAIRE_VERSION,
+    principles,
+    sessionQuestions,
     principleResults,
     currentQuestionId,
   });
@@ -176,13 +182,14 @@ export async function runAttestationSession(params: {
   snapshot: AttestationScanSnapshot;
   promptRunner: AttestationPromptRunner;
 }): Promise<AttestationRunResult> {
-  const principles = deriveQuestionnairePrinciples(params.snapshot.findings);
+  const principles = params.session.principles;
+  const sessionQuestions = params.session.sessionQuestions;
   let session = params.session;
   let answers = session.answers;
 
   while (true) {
-    const principleResults = aggregatePrincipleResults(principles, answers);
-    const nextQuestion = getNextQuestion(principles, answers);
+    const principleResults = aggregatePrincipleResults(principles, answers, sessionQuestions);
+    const nextQuestion = getNextQuestion(principles, answers, sessionQuestions);
 
     if (!nextQuestion) {
       session = completeQuestionnaireSession(session, answers, principleResults);
@@ -191,14 +198,14 @@ export async function runAttestationSession(params: {
         status: 'completed',
         session,
         principles,
-        progress: buildProgress(principles, answers),
+        progress: buildProgress(principles, answers, sessionQuestions),
       };
     }
 
     session = updateSessionProgress(session, answers, principleResults, nextQuestion.id);
     await saveQuestionnaireSession(session, params.sessionPath);
 
-    const progress = buildProgress(principles, answers);
+    const progress = buildProgress(principles, answers, sessionQuestions);
     const promptResult = await params.promptRunner.prompt(nextQuestion, {
       progress,
       sessionPath: params.sessionPath,
@@ -221,8 +228,8 @@ export async function runAttestationSession(params: {
     };
 
     answers = [...answers, evaluatedResponse];
-    const nextPrincipleResults = aggregatePrincipleResults(principles, answers);
-    const nextQuestionId = getNextQuestion(principles, answers)?.id;
+    const nextPrincipleResults = aggregatePrincipleResults(principles, answers, sessionQuestions);
+    const nextQuestionId = getNextQuestion(principles, answers, sessionQuestions)?.id;
 
     session = updateSessionProgress(session, answers, nextPrincipleResults, nextQuestionId);
     await saveQuestionnaireSession(session, params.sessionPath);

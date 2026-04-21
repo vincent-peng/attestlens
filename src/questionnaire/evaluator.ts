@@ -23,106 +23,177 @@ function withEvidenceConfidenceBoost(
   };
 }
 
+function getQuestionRole(question: Question): NonNullable<Question['role']> {
+  return question.role || 'control';
+}
+
+function isBlockingQuestion(question: Question): boolean {
+  return question.blocking ?? question.required;
+}
+
+function getPassOn(question: Question): NonNullable<Question['passOn']> {
+  return question.passOn || 'yes';
+}
+
+function normalizeBinaryAnswer(value: QuestionnaireResponse['answer']): 'yes' | 'no' | 'na' | undefined {
+  if (value === true || value === 'yes') {
+    return 'yes';
+  }
+
+  if (value === false || value === 'no') {
+    return 'no';
+  }
+
+  if (value === 'na' || value === 'N/A') {
+    return 'na';
+  }
+
+  return undefined;
+}
+
+function isConditionallyApplicableQuestion(question: Question): boolean {
+  return getQuestionRole(question) === 'applicability_gate'
+    || Boolean(question.dependsOn)
+    || !isBlockingQuestion(question);
+}
+
 export function evaluateResponse(
   question: Question,
   answer: QuestionnaireResponse,
 ): QuestionnaireEvaluation {
   const { answer: value } = answer;
+  const role = getQuestionRole(question);
 
   switch (question.type) {
     case 'yes_no': {
-      const evaluation = value === true || value === 'yes'
-        ? {
-            status: 'pass' as const,
-            confidence: 0.80,
-            rationale: `Affirmative response to: "${question.question}"`,
-          }
-        : {
-            status: 'fail' as const,
-            confidence: 0.85,
-            rationale: `Negative response to: "${question.question}"`,
-          };
+      const normalized = normalizeBinaryAnswer(value);
+      const evaluation = role === 'applicability_gate'
+        ? normalized === getPassOn(question)
+          ? {
+              status: 'pass' as const,
+              confidence: 0.8,
+              rationale: `Applicability gate satisfied for: "${question.question}"`,
+            }
+          : {
+              status: 'pass' as const,
+              confidence: 0.72,
+              rationale: `Applicability confirmed for: "${question.question}". Follow-up controls remain required.`,
+            }
+        : normalized === getPassOn(question)
+          ? {
+              status: 'pass' as const,
+              confidence: 0.8,
+              rationale: `Compliant response recorded for: "${question.question}"`,
+            }
+          : {
+              status: 'fail' as const,
+              confidence: 0.85,
+              rationale: `Control requirement not met for: "${question.question}"`,
+            };
+
       return withEvidenceConfidenceBoost(evaluation, answer);
     }
 
     case 'yes_no_na': {
-      if (value === 'na' || value === 'N/A') {
+      const normalized = normalizeBinaryAnswer(value);
+
+      if (normalized === 'na') {
         return withEvidenceConfidenceBoost({
-          status: 'pass',
-          confidence: 0.70,
-          rationale: `Marked not applicable for: "${question.question}"`,
+          status: isConditionallyApplicableQuestion(question) ? 'pass' : 'unknown',
+          confidence: isConditionallyApplicableQuestion(question) ? 0.7 : 0.35,
+          rationale: isConditionallyApplicableQuestion(question)
+            ? `Marked not applicable for: "${question.question}"`
+            : `Not-applicable response requires manual confirmation for: "${question.question}"`,
         }, answer);
       }
 
-      const evaluation = value === true || value === 'yes'
-        ? {
-            status: 'pass' as const,
-            confidence: 0.80,
-            rationale: `Affirmative response to: "${question.question}"`,
-          }
-        : {
-            status: 'fail' as const,
-            confidence: 0.85,
-            rationale: `Negative response to: "${question.question}"`,
-          };
+      const evaluation = role === 'applicability_gate'
+        ? normalized === getPassOn(question)
+          ? {
+              status: 'pass' as const,
+              confidence: 0.78,
+              rationale: `Applicability gate satisfied for: "${question.question}"`,
+            }
+          : {
+              status: 'pass' as const,
+              confidence: 0.72,
+              rationale: `Applicability confirmed for: "${question.question}". Follow-up controls remain required.`,
+            }
+        : normalized === getPassOn(question)
+          ? {
+              status: 'pass' as const,
+              confidence: 0.8,
+              rationale: `Compliant response recorded for: "${question.question}"`,
+            }
+          : {
+              status: 'fail' as const,
+              confidence: 0.85,
+              rationale: `Control requirement not met for: "${question.question}"`,
+            };
+
       return withEvidenceConfidenceBoost(evaluation, answer);
     }
 
     case 'multi_choice': {
       const choices = value as string[];
-      if (choices.includes('None of the above')) {
+      const failOnOptions = new Set(question.failOnOptions || []);
+
+      if (choices.some((choice) => failOnOptions.has(choice))) {
         return withEvidenceConfidenceBoost({
           status: 'fail',
-          confidence: 0.90,
-          rationale: `No compliance steps selected for: "${question.question}"`,
+          confidence: 0.9,
+          rationale: `Disallowed response selected for: "${question.question}"`,
         }, answer);
       }
 
-      if (choices.length >= 2) {
+      if (choices.length === 0) {
+        return {
+          status: 'unknown',
+          confidence: 0.3,
+          rationale: `No response provided for: "${question.question}"`,
+        };
+      }
+
+      if (question.minimumSelectedOptions && choices.length < question.minimumSelectedOptions) {
         return withEvidenceConfidenceBoost({
-          status: 'pass',
-          confidence: 0.75,
-          rationale: `${choices.length} compliance steps selected for: "${question.question}"`,
+          status: 'fail',
+          confidence: 0.82,
+          rationale: `Insufficient compliance coverage selected for: "${question.question}"`,
         }, answer);
       }
 
-      if (choices.length === 1) {
-        return withEvidenceConfidenceBoost({
-          status: 'pass',
-          confidence: 0.60,
-          rationale: `Single compliance step selected for: "${question.question}"`,
-        }, answer);
-      }
-
-      return {
-        status: 'unknown',
-        confidence: 0.30,
-        rationale: `No response provided for: "${question.question}"`,
-      };
+      return withEvidenceConfidenceBoost({
+        status: 'pass',
+        confidence: role === 'evidence' ? 0.62 : 0.75,
+        rationale: `${choices.length} option${choices.length === 1 ? '' : 's'} selected for: "${question.question}"`,
+      }, answer);
     }
 
     case 'text':
       return {
         status: 'unknown',
-        confidence: 0.20,
+        confidence: 0.2,
         rationale: `Free text response requires manual review for: "${question.question}"`,
       };
 
     default:
       return {
         status: 'unknown',
-        confidence: 0.10,
+        confidence: 0.1,
         rationale: 'Unsupported question type',
       };
   }
 }
 
-export function evaluateStoredResponse(answer: QuestionnaireResponse): QuestionnaireResponse {
+export function evaluateStoredResponse(
+  answer: QuestionnaireResponse,
+  questions: Question[] = QUESTION_BANK,
+): QuestionnaireResponse {
   if (answer.evaluation) {
     return answer;
   }
 
-  const question = getQuestionById(answer.questionId);
+  const question = getQuestionById(answer.questionId, questions);
   if (!question) {
     return answer;
   }
@@ -136,28 +207,37 @@ export function evaluateStoredResponse(answer: QuestionnaireResponse): Questionn
 export function aggregatePrincipleResults(
   principles: APPPrinciple[],
   responses: QuestionnaireResponse[],
+  questions: Question[] = QUESTION_BANK,
 ): QuestionnairePrincipleResult[] {
-  const evaluatedResponses = responses.map(evaluateStoredResponse);
+  const evaluatedResponses = responses.map((response) => evaluateStoredResponse(response, questions));
 
   return principles.map((principle) => {
-    const applicableQuestions = getApplicableQuestionsForPrinciple(principle, evaluatedResponses, QUESTION_BANK);
+    const applicableQuestions = getApplicableQuestionsForPrinciple(principle, evaluatedResponses, questions);
     const answeredResponses = applicableQuestions
       .map((question) => evaluatedResponses.find((response) => response.questionId === question.id))
       .filter((response): response is QuestionnaireResponse => Boolean(response));
     const answeredQuestionIds = answeredResponses.map((response) => response.questionId);
-    const requiredQuestions = applicableQuestions.filter((question) => question.required);
-    const unansweredRequired = requiredQuestions.filter((question) => !answeredQuestionIds.includes(question.id));
-    const failEvaluations = answeredResponses
+    const blockingQuestions = applicableQuestions.filter((question) => isBlockingQuestion(question));
+    const nonBlockingQuestions = applicableQuestions.filter((question) => !isBlockingQuestion(question));
+    const unansweredBlocking = blockingQuestions.filter((question) => !answeredQuestionIds.includes(question.id));
+    const blockingResponses = answeredResponses.filter((response) =>
+      blockingQuestions.some((question) => question.id === response.questionId),
+    );
+    const blockingEvaluations = blockingResponses
       .map((response) => response.evaluation)
-      .filter((evaluation): evaluation is QuestionnaireEvaluation => Boolean(evaluation))
-      .filter((evaluation) => evaluation.status === 'fail');
+      .filter((evaluation): evaluation is QuestionnaireEvaluation => Boolean(evaluation));
+    const failEvaluations = blockingEvaluations.filter((evaluation) => evaluation.status === 'fail');
+    const unknownEvaluations = blockingEvaluations.filter((evaluation) => evaluation.status === 'unknown');
+    const supportingResponses = answeredResponses.filter((response) =>
+      nonBlockingQuestions.some((question) => question.id === response.questionId),
+    );
 
-    if (unansweredRequired.length > 0) {
+    if (unansweredBlocking.length > 0) {
       return {
         principle,
         status: 'unknown',
         confidence: 0.0,
-        rationale: `Awaiting required questionnaire answers: ${unansweredRequired.map((question) => question.id).join(', ')}`,
+        rationale: `Awaiting blocking questionnaire answers: ${unansweredBlocking.map((question) => question.id).join(', ')}`,
         answeredQuestionIds,
       };
     }
@@ -176,27 +256,37 @@ export function aggregatePrincipleResults(
       };
     }
 
-    const requiredEvaluations = answeredResponses
-      .filter((response) => requiredQuestions.some((question) => question.id === response.questionId))
-      .map((response) => response.evaluation)
-      .filter((evaluation): evaluation is QuestionnaireEvaluation => Boolean(evaluation));
-
-    if (requiredEvaluations.length === 0) {
+    if (unknownEvaluations.length > 0) {
       return {
         principle,
         status: 'unknown',
-        confidence: 0.0,
-        rationale: 'No applicable questionnaire answers have been recorded yet.',
+        confidence: 0.35,
+        rationale: unknownEvaluations[0]!.rationale,
         answeredQuestionIds,
       };
     }
 
-    const averageConfidence = requiredEvaluations.reduce((sum, evaluation) => sum + evaluation.confidence, 0) / requiredEvaluations.length;
+    if (blockingEvaluations.length === 0) {
+      return {
+        principle,
+        status: 'unknown',
+        confidence: 0.0,
+        rationale: 'No applicable blocking questionnaire answers have been recorded yet.',
+        answeredQuestionIds,
+      };
+    }
+
+    const averageConfidence = blockingEvaluations.reduce((sum, evaluation) => sum + evaluation.confidence, 0) / blockingEvaluations.length;
+    const evidenceBoost = supportingResponses.length > 0 ? 0.05 : 0;
+    const rationale = supportingResponses.length > 0
+      ? `Blocking questionnaire answers satisfied for ${principle}, with ${supportingResponses.length} supporting evidence response${supportingResponses.length === 1 ? '' : 's'}.`
+      : `Blocking questionnaire answers satisfied for ${principle}.`;
+
     return {
       principle,
       status: 'pass',
-      confidence: Math.round(averageConfidence * 100) / 100,
-      rationale: `Required questionnaire answers satisfied for ${principle}.`,
+      confidence: Math.round(Math.min(0.95, averageConfidence + evidenceBoost) * 100) / 100,
+      rationale,
       answeredQuestionIds,
     };
   });

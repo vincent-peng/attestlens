@@ -84,6 +84,7 @@ In practice, that means:
 - MCP URL scan tool exists
 - PDF report MVP exists
 - `attest` CLI foundation exists with saved scan snapshots, resume support, and questionnaire/report merge
+- questionnaire coverage now spans all APP/NDB principles with frozen per-session question sets
 - rule-level fix prompts exist across URL/header/key/JS findings
 - mapping engine includes URL-scan categories
 - validation corpus and findings log exist
@@ -92,8 +93,8 @@ In practice, that means:
 
 ### Immediate M2 Work
 
-1. Expand questionnaire coverage so fewer APP principles remain unresolved after a full attestation.
-2. Add breach-readiness scoring and consultant-facing narrative sections on top of the merged report path.
+1. Add breach-readiness scoring and consultant-facing narrative sections on top of the merged report path.
+2. Validate the expanded questionnaire against real consultant-style runs and tighten any remaining awkward or noisy branches.
 3. Tighten the small set of validation-corpus false positives and intermittent live-site fetch failures.
 
 ---
