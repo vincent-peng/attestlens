@@ -1,0 +1,70 @@
+scenarios:
+  - id: example-baseline
+    type: public
+    label: Example Baseline
+    corpusTargetId: example
+    reviewGoal: Validate low-risk questionnaire wording and evidence-note usability on a mostly clean marketing site.
+    focusPrinciples:
+      - APP_1
+      - APP_2
+      - APP_5
+      - APP_7
+      - APP_11
+      - APP_12
+    operatorAssumptions:
+      - Use only the saved corpus report and scenario metadata; do not invent internal governance facts.
+      - If an answer requires internal process knowledge that is not present, answer conservatively and note the ambiguity.
+      - Treat this run as a static marketing baseline, not an authenticated product workflow.
+    expectedOutcomePattern: Mostly questionnaire-driven pass or unknown outcomes with little scanner pressure; awkward questions should be easy to spot.
+
+  - id: vercel-marketing
+    type: public
+    label: Vercel Marketing
+    corpusTargetId: vercel
+    reviewGoal: Validate question ordering and report usefulness against a modern SaaS marketing surface with moderate scanner findings.
+    focusPrinciples:
+      - APP_1
+      - APP_5
+      - APP_7
+      - APP_8
+      - APP_11
+      - APP_12
+    operatorAssumptions:
+      - Use only the saved corpus report and scenario metadata; do not browse deeper than the saved artifact implies.
+      - Treat unresolved governance/process questions as expected unless the report artifact already supports an answer.
+      - Record if moderate scanner findings distort the questionnaire flow or the merged report summary.
+    expectedOutcomePattern: A mix of scanner-driven risk and governance ambiguity; merged output should stay comprehensible without hiding unresolved controls.
+
+  - id: juice-shop-demo
+    type: public
+    label: Juice Shop Demo
+    corpusTargetId: juice-shop
+    reviewGoal: Validate that obvious technical failures remain dominant and that the questionnaire does not create misleading pass signals.
+    focusPrinciples:
+      - APP_3
+      - APP_6
+      - APP_8
+      - APP_11
+      - NDB
+    operatorAssumptions:
+      - Use only the saved corpus report and scenario metadata; do not add exploit knowledge that is not represented in the saved artifact.
+      - Treat the app as intentionally vulnerable and prioritize whether the merged report keeps that clear.
+      - Record any questionnaire branch that feels distracting or falsely reassuring in the presence of severe scanner findings.
+    expectedOutcomePattern: Scanner-driven fail path with limited questionnaire benefit; merged reporting should remain clearly high risk.
+
+  - id: private-consultant-dry-run
+    type: private_template
+    label: Private Consultant Dry Run
+    reviewGoal: Validate the questionnaire against a real non-public repo or app using actual engagement knowledge while keeping committed output sanitized.
+    focusPrinciples:
+      - APP_1
+      - APP_5
+      - APP_8
+      - APP_11
+      - APP_12
+      - NDB
+    operatorAssumptions:
+      - Raw artifacts stay local under attestlens-reports and do not get committed.
+      - Only sanitized labels and summary notes may be copied into repo-tracked logs.
+      - Answer using real engagement knowledge; do not downgrade issues just to force resolution.
+    expectedOutcomePattern: Most realistic branch coverage and report feedback; should expose any remaining awkward, noisy, or misleading questionnaire behavior.

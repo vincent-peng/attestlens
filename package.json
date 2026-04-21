@@ -17,6 +17,7 @@
     "audit": "tsx src/cli/index.ts audit",
     "report": "tsx src/cli/index.ts report",
     "validate:corpus": "tsx scripts/validate-corpus.ts",
+    "validate:attest": "tsx scripts/prepare-attest-validation.ts",
     "test:watch": "vitest"
   },
   "keywords": [
