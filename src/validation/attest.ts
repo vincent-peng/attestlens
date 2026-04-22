@@ -1,5 +1,6 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 import YAML from 'yaml';
 
@@ -35,14 +36,16 @@ export interface PrepareAttestValidationOptions {
 export interface PreparedAttestValidation {
   scenario: AttestValidationScenario;
   runDate: string;
+  runId: string;
   runDir: string;
   reviewPath: string;
   metaPath: string;
   commandPath: string;
+  localContextPath?: string;
   scanSource: 'corpus report' | 'saved scan' | 'local scan';
   sourceScanPath?: string;
   target?: string;
-  name?: string;
+  sanitizedLabel?: string;
   installedCommand: string;
   repoLocalCommand: string;
 }
@@ -82,8 +85,9 @@ export function buildAttestValidationRunDir(
   outputRoot: string,
   runDate: string,
   scenarioId: string,
+  runId: string,
 ): string {
-  return path.join(outputRoot, runDate, sanitizeValidationTargetId(scenarioId));
+  return path.join(outputRoot, runDate, sanitizeValidationTargetId(scenarioId), runId);
 }
 
 export async function resolveLatestValidationReportPath(
@@ -126,8 +130,24 @@ export function getDefaultRunDate(date = new Date()): string {
   }).format(date);
 }
 
+export function getDefaultRunId(date = new Date()): string {
+  const parts = new Intl.DateTimeFormat('en-GB', {
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: false,
+  }).formatToParts(date);
+
+  const values = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+  return `${values.hour}${values.minute}${values.second}`;
+}
+
 function shellEscape(value: string): string {
   return `'${value.replace(/'/g, `'\\''`)}'`;
+}
+
+function hasProvidedValue(value?: string): boolean {
+  return Boolean(value && value.trim().length > 0);
 }
 
 function ensureNonEmptyFlag(flagName: string, value?: string): string {
@@ -137,13 +157,25 @@ function ensureNonEmptyFlag(flagName: string, value?: string): string {
   return value.trim();
 }
 
-async function ensureFreshRunDir(runDir: string): Promise<void> {
-  const existingEntries = await fs.readdir(runDir).catch(() => []);
-  if (existingEntries.length > 0) {
-    throw new Error(`Attestation validation run directory already exists and is not empty: ${runDir}`);
+async function createRunDir(
+  outputRoot: string,
+  runDate: string,
+  scenarioId: string,
+): Promise<{ runId: string; runDir: string }> {
+  const baseRunId = getDefaultRunId();
+
+  for (let attempt = 1; attempt < 1000; attempt += 1) {
+    const runId = attempt === 1 ? baseRunId : `${baseRunId}-${attempt}`;
+    const runDir = buildAttestValidationRunDir(outputRoot, runDate, scenarioId, runId);
+    const runDirExists = await fs.access(runDir).then(() => true).catch(() => false);
+
+    if (!runDirExists) {
+      await fs.mkdir(runDir, { recursive: true });
+      return { runId, runDir };
+    }
   }
 
-  await fs.mkdir(runDir, { recursive: true });
+  throw new Error(`Unable to allocate a unique attestation validation run directory for ${scenarioId}.`);
 }
 
 function renderBulletList(values: string[]): string {
@@ -156,9 +188,8 @@ async function renderReviewTemplate(
     scenario: AttestValidationScenario;
     runDate: string;
     scanSource: PreparedAttestValidation['scanSource'];
-    sourceScanPath?: string;
-    target?: string;
-    name?: string;
+    sanitizedLabel?: string;
+    operatorContextFile?: string;
   },
 ): Promise<string> {
   const template = await fs.readFile(templatePath, 'utf-8');
@@ -173,9 +204,8 @@ async function renderReviewTemplate(
     .replaceAll('{{EXPECTED_OUTCOME_PATTERN}}', params.scenario.expectedOutcomePattern)
     .replaceAll('{{OPERATOR_ASSUMPTIONS}}', renderBulletList(params.scenario.operatorAssumptions))
     .replaceAll('{{SCAN_SOURCE}}', params.scanSource)
-    .replaceAll('{{SOURCE_SCAN_PATH}}', params.sourceScanPath || 'N/A')
-    .replaceAll('{{TARGET_INPUT}}', params.target || 'N/A')
-    .replaceAll('{{DISPLAY_NAME}}', params.name || 'N/A');
+    .replaceAll('{{SANITIZED_LABEL}}', params.sanitizedLabel || 'N/A')
+    .replaceAll('{{OPERATOR_CONTEXT_FILE}}', params.operatorContextFile || 'N/A');
 }
 
 function buildInstalledCommand(args: string[]): string {
@@ -207,25 +237,24 @@ export async function prepareAttestValidation(
   const manifest = await loadAttestValidationManifest(path.resolve(options.manifestPath));
   const scenario = findScenario(manifest, options.scenarioId);
   const runDate = options.runDate || getDefaultRunDate();
-  const runDir = buildAttestValidationRunDir(path.resolve(options.outputRoot), runDate, scenario.id);
-  await ensureFreshRunDir(runDir);
 
   let scanSource: PreparedAttestValidation['scanSource'];
   let sourceScanPath: string | undefined;
   let target: string | undefined;
-  let name: string | undefined;
+  let sanitizedLabel: string | undefined;
   const attestArgs: string[] = [];
 
-  if (options.fromScan) {
-    sourceScanPath = path.resolve(options.fromScan);
-    scanSource = 'saved scan';
-    attestArgs.push('--from-scan', sourceScanPath);
-
-    if (scenario.type === 'private_template') {
-      name = ensureNonEmptyFlag('--name', options.name);
-      attestArgs.push('-n', name);
+  if (scenario.type === 'public') {
+    if (hasProvidedValue(options.fromScan)) {
+      throw new Error('Public attestation validation scenarios do not accept --from-scan. Use the saved corpus artifact instead.');
     }
-  } else if (scenario.type === 'public') {
+    if (hasProvidedValue(options.target)) {
+      throw new Error('Public attestation validation scenarios do not accept --target.');
+    }
+    if (hasProvidedValue(options.name)) {
+      throw new Error('Public attestation validation scenarios do not accept --name.');
+    }
+
     sourceScanPath = await resolveLatestValidationReportPath(
       path.join(repoRoot, 'attestlens-reports', 'validation'),
       scenario.corpusTargetId!,
@@ -233,64 +262,126 @@ export async function prepareAttestValidation(
     scanSource = 'corpus report';
     attestArgs.push('--from-scan', sourceScanPath);
   } else {
-    target = ensureNonEmptyFlag('--target', options.target);
-    name = ensureNonEmptyFlag('--name', options.name);
-    scanSource = 'local scan';
-    attestArgs.push(target, '-n', name);
+    const hasTarget = hasProvidedValue(options.target);
+    const hasFromScan = hasProvidedValue(options.fromScan);
+
+    sanitizedLabel = ensureNonEmptyFlag('--name', options.name);
+
+    if (hasTarget && hasFromScan) {
+      throw new Error('Private attestation validation scenarios accept exactly one of --target or --from-scan.');
+    }
+    if (!hasTarget && !hasFromScan) {
+      throw new Error('Private attestation validation scenarios require exactly one of --target or --from-scan.');
+    }
+
+    if (hasFromScan) {
+      sourceScanPath = path.resolve(options.fromScan!);
+      scanSource = 'saved scan';
+      attestArgs.push('--from-scan', sourceScanPath, '-n', sanitizedLabel);
+    } else {
+      target = ensureNonEmptyFlag('--target', options.target);
+      scanSource = 'local scan';
+      attestArgs.push(target, '-n', sanitizedLabel);
+    }
   }
 
+  const { runId, runDir } = await createRunDir(path.resolve(options.outputRoot), runDate, scenario.id);
   attestArgs.push('-o', runDir);
 
   const reviewPath = path.join(runDir, 'REVIEW.md');
   const metaPath = path.join(runDir, 'meta.json');
   const commandPath = path.join(runDir, 'COMMAND.txt');
+  const localContextPath = scenario.type === 'private_template'
+    ? path.join(runDir, '.operator-context.json')
+    : undefined;
   const installedCommand = buildInstalledCommand(attestArgs);
   const repoLocalCommand = buildRepoLocalCommand(attestArgs);
   const reviewContent = await renderReviewTemplate(path.resolve(options.templatePath), {
     scenario,
     runDate,
     scanSource,
-    sourceScanPath,
-    target,
-    name,
+    sanitizedLabel,
+    operatorContextFile: localContextPath ? path.basename(localContextPath) : undefined,
   });
 
   await fs.writeFile(reviewPath, reviewContent, 'utf-8');
-  await fs.writeFile(metaPath, JSON.stringify({
-    scenario,
-    runDate,
-    runDir,
-    scanSource,
-    sourceScanPath,
-    target,
-    name,
-    installedCommand,
-    repoLocalCommand,
-  }, null, 2), 'utf-8');
-  await fs.writeFile(
-    commandPath,
-    [
-      '# Preferred command (installed CLI)',
+  if (scenario.type === 'private_template') {
+    await fs.writeFile(metaPath, JSON.stringify({
+      scenarioId: scenario.id,
+      scenarioLabel: scenario.label,
+      lane: scenario.type,
+      runDate,
+      scanSource,
+      sanitizedLabel,
+    }, null, 2), 'utf-8');
+    await fs.writeFile(
+      localContextPath!,
+      JSON.stringify({
+        scenarioId: scenario.id,
+        runDate,
+        runId,
+        runDir,
+        scanSource,
+        sanitizedLabel,
+        sourceScanPath,
+        target,
+        installedCommand,
+        repoLocalCommand,
+      }, null, 2),
+      'utf-8',
+    );
+    await fs.writeFile(
+      commandPath,
+      [
+        '# Private validation run',
+        'Exact target details and runnable commands are stored in the local operator context file for this run.',
+        'Open the operator context file only when you are ready to execute the attestation command.',
+        '',
+        `Sanitized label: ${sanitizedLabel}`,
+        `Scan source: ${scanSource}`,
+        `Operator context file: ${path.basename(localContextPath!)}`,
+        '',
+      ].join('\n'),
+      'utf-8',
+    );
+  } else {
+    await fs.writeFile(metaPath, JSON.stringify({
+      scenario,
+      runDate,
+      runId,
+      runDir,
+      scanSource,
+      sourceScanPath,
       installedCommand,
-      '',
-      '# Repo-local fallback (run from the repository root)',
       repoLocalCommand,
-      '',
-    ].join('\n'),
-    'utf-8',
-  );
+    }, null, 2), 'utf-8');
+    await fs.writeFile(
+      commandPath,
+      [
+        '# Preferred command (installed CLI)',
+        installedCommand,
+        '',
+        '# Repo-local fallback (run from the repository root)',
+        repoLocalCommand,
+        '',
+      ].join('\n'),
+      'utf-8',
+    );
+  }
 
   return {
     scenario,
     runDate,
+    runId,
     runDir,
     reviewPath,
     metaPath,
     commandPath,
+    localContextPath,
     scanSource,
     sourceScanPath,
     target,
-    name,
+    sanitizedLabel,
     installedCommand,
     repoLocalCommand,
   };
@@ -300,7 +391,13 @@ export async function prepareAttestValidationCli(argv = process.argv.slice(2)): 
   const [scenarioId, ...rawFlags] = argv;
 
   if (!scenarioId) {
-    throw new Error('Usage: npm run validate:attest -- <scenario-id> [--date YYYY-MM-DD] [--target <path-or-url>] [--name <display-name>] [--from-scan <json>]');
+    throw new Error(
+      [
+        'Usage: npm run validate:attest -- <scenario-id> [--date YYYY-MM-DD]',
+        'Public scenarios: no extra flags.',
+        'Private template scenarios: require --name <sanitized-label> and exactly one of --target <path-or-url> or --from-scan <json>.',
+      ].join('\n'),
+    );
   }
 
   const flags = new Map<string, string>();
@@ -315,7 +412,7 @@ export async function prepareAttestValidationCli(argv = process.argv.slice(2)): 
     flags.set(flag, value);
   }
 
-  const repoRoot = path.resolve(path.dirname(new URL(import.meta.url).pathname), '..', '..');
+  const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
   const result = await prepareAttestValidation({
     repoRoot,
     manifestPath: path.join(repoRoot, 'docs', 'validation', 'attest-scenarios.yaml'),
@@ -328,16 +425,21 @@ export async function prepareAttestValidationCli(argv = process.argv.slice(2)): 
     fromScan: flags.get('--from-scan'),
   });
 
-  process.stdout.write(
-    [
-      `Prepared attestation validation run for ${result.scenario.label}.`,
-      `Run directory: ${result.runDir}`,
-      `Review template: ${result.reviewPath}`,
-      `Command file: ${result.commandPath}`,
-      `Preferred command: ${result.installedCommand}`,
-      '',
-    ].join('\n'),
-  );
+  const summaryLines = [
+    `Prepared attestation validation run for ${result.scenario.label}.`,
+    `Run directory: ${result.runDir}`,
+    `Review template: ${result.reviewPath}`,
+    `Command file: ${result.commandPath}`,
+  ];
+
+  if (result.localContextPath) {
+    summaryLines.push(`Operator context file: ${result.localContextPath}`);
+  } else {
+    summaryLines.push(`Preferred command: ${result.installedCommand}`);
+  }
+
+  summaryLines.push('');
+  process.stdout.write(summaryLines.join('\n'));
 
   return result;
 }

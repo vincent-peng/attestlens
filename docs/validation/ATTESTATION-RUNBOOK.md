@@ -20,6 +20,7 @@ Rules:
 
 - Prepare the run with `npm run validate:attest -- <scenario-id>`
 - The helper resolves the latest saved corpus JSON under `attestlens-reports/validation/...`
+- Public scenarios do not accept `--from-scan`, `--target`, or `--name`
 - Complete the questionnaire with `attest --from-scan`
 - Use only:
   - the saved scan/report artifact
@@ -35,20 +36,24 @@ Use a real non-public repo or app, but keep committed output sanitized.
 Rules:
 
 - Prepare the run with:
-  - `npm run validate:attest -- private-consultant-dry-run --target <path-or-url> --name <label>`
-  - or `--from-scan <json> --name <label>`
+  - `npm run validate:attest -- private-consultant-dry-run --target <path-or-url> --name <sanitized-label>`
+  - or `--from-scan <json> --name <sanitized-label>`
+- `--name` must be a sanitized alias such as `Internal SaaS #1`, not a customer-identifying name
+- Private runs require exactly one of `--target` or `--from-scan`
 - Raw artifacts stay local under `attestlens-reports/attest-validation/...`
+- Shared generated files stay sanitized; exact commands and raw target details live only in `.operator-context.json`
 - Only sanitized summaries go into `ATTESTATION-LOG.md`
 - Do not commit customer names, raw paths, raw URLs, or local artifact locations
 
 ## Review Process
 
 1. Run the helper script and open the generated `REVIEW.md`
-2. Run the generated `attest` command from `COMMAND.txt`
-3. Complete the questionnaire honestly and conservatively
-4. Fill in the rubric sections in `REVIEW.md`
-5. Copy a sanitized summary row into `ATTESTATION-LOG.md`
-6. Turn repeated issues into a short patch list for questionnaire/report refinement
+2. For public runs, run the generated `attest` command from `COMMAND.txt`
+3. For private runs, open `.operator-context.json` and run the exact command from there
+4. Complete the questionnaire honestly and conservatively
+5. Fill in the rubric sections in `REVIEW.md`
+6. Copy a sanitized summary row into `ATTESTATION-LOG.md`
+7. Turn repeated issues into a short patch list for questionnaire/report refinement
 
 ## Review Rubric
 

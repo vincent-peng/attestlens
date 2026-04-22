@@ -7,9 +7,8 @@
 - Focus principles: {{FOCUS_PRINCIPLES}}
 - Expected outcome pattern: {{EXPECTED_OUTCOME_PATTERN}}
 - Scan source: {{SCAN_SOURCE}}
-- Source scan path: {{SOURCE_SCAN_PATH}}
-- Target input: {{TARGET_INPUT}}
-- Display name: {{DISPLAY_NAME}}
+- Sanitized target label: {{SANITIZED_LABEL}}
+- Operator context file: {{OPERATOR_CONTEXT_FILE}}
 
 ## Operator Assumptions
 
