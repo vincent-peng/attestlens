@@ -3,6 +3,7 @@ import crypto from 'node:crypto';
 import { mapAllFindings } from '../mapping/engine.js';
 import type {
   APPPrinciple,
+  AssessmentMode,
   AttestLensFinding,
   QuestionnaireResponse,
   QuestionnaireSession,
@@ -110,11 +111,13 @@ function buildRelevantFindings(
 function buildProgress(
   principles: APPPrinciple[],
   responses: QuestionnaireResponse[],
+  assessmentMode: AssessmentMode,
   sessionQuestions = buildFrozenSessionQuestions(principles),
 ): QuestionProgress {
   const applicableQuestions = getApplicableQuestions(
     sessionQuestions.filter((question) => principles.includes(question.appPrinciple)),
     responses,
+    assessmentMode,
   );
   const total = applicableQuestions.length;
   const answeredIds = new Set(responses.map((response) => response.questionId));
@@ -145,6 +148,7 @@ export async function initializeAttestationSession(params: {
   target: SessionTarget;
   outputDir: string;
   strictMode: boolean;
+  assessmentMode: AssessmentMode;
 }): Promise<InitializedAttestationSession> {
   const sessionId = crypto.randomUUID();
   const paths = buildSessionPaths(params.outputDir, params.target.name, sessionId);
@@ -153,8 +157,8 @@ export async function initializeAttestationSession(params: {
 
   const principles = deriveQuestionnairePrinciples(params.snapshot.findings);
   const sessionQuestions = buildFrozenSessionQuestions(principles);
-  const principleResults = aggregatePrincipleResults(principles, [], sessionQuestions);
-  const currentQuestionId = getNextQuestion(principles, [], sessionQuestions)?.id;
+  const principleResults = aggregatePrincipleResults(principles, [], sessionQuestions, params.assessmentMode);
+  const currentQuestionId = getNextQuestion(principles, [], sessionQuestions, params.assessmentMode)?.id;
   const session = createQuestionnaireSession({
     id: sessionId,
     target: params.target,
@@ -165,6 +169,7 @@ export async function initializeAttestationSession(params: {
     principles,
     sessionQuestions,
     principleResults,
+    assessmentMode: params.assessmentMode,
     currentQuestionId,
   });
 
@@ -184,12 +189,13 @@ export async function runAttestationSession(params: {
 }): Promise<AttestationRunResult> {
   const principles = params.session.principles;
   const sessionQuestions = params.session.sessionQuestions;
+  const assessmentMode = params.session.assessmentMode;
   let session = params.session;
   let answers = session.answers;
 
   while (true) {
-    const principleResults = aggregatePrincipleResults(principles, answers, sessionQuestions);
-    const nextQuestion = getNextQuestion(principles, answers, sessionQuestions);
+    const principleResults = aggregatePrincipleResults(principles, answers, sessionQuestions, assessmentMode);
+    const nextQuestion = getNextQuestion(principles, answers, sessionQuestions, assessmentMode);
 
     if (!nextQuestion) {
       session = completeQuestionnaireSession(session, answers, principleResults);
@@ -198,14 +204,14 @@ export async function runAttestationSession(params: {
         status: 'completed',
         session,
         principles,
-        progress: buildProgress(principles, answers, sessionQuestions),
+        progress: buildProgress(principles, answers, assessmentMode, sessionQuestions),
       };
     }
 
     session = updateSessionProgress(session, answers, principleResults, nextQuestion.id);
     await saveQuestionnaireSession(session, params.sessionPath);
 
-    const progress = buildProgress(principles, answers, sessionQuestions);
+    const progress = buildProgress(principles, answers, assessmentMode, sessionQuestions);
     const promptResult = await params.promptRunner.prompt(nextQuestion, {
       progress,
       sessionPath: params.sessionPath,
@@ -228,8 +234,8 @@ export async function runAttestationSession(params: {
     };
 
     answers = [...answers, evaluatedResponse];
-    const nextPrincipleResults = aggregatePrincipleResults(principles, answers, sessionQuestions);
-    const nextQuestionId = getNextQuestion(principles, answers, sessionQuestions)?.id;
+    const nextPrincipleResults = aggregatePrincipleResults(principles, answers, sessionQuestions, assessmentMode);
+    const nextQuestionId = getNextQuestion(principles, answers, sessionQuestions, assessmentMode)?.id;
 
     session = updateSessionProgress(session, answers, nextPrincipleResults, nextQuestionId);
     await saveQuestionnaireSession(session, params.sessionPath);

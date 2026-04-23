@@ -38,10 +38,15 @@ async function runCli(args: string[]): Promise<{ code: number; stdout: string; s
 function makePromptRunner(options: {
   saveAfter?: number;
   noteQuestionId?: string;
+  assessmentMode?: 'artifact_only' | 'codebase_only' | 'operator_attested';
 } = {}): AttestationPromptRunner {
   let answeredCount = 0;
 
   return {
+    async promptAssessmentMode() {
+      return options.assessmentMode || 'operator_attested';
+    },
+
     async prompt(question) {
       if (options.saveAfter !== undefined && answeredCount >= options.saveAfter) {
         return { kind: 'save_and_exit' };
@@ -156,13 +161,14 @@ describe('CLI attest command', () => {
 
       expect(session.target.kind).toBe('path');
       expect(session.target.path).toBe(projectDir);
-      expect(session.version).toBe('1.2');
-      if (session.version !== '1.2') {
-        throw new Error('Expected a frozen 1.2 questionnaire session');
+      expect(session.version).toBe('1.3');
+      if (session.version !== '1.3') {
+        throw new Error('Expected a frozen 1.3 questionnaire session');
       }
       expect(session.questionnaireVersion).toBeTruthy();
       expect(session.principles.length).toBeGreaterThan(0);
       expect(session.sessionQuestions.length).toBeGreaterThan(0);
+      expect(session.assessmentMode).toBe('operator_attested');
       expect(session.questionSetHash).toBeTruthy();
       expect(snapshot.target.path).toBe(projectDir);
       await expect(fs.stat(result.sessionPath)).resolves.toBeTruthy();
@@ -289,9 +295,9 @@ describe('CLI attest command', () => {
       expect(saved.status).toBe('saved');
 
       const upgraded = await loadQuestionnaireSession(sessionPath);
-      expect(upgraded.version).toBe('1.2');
-      if (upgraded.version !== '1.2') {
-        throw new Error('Expected upgraded 1.2 session');
+      expect(upgraded.version).toBe('1.3');
+      if (upgraded.version !== '1.3') {
+        throw new Error('Expected upgraded 1.3 session');
       }
 
       expect(upgraded.sessionQuestions.map((question) => question.id)).toEqual(
@@ -300,6 +306,7 @@ describe('CLI attest command', () => {
           .map((question) => question.id),
       );
       expect(upgraded.sessionQuestions.some((question) => question.id === 'Q-APP5-003')).toBe(false);
+      expect(upgraded.assessmentMode).toBe('operator_attested');
       expect(upgraded.questionSetHash).toBeTruthy();
     } finally {
       await fs.rm(tempDir, { recursive: true, force: true });
@@ -379,7 +386,7 @@ describe('CLI attest command', () => {
       await fs.mkdir(sessionDir, { recursive: true });
       const sessionPayload = {
         id: 'session-complete',
-        version: '1.2',
+        version: '1.3',
         questionnaireVersion: QUESTIONNAIRE_VERSION,
         status: 'completed',
         target: {
@@ -396,6 +403,7 @@ describe('CLI attest command', () => {
         principles: ['APP_1'],
         sessionQuestions: [],
         questionSetHash: 'frozen-hash',
+        assessmentMode: 'operator_attested',
         answers: [],
         principleResults: [],
       };

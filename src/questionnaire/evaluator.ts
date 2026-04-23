@@ -1,5 +1,6 @@
 import type {
   APPPrinciple,
+  AssessmentMode,
   Question,
   QuestionnaireEvaluation,
   QuestionnairePrincipleResult,
@@ -7,6 +8,8 @@ import type {
 } from '../schema/index.js';
 import { getApplicableQuestionsForPrinciple, getQuestionById } from './flow.js';
 import { QUESTION_BANK } from './questions.js';
+
+const DEFAULT_ASSESSMENT_MODE: AssessmentMode = 'operator_attested';
 
 function withEvidenceConfidenceBoost(
   evaluation: QuestionnaireEvaluation,
@@ -208,11 +211,17 @@ export function aggregatePrincipleResults(
   principles: APPPrinciple[],
   responses: QuestionnaireResponse[],
   questions: Question[] = QUESTION_BANK,
+  assessmentMode: AssessmentMode = DEFAULT_ASSESSMENT_MODE,
 ): QuestionnairePrincipleResult[] {
   const evaluatedResponses = responses.map((response) => evaluateStoredResponse(response, questions));
 
   return principles.map((principle) => {
-    const applicableQuestions = getApplicableQuestionsForPrinciple(principle, evaluatedResponses, questions);
+    const applicableQuestions = getApplicableQuestionsForPrinciple(
+      principle,
+      evaluatedResponses,
+      questions,
+      assessmentMode,
+    );
     const answeredResponses = applicableQuestions
       .map((question) => evaluatedResponses.find((response) => response.questionId === question.id))
       .filter((response): response is QuestionnaireResponse => Boolean(response));

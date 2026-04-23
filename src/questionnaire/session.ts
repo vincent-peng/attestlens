@@ -4,9 +4,11 @@ import path from 'node:path';
 
 import { AnyQuestionnaireSession, QuestionnaireSession } from '../schema/index.js';
 import type {
+  AssessmentMode,
   APPPrinciple,
   AnyQuestionnaireSession as AnyQuestionnaireSessionType,
   AttestLensFinding,
+  FrozenQuestionnaireSession,
   LegacyQuestionnaireSession,
   Question,
   QuestionnairePrincipleResult,
@@ -39,6 +41,7 @@ export interface PreparedQuestionnaireSession {
 
 const SESSION_INTEGRITY_FAILURE =
   'Attestation session integrity check failed. Start a new attestation session.';
+const DEFAULT_ASSESSMENT_MODE: AssessmentMode = 'operator_attested';
 
 function slugifyTarget(targetName: string): string {
   return targetName
@@ -61,6 +64,7 @@ function serializeQuestionForHash(question: Question): Record<string, unknown> {
     blocking: question.blocking,
     minimumSelectedOptions: question.minimumSelectedOptions,
     failOnOptions: question.failOnOptions,
+    assessmentModes: question.assessmentModes,
     helpText: question.helpText,
     dependsOn: question.dependsOn ? {
       questionId: question.dependsOn.questionId,
@@ -112,7 +116,9 @@ function assertSessionQuestionRefs(
   }
 }
 
-function buildLegacySessionPrinciples(session: LegacyQuestionnaireSession | QuestionnaireSessionType): APPPrinciple[] {
+function buildLegacySessionPrinciples(
+  session: LegacyQuestionnaireSession | FrozenQuestionnaireSession | QuestionnaireSessionType,
+): APPPrinciple[] {
   const principleSet = new Set<APPPrinciple>(session.principleResults.map((result) => result.principle));
 
   for (const answer of session.answers) {
@@ -130,6 +136,7 @@ export function buildQuestionSetHash(params: {
   findingsHash: string;
   principles: APPPrinciple[];
   sessionQuestions: Question[];
+  assessmentMode?: AssessmentMode;
 }): string {
   return crypto
     .createHash('sha256')
@@ -138,6 +145,7 @@ export function buildQuestionSetHash(params: {
       findingsHash: params.findingsHash,
       principles: [...params.principles],
       sessionQuestions: params.sessionQuestions.map((question) => serializeQuestionForHash(question)),
+      assessmentMode: params.assessmentMode,
     }))
     .digest('hex')
     .substring(0, 32);
@@ -161,16 +169,18 @@ function upgradeLegacyQuestionnaireSession(
     findingsHash,
     principles,
     sessionQuestions,
+    assessmentMode: DEFAULT_ASSESSMENT_MODE,
   });
 
   const upgraded: QuestionnaireSessionType = {
     ...session,
-    version: '1.2',
+    version: '1.3',
     questionnaireVersion: LEGACY_QUESTIONNAIRE_VERSION,
     findingsHash,
     principles,
     sessionQuestions,
     questionSetHash,
+    assessmentMode: DEFAULT_ASSESSMENT_MODE,
   };
   assertSessionQuestionRefs(upgraded);
   return upgraded;
@@ -196,14 +206,60 @@ function upgradeCanonicalQuestionnaireSession(
 
   const upgraded: QuestionnaireSessionType = {
     ...session,
-    version: '1.2',
+    version: '1.3',
     findingsHash,
     questionSetHash: buildQuestionSetHash({
       questionnaireVersion: session.questionnaireVersion,
       findingsHash,
       principles: session.principles,
       sessionQuestions: session.sessionQuestions,
+      assessmentMode: DEFAULT_ASSESSMENT_MODE,
     }),
+    assessmentMode: DEFAULT_ASSESSMENT_MODE,
+  };
+  assertSessionQuestionRefs(upgraded);
+  return upgraded;
+}
+
+function upgradeFrozenQuestionnaireSession(
+  session: FrozenQuestionnaireSession,
+  findingsHash: string,
+  expectedPrinciples: APPPrinciple[],
+  expectedQuestions: Question[],
+): QuestionnaireSessionType {
+  if (!principlesExactlyMatch(session.principles, expectedPrinciples)) {
+    throw new Error(SESSION_INTEGRITY_FAILURE);
+  }
+
+  if (!questionsExactlyMatch(session.sessionQuestions, expectedQuestions)) {
+    throw new Error(SESSION_INTEGRITY_FAILURE);
+  }
+
+  const expectedHash = buildQuestionSetHash({
+    questionnaireVersion: session.questionnaireVersion,
+    findingsHash,
+    principles: expectedPrinciples,
+    sessionQuestions: expectedQuestions,
+  });
+
+  if (session.questionSetHash !== expectedHash) {
+    throw new Error(SESSION_INTEGRITY_FAILURE);
+  }
+
+  const upgraded: QuestionnaireSessionType = {
+    ...session,
+    version: '1.3',
+    findingsHash,
+    principles: expectedPrinciples,
+    sessionQuestions: expectedQuestions,
+    questionSetHash: buildQuestionSetHash({
+      questionnaireVersion: session.questionnaireVersion,
+      findingsHash,
+      principles: expectedPrinciples,
+      sessionQuestions: expectedQuestions,
+      assessmentMode: DEFAULT_ASSESSMENT_MODE,
+    }),
+    assessmentMode: DEFAULT_ASSESSMENT_MODE,
   };
   assertSessionQuestionRefs(upgraded);
   return upgraded;
@@ -229,6 +285,7 @@ function validateCurrentQuestionnaireSession(
       findingsHash,
       principles: expectedPrinciples,
       sessionQuestions: expectedQuestions,
+      assessmentMode: session.assessmentMode,
     });
 
     if (session.questionSetHash !== expectedHash) {
@@ -241,6 +298,7 @@ function validateCurrentQuestionnaireSession(
       principles: expectedPrinciples,
       sessionQuestions: expectedQuestions,
       questionSetHash: expectedHash,
+      assessmentMode: session.assessmentMode,
     };
     assertSessionQuestionRefs(validated);
     return validated;
@@ -262,6 +320,7 @@ function validateCurrentQuestionnaireSession(
       findingsHash,
       principles: expectedLegacyPrinciples,
       sessionQuestions: expectedLegacyQuestions,
+      assessmentMode: session.assessmentMode,
     });
 
     if (session.questionSetHash !== expectedHash) {
@@ -274,6 +333,7 @@ function validateCurrentQuestionnaireSession(
       principles: expectedLegacyPrinciples,
       sessionQuestions: expectedLegacyQuestions,
       questionSetHash: expectedHash,
+      assessmentMode: session.assessmentMode,
     };
     assertSessionQuestionRefs(validated);
     return validated;
@@ -305,6 +365,18 @@ export function prepareQuestionnaireSessionForResume(params: {
   if (params.session.version === '1.1') {
     return {
       session: upgradeCanonicalQuestionnaireSession(
+        params.session,
+        findingsHash,
+        params.expectedPrinciples,
+        params.expectedQuestions,
+      ),
+      didUpgrade: true,
+    };
+  }
+
+  if (params.session.version === '1.2') {
+    return {
+      session: upgradeFrozenQuestionnaireSession(
         params.session,
         findingsHash,
         params.expectedPrinciples,
@@ -359,6 +431,7 @@ export function createQuestionnaireSession(params: {
   principles: APPPrinciple[];
   sessionQuestions: Question[];
   principleResults: QuestionnairePrincipleResult[];
+  assessmentMode: AssessmentMode;
   currentQuestionId?: string;
 }): QuestionnaireSessionType {
   const now = new Date().toISOString();
@@ -367,10 +440,11 @@ export function createQuestionnaireSession(params: {
     findingsHash: params.findingsHash,
     principles: params.principles,
     sessionQuestions: params.sessionQuestions,
+    assessmentMode: params.assessmentMode,
   });
   return {
     id: params.id || crypto.randomUUID(),
-    version: '1.2',
+    version: '1.3',
     questionnaireVersion: params.questionnaireVersion,
     status: 'in_progress',
     target: params.target,
@@ -382,6 +456,7 @@ export function createQuestionnaireSession(params: {
     principles: params.principles,
     sessionQuestions: params.sessionQuestions,
     questionSetHash,
+    assessmentMode: params.assessmentMode,
     answers: [],
     principleResults: params.principleResults,
     currentQuestionId: params.currentQuestionId,

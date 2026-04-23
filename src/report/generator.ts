@@ -13,6 +13,7 @@ import type {
   APPControl,
   APPPrinciple,
   ComplianceReport,
+  AssessmentMode,
   RemediationItem,
   ControlStatus,
   QuestionnaireSession,
@@ -367,6 +368,7 @@ export function generateHTMLReport(
         <tr><th>Target</th><td>${report.target.name}${report.target.version ? ` v${report.target.version}` : ''}</td></tr>
         <tr><th>Framework</th><td>APP / NDB (Privacy Act 1988)</td></tr>
         <tr><th>Scanner</th><td>AttestLens v${ATTESTLENS_VERSION}</td></tr>
+        ${questionnaireSession ? `<tr><th>Assessment Basis</th><td>${escapeHtml(getAssessmentModeLabel(questionnaireSession.assessmentMode))}</td></tr>` : ''}
         ${report.target.url ? `<tr><th>URL</th><td>${report.target.url}</td></tr>` : ''}
         ${report.target.path ? `<tr><th>Path</th><td>${report.target.path}</td></tr>` : ''}
       </table>
@@ -531,6 +533,48 @@ function getQuestionnaireSummaryRows(report: ComplianceReport): Array<{
   }));
 }
 
+function getAssessmentModeLabel(mode?: AssessmentMode): string {
+  switch (mode) {
+    case 'artifact_only':
+      return 'Artifact-only review';
+    case 'codebase_only':
+      return 'Codebase-only review';
+    case 'operator_attested':
+      return 'Operator-attested review';
+    default:
+      return 'Operator-attested review';
+  }
+}
+
+function getAssessmentModeSummary(mode?: AssessmentMode): string {
+  switch (mode) {
+    case 'artifact_only':
+      return 'This run used saved or public-facing artifacts only. Governance-heavy controls may remain unresolved where the review did not include live organisational attestations.';
+    case 'codebase_only':
+      return 'This run reviewed source code or repository evidence without direct observation of a live service or organisational process controls.';
+    case 'operator_attested':
+    default:
+      return 'This run included live operator or organisational attestations for questionnaire-backed controls.';
+  }
+}
+
+function getAssessmentBasisUnknownSummary(
+  unresolvedRows: Array<{ principle: string; status: ControlStatus; rationale: string }>,
+  questionnaireSession?: QuestionnaireSession,
+): string | null {
+  if (!questionnaireSession || questionnaireSession.assessmentMode === 'operator_attested' || unresolvedRows.length === 0) {
+    return null;
+  }
+
+  return `These principles remain UNKNOWN because the ${getAssessmentModeLabel(questionnaireSession.assessmentMode).toLowerCase()} did not include enough live governance/process evidence to safely resolve them: ${unresolvedRows.map((row) => row.principle).join(', ')}.`;
+}
+
+function getScannerDerivedApp11Findings(report: ComplianceReport): AttestLensFinding[] {
+  return report.findings.filter((finding) =>
+    finding.appMappings.some((mapping) => mapping.principle === 'APP_11'),
+  );
+}
+
 function resolveQuestionForEvidence(
   questionId: string,
   questionnaireSession?: QuestionnaireSession,
@@ -578,9 +622,24 @@ function generateHTMLQuestionnaireSection(
   const questionnaireRows = getQuestionnaireSummaryRows(report);
   const unresolvedRows = questionnaireRows.filter((row) => row.status === 'unknown');
   const evidenceRows = getQuestionnaireEvidenceRowsWithLookup(report, questionnaireSession);
+  const assessmentLabel = questionnaireSession ? getAssessmentModeLabel(questionnaireSession.assessmentMode) : null;
+  const assessmentSummary = questionnaireSession ? getAssessmentModeSummary(questionnaireSession.assessmentMode) : null;
+  const unresolvedSummary = getAssessmentBasisUnknownSummary(unresolvedRows, questionnaireSession);
+  const app11Findings = getScannerDerivedApp11Findings(report);
   return `
     <h2>Questionnaire Attestation</h2>
+    ${assessmentLabel ? `<p><strong>Assessment basis:</strong> ${escapeHtml(assessmentLabel)}</p>` : ''}
+    ${assessmentSummary ? `<p>${escapeHtml(assessmentSummary)}</p>` : ''}
     <p>${report.questionnaire.length} questionnaire response${report.questionnaire.length === 1 ? '' : 's'} captured.</p>
+    ${app11Findings.length > 0 ? `
+      <h3>Scanner-Derived APP 11 Evidence</h3>
+      <ul>
+        ${app11Findings.map((finding) => `
+          <li><strong>${finding.severity.toUpperCase()}</strong> — ${escapeHtml(finding.title)} (${escapeHtml(finding.id)})</li>
+        `).join('')}
+      </ul>
+    ` : ''}
+    <h3>Questionnaire Principle Outcomes</h3>
     <table class="checklist">
       <thead>
         <tr>
@@ -601,6 +660,9 @@ function generateHTMLQuestionnaireSection(
     </table>
     ${unresolvedRows.length > 0 ? `
       <p><strong>Unresolved principles:</strong> ${unresolvedRows.map((row) => row.principle).join(', ')}</p>
+    ` : ''}
+    ${unresolvedSummary ? `
+      <p><strong>Evidence-limited unknowns:</strong> ${escapeHtml(unresolvedSummary)}</p>
     ` : ''}
     ${evidenceRows.length > 0 ? `
       <h3>Evidence Notes</h3>
@@ -646,6 +708,7 @@ export function generateMarkdownReport(
   lines.push(`**Framework:** APP / NDB (Privacy Act 1988)`);
   if (report.target.url) lines.push(`**Target URL:** ${report.target.url}`);
   if (report.target.path) lines.push(`**Target Path:** ${report.target.path}`);
+  if (questionnaireSession) lines.push(`**Assessment Basis:** ${getAssessmentModeLabel(questionnaireSession.assessmentMode)}`);
   lines.push('');
   lines.push(`## Executive Summary`);
   lines.push('');
@@ -666,6 +729,10 @@ export function generateMarkdownReport(
   if (report.questionnaire && report.questionnaire.length > 0) {
     lines.push(`### Questionnaire Attestation`);
     lines.push('');
+    if (questionnaireSession) {
+      lines.push(`- **Assessment Basis:** ${getAssessmentModeLabel(questionnaireSession.assessmentMode)}`);
+      lines.push(`- **Assessment Summary:** ${getAssessmentModeSummary(questionnaireSession.assessmentMode)}`);
+    }
     lines.push(`- **Responses Captured:** ${report.questionnaire.length}`);
     const questionnaireRows = getQuestionnaireSummaryRows(report);
     const unresolvedControls = questionnaireRows
@@ -675,10 +742,28 @@ export function generateMarkdownReport(
       lines.push(`- **Unresolved Principles:** ${unresolvedControls.join(', ')}`);
     }
     lines.push('');
+    const app11Findings = getScannerDerivedApp11Findings(report);
+    if (app11Findings.length > 0) {
+      lines.push(`#### Scanner-Derived APP 11 Evidence`);
+      lines.push('');
+      for (const finding of app11Findings) {
+        lines.push(`- **${finding.severity.toUpperCase()} / ${finding.id}:** ${finding.title}`);
+      }
+      lines.push('');
+    }
+    lines.push(`#### Questionnaire Principle Outcomes`);
+    lines.push('');
     lines.push(`| Principle | Status | Summary |`);
     lines.push(`|---|---|---|`);
     for (const row of questionnaireRows) {
       lines.push(`| ${row.principle} | ${row.status.toUpperCase()} | ${row.rationale.replace(/\|/g, '\\|')} |`);
+    }
+    const unresolvedSummary = getAssessmentBasisUnknownSummary(questionnaireRows.filter((row) => row.status === 'unknown'), questionnaireSession);
+    if (unresolvedSummary) {
+      lines.push('');
+      lines.push(`#### Evidence-Limited Unknowns`);
+      lines.push('');
+      lines.push(unresolvedSummary);
     }
     const evidenceRows = getQuestionnaireEvidenceRowsWithLookup(report, questionnaireSession);
     if (evidenceRows.length > 0) {
@@ -772,7 +857,7 @@ export async function generatePDFReport(
 
   doc.pipe(stream);
 
-  renderPDFCover(doc, report, options);
+  renderPDFCover(doc, report, options, questionnaireSession);
   doc.addPage();
   renderPDFExecutiveSummary(doc, report, questionnaireSession);
   doc.addPage();
@@ -784,7 +869,12 @@ export async function generatePDFReport(
   return bufferPromise;
 }
 
-function renderPDFCover(doc: PDFDocument, report: ComplianceReport, options: ReportOptions): void {
+function renderPDFCover(
+  doc: PDFDocument,
+  report: ComplianceReport,
+  options: ReportOptions,
+  questionnaireSession?: QuestionnaireSession,
+): void {
   doc.fillColor('#1a2332').fontSize(26).text('Privacy Act Compliance Report');
   doc.moveDown(0.5);
   doc.fillColor('#334155').fontSize(18).text(report.target.name);
@@ -801,6 +891,7 @@ function renderPDFCover(doc: PDFDocument, report: ComplianceReport, options: Rep
   writePDFLabelValue(doc, 'Scanner', `AttestLens v${ATTESTLENS_VERSION}`);
   writePDFLabelValue(doc, 'Target URL', report.target.url);
   writePDFLabelValue(doc, 'Target Path', report.target.path);
+  writePDFLabelValue(doc, 'Assessment Basis', questionnaireSession ? getAssessmentModeLabel(questionnaireSession.assessmentMode) : undefined);
   writePDFLabelValue(doc, 'Version', report.target.version);
   if (options.branding?.companyName) {
     writePDFLabelValue(doc, 'Prepared For', options.branding.companyName);
@@ -854,20 +945,45 @@ function renderPDFExecutiveSummary(
     const questionnaireRows = getQuestionnaireSummaryRows(report);
     const unresolvedRows = questionnaireRows.filter((row) => row.status === 'unknown');
     const evidenceRows = getQuestionnaireEvidenceRowsWithLookup(report, questionnaireSession);
+    const app11Findings = getScannerDerivedApp11Findings(report);
+    const unresolvedSummary = getAssessmentBasisUnknownSummary(unresolvedRows, questionnaireSession);
     doc.moveDown();
     doc.fontSize(16).fillColor('#1a2332').text('Questionnaire Attestation');
     doc.moveDown(0.5);
+    if (questionnaireSession) {
+      doc.text(`Assessment basis: ${getAssessmentModeLabel(questionnaireSession.assessmentMode)}`);
+      doc.text(getAssessmentModeSummary(questionnaireSession.assessmentMode));
+    }
     doc.fontSize(10).fillColor('#0f172a').text(`Responses captured: ${report.questionnaire.length}`);
     doc.text(`Resolved principles: ${questionnaireRows.filter((row) => row.status !== 'unknown').length}`);
     if (unresolvedRows.length > 0) {
       doc.text(`Unresolved principles: ${unresolvedRows.map((row) => row.principle).join(', ')}`);
     }
 
+    if (app11Findings.length > 0) {
+      doc.moveDown();
+      doc.fontSize(12).fillColor('#1a2332').text('Scanner-Derived APP 11 Evidence');
+      for (const finding of app11Findings) {
+        doc
+          .fontSize(10)
+          .fillColor('#334155')
+          .text(`${finding.severity.toUpperCase()} / ${finding.id}: ${finding.title}`);
+      }
+    }
+
+    doc.moveDown();
+    doc.fontSize(12).fillColor('#1a2332').text('Questionnaire Principle Outcomes');
     for (const row of questionnaireRows) {
       doc
         .fontSize(10)
         .fillColor('#334155')
         .text(`${row.principle}: ${row.status.toUpperCase()} — ${row.rationale}`);
+    }
+
+    if (unresolvedSummary) {
+      doc.moveDown();
+      doc.fontSize(12).fillColor('#1a2332').text('Evidence-Limited Unknowns');
+      doc.fontSize(10).fillColor('#334155').text(unresolvedSummary);
     }
 
     if (evidenceRows.length > 0) {

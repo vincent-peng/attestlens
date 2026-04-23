@@ -1,5 +1,13 @@
-import { APPInfo, type APPPrinciple, type Question, type QuestionnaireResponse } from '../schema/index.js';
+import {
+  APPInfo,
+  type APPPrinciple,
+  type AssessmentMode,
+  type Question,
+  type QuestionnaireResponse,
+} from '../schema/index.js';
 import { QUESTION_BANK } from './questions.js';
+
+const DEFAULT_ASSESSMENT_MODE: AssessmentMode = 'operator_attested';
 
 export function getQuestionById(questionId: string, questions: Question[] = QUESTION_BANK): Question | undefined {
   return questions.find((question) => question.id === questionId);
@@ -12,7 +20,12 @@ function normalizeAnswers(value: QuestionnaireResponse['answer']): Array<boolean
 export function isQuestionApplicable(
   question: Question,
   responses: QuestionnaireResponse[],
+  assessmentMode: AssessmentMode = DEFAULT_ASSESSMENT_MODE,
 ): boolean {
+  if (question.assessmentModes && !question.assessmentModes.includes(assessmentMode)) {
+    return false;
+  }
+
   if (!question.dependsOn) {
     return true;
   }
@@ -29,18 +42,21 @@ export function isQuestionApplicable(
 export function getApplicableQuestions(
   questions: Question[],
   responses: QuestionnaireResponse[],
+  assessmentMode: AssessmentMode = DEFAULT_ASSESSMENT_MODE,
 ): Question[] {
-  return questions.filter((question) => isQuestionApplicable(question, responses));
+  return questions.filter((question) => isQuestionApplicable(question, responses, assessmentMode));
 }
 
 export function getApplicableQuestionsForPrinciple(
   principle: APPPrinciple,
   responses: QuestionnaireResponse[],
   questions: Question[] = QUESTION_BANK,
+  assessmentMode: AssessmentMode = DEFAULT_ASSESSMENT_MODE,
 ): Question[] {
   return getApplicableQuestions(
     questions.filter((question) => question.appPrinciple === principle),
     responses,
+    assessmentMode,
   );
 }
 
@@ -53,6 +69,7 @@ export function getNextQuestion(
   principles: APPPrinciple[],
   responses: QuestionnaireResponse[],
   questions: Question[] = QUESTION_BANK,
+  assessmentMode: AssessmentMode = DEFAULT_ASSESSMENT_MODE,
 ): Question | undefined {
   const responsesByQuestionId = new Set(responses.map((response) => response.questionId));
   const principleOrder = getQuestionPrincipleOrder(principles);
@@ -62,6 +79,7 @@ export function getNextQuestion(
     const principleQuestions = getApplicableQuestions(
       scopedQuestions.filter((question) => question.appPrinciple === principle),
       responses,
+      assessmentMode,
     );
     const orderedQuestions = [
       ...principleQuestions.filter((question) => question.required),

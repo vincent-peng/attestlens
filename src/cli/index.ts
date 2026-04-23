@@ -483,6 +483,10 @@ export async function executeAttestCommand(
     const normalized = normalizeScanSnapshot(rawScanData, resolvedScanPath, options.name);
     snapshot = normalized.snapshot;
     sessionTarget = normalized.target;
+    const assessmentMode = await runner.promptAssessmentMode({
+      targetKind: sessionTarget.kind,
+      targetName: sessionTarget.name,
+    });
 
     const spinner = ora('Creating attestation session from saved scan...').start();
     const initialized = await initializeAttestationSession({
@@ -490,6 +494,7 @@ export async function executeAttestCommand(
       target: sessionTarget,
       outputDir: outputRoot,
       strictMode: Boolean(options.strict),
+      assessmentMode,
     });
     spinner.succeed(`Session created at ${initialized.paths.directory}`);
 
@@ -516,12 +521,17 @@ export async function executeAttestCommand(
       errors: scanResult.errors,
       totalDurationMs: Date.now() - startTime,
     });
+    const assessmentMode = await runner.promptAssessmentMode({
+      targetKind: sessionTarget.kind,
+      targetName: sessionTarget.name,
+    });
 
     const initialized = await initializeAttestationSession({
       snapshot,
       target: sessionTarget,
       outputDir: outputRoot,
       strictMode: Boolean(options.strict),
+      assessmentMode,
     });
     spinner.succeed(`Session created at ${initialized.paths.directory}`);
 
@@ -532,6 +542,7 @@ export async function executeAttestCommand(
 
   console.log(chalk.gray(`Session file: ${sessionPath}`));
   console.log(chalk.gray(`Frozen scan snapshot: ${scanSnapshotPath}`));
+  console.log(chalk.gray(`Assessment basis: ${session.assessmentMode}`));
 
   const runResult = await runAttestationSession({
     session,

@@ -1,6 +1,6 @@
 import type { APPPrinciple, Question } from '../schema/index.js';
 
-export const QUESTIONNAIRE_VERSION = 'm2-coverage-v1';
+export const QUESTIONNAIRE_VERSION = 'm2-remediation-v1';
 export const LEGACY_QUESTIONNAIRE_VERSION = 'legacy-1.0';
 
 export const LEGACY_QUESTION_BANK_V1: Question[] = [
@@ -309,6 +309,17 @@ export const QUESTION_BANK: Question[] = [
     helpText: 'This captures the minimum governance evidence for APP 2 exceptions when real-world identity is necessary.',
   },
   {
+    id: 'Q-APP3-000',
+    appPrinciple: 'APP_3',
+    question: 'Does the reviewed surface or workflow clearly collect personal information directly from individuals?',
+    type: 'yes_no',
+    required: true,
+    role: 'applicability_gate',
+    passOn: 'yes',
+    blocking: true,
+    helpText: 'Use this to scope direct-collection controls to the reviewed surface. If direct personal-information collection is not established here, APP 3 and the direct APP 5 branch should not hard-fail for this run.',
+  },
+  {
     id: 'Q-APP3-001',
     appPrinciple: 'APP_3',
     question: 'Is all personal information collected through this application collected for a lawful purpose that is directly related to your organisation\'s functions or activities?',
@@ -317,6 +328,10 @@ export const QUESTION_BANK: Question[] = [
     role: 'control',
     passOn: 'yes',
     blocking: true,
+    dependsOn: {
+      questionId: 'Q-APP3-000',
+      answers: [true, 'yes'],
+    },
     helpText: 'APP 3.1 requires personal information to be collected only for a lawful purpose directly related to the entity\'s functions or activities.',
   },
   {
@@ -328,6 +343,10 @@ export const QUESTION_BANK: Question[] = [
     role: 'control',
     passOn: 'yes',
     blocking: true,
+    dependsOn: {
+      questionId: 'Q-APP3-000',
+      answers: [true, 'yes'],
+    },
     helpText: 'APP 3.2 requires data minimisation. Collect only information that is reasonably necessary for your legitimate functions or activities.',
   },
   {
@@ -339,6 +358,10 @@ export const QUESTION_BANK: Question[] = [
     role: 'control',
     passOn: 'yes',
     blocking: true,
+    dependsOn: {
+      questionId: 'Q-APP3-000',
+      answers: [true, 'yes'],
+    },
     helpText: 'APP 3.3 requires collection to be lawful, fair, and not unreasonably intrusive.',
   },
   {
@@ -350,6 +373,10 @@ export const QUESTION_BANK: Question[] = [
     role: 'control',
     passOn: 'yes',
     blocking: true,
+    dependsOn: {
+      questionId: 'Q-APP3-000',
+      answers: [true, 'yes'],
+    },
     helpText: 'APP 3.4 and APP 5 work together: the entity must notify individuals of specific mandatory collection matters.',
   },
   {
@@ -402,6 +429,10 @@ export const QUESTION_BANK: Question[] = [
     role: 'control',
     passOn: 'yes',
     blocking: true,
+    dependsOn: {
+      questionId: 'Q-APP3-000',
+      answers: [true, 'yes'],
+    },
     helpText: 'APP 5.1 requires notice at or before collection when information is collected directly from the individual.',
   },
   {
@@ -439,6 +470,7 @@ export const QUESTION_BANK: Question[] = [
     role: 'applicability_gate',
     passOn: 'yes',
     blocking: true,
+    assessmentModes: ['operator_attested'],
     helpText: 'APP 6 restricts use and disclosure to the primary purpose unless consent or another statutory exception applies.',
   },
   {
@@ -450,6 +482,7 @@ export const QUESTION_BANK: Question[] = [
     role: 'control',
     passOn: 'yes',
     blocking: true,
+    assessmentModes: ['operator_attested'],
     dependsOn: {
       questionId: 'Q-APP6-001',
       answers: [false, 'no'],
@@ -465,6 +498,7 @@ export const QUESTION_BANK: Question[] = [
     role: 'applicability_gate',
     passOn: 'no',
     blocking: true,
+    assessmentModes: ['operator_attested'],
     helpText: 'APP 7 only applies when direct marketing occurs.',
   },
   {
@@ -476,6 +510,7 @@ export const QUESTION_BANK: Question[] = [
     role: 'control',
     passOn: 'yes',
     blocking: true,
+    assessmentModes: ['operator_attested'],
     dependsOn: {
       questionId: 'Q-APP7-001',
       answers: [true, 'yes'],
@@ -491,6 +526,7 @@ export const QUESTION_BANK: Question[] = [
     role: 'control',
     passOn: 'yes',
     blocking: true,
+    assessmentModes: ['operator_attested'],
     dependsOn: {
       questionId: 'Q-APP7-001',
       answers: [true, 'yes'],
@@ -506,6 +542,7 @@ export const QUESTION_BANK: Question[] = [
     role: 'applicability_gate',
     passOn: 'no',
     blocking: true,
+    assessmentModes: ['operator_attested'],
     helpText: 'APP 8.1 applies when personal information is disclosed to an overseas recipient.',
   },
   {
@@ -517,6 +554,7 @@ export const QUESTION_BANK: Question[] = [
     role: 'control',
     passOn: 'yes',
     blocking: true,
+    assessmentModes: ['operator_attested'],
     dependsOn: {
       questionId: 'Q-APP8-001',
       answers: [true, 'yes'],
@@ -538,6 +576,7 @@ export const QUESTION_BANK: Question[] = [
     required: false,
     role: 'evidence',
     blocking: false,
+    assessmentModes: ['operator_attested'],
     failOnOptions: ['None of the above'],
     minimumSelectedOptions: 1,
     dependsOn: {
@@ -596,6 +635,7 @@ export const QUESTION_BANK: Question[] = [
     role: 'control',
     passOn: 'yes',
     blocking: true,
+    assessmentModes: ['operator_attested'],
     helpText: 'APP 10.1 requires reasonable steps to maintain data quality at the point of collection.',
   },
   {
@@ -607,6 +647,7 @@ export const QUESTION_BANK: Question[] = [
     role: 'control',
     passOn: 'yes',
     blocking: true,
+    assessmentModes: ['operator_attested'],
     helpText: 'APP 10.2 requires data quality checks before use or disclosure.',
   },
   {
@@ -640,6 +681,7 @@ export const QUESTION_BANK: Question[] = [
     role: 'control',
     passOn: 'yes',
     blocking: true,
+    assessmentModes: ['operator_attested'],
     helpText: 'This captures minimum operational governance evidence supporting APP 11 beyond purely technical controls.',
   },
   {
@@ -651,6 +693,7 @@ export const QUESTION_BANK: Question[] = [
     role: 'control',
     passOn: 'yes',
     blocking: true,
+    assessmentModes: ['operator_attested'],
     helpText: 'APP 12 requires individuals to be given access to their personal information on request, subject to limited exceptions.',
   },
   {
@@ -662,6 +705,7 @@ export const QUESTION_BANK: Question[] = [
     role: 'control',
     passOn: 'yes',
     blocking: true,
+    assessmentModes: ['operator_attested'],
     helpText: 'APP 12 requires access to be given within a reasonable period and refusals to follow the statutory framework.',
   },
   {
@@ -694,6 +738,7 @@ export const QUESTION_BANK: Question[] = [
     role: 'control',
     passOn: 'yes',
     blocking: true,
+    assessmentModes: ['operator_attested'],
     helpText: 'Entities subject to the NDB scheme should maintain a documented plan covering assessment, containment, and notification pathways.',
   },
   {
@@ -711,6 +756,7 @@ export const QUESTION_BANK: Question[] = [
     required: true,
     role: 'control',
     blocking: true,
+    assessmentModes: ['operator_attested'],
     failOnOptions: ['None of the above'],
     minimumSelectedOptions: 4,
     helpText: 'The baseline NDB plan should address all four core response areas, not just one or two of them.',
@@ -724,6 +770,7 @@ export const QUESTION_BANK: Question[] = [
     role: 'control',
     passOn: 'yes',
     blocking: true,
+    assessmentModes: ['operator_attested'],
     helpText: 'A nominated owner materially improves breach response readiness and accountability.',
   },
   {
@@ -735,6 +782,7 @@ export const QUESTION_BANK: Question[] = [
     role: 'control',
     passOn: 'yes',
     blocking: true,
+    assessmentModes: ['operator_attested'],
     helpText: 'The NDB scheme requires assessment of a suspected eligible data breach within 30 days.',
   },
 ];

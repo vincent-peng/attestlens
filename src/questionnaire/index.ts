@@ -45,6 +45,7 @@ export {
   createInteractivePromptRunner,
 } from './prompts.js';
 export type {
+  AttestationAssessmentModeContext,
   AttestationPromptContext,
   AttestationPromptResult,
   AttestationPromptRunner,

@@ -45,9 +45,10 @@ function makeQuestionnaireSession(
   const findingsHash = overrides.findingsHash || buildFindingsHash([]);
   const sessionQuestions = overrides.sessionQuestions || buildFrozenSessionQuestions(principles);
   const questionnaireVersion = overrides.questionnaireVersion || QUESTIONNAIRE_VERSION;
+  const assessmentMode = overrides.assessmentMode || 'operator_attested';
   return {
     id: overrides.id || 'session-001',
-    version: '1.2',
+    version: '1.3',
     questionnaireVersion,
     status: overrides.status || 'completed',
     target: overrides.target || {
@@ -68,7 +69,9 @@ function makeQuestionnaireSession(
       findingsHash,
       principles,
       sessionQuestions,
+      assessmentMode,
     }),
+    assessmentMode,
     answers: overrides.answers || [],
     principleResults: overrides.principleResults || [],
     currentQuestionId: overrides.currentQuestionId,
@@ -249,7 +252,8 @@ describe('generateMarkdownReport', () => {
   });
 
   it('includes questionnaire outcomes and evidence notes in merged markdown reports', () => {
-    const report = buildComplianceReport([], defaultOptions, 1000, makeQuestionnaireSession({
+    const session = makeQuestionnaireSession({
+      assessmentMode: 'artifact_only',
       answers: [
         {
           questionId: 'Q-APP1-001',
@@ -273,13 +277,63 @@ describe('generateMarkdownReport', () => {
           answeredQuestionIds: ['Q-APP1-001'],
         },
       ],
-    }));
+    });
+    const report = buildComplianceReport([], defaultOptions, 1000, session);
 
-    const md = generateMarkdownReport(report);
+    const md = generateMarkdownReport(report, session);
     expect(md).toContain('### Questionnaire Attestation');
+    expect(md).toContain('**Assessment Basis:** Artifact-only review');
     expect(md).toContain('Policy is public.');
     expect(md).toContain('#### Evidence Notes');
     expect(md).toContain('docs/privacy-policy.md');
+  });
+
+  it('separates scanner-derived APP 11 evidence from questionnaire outcomes in markdown reports', () => {
+    const session = makeQuestionnaireSession({
+      assessmentMode: 'codebase_only',
+      answers: [
+        {
+          questionId: 'Q-APP11-001',
+          answer: true,
+          timestamp: new Date().toISOString(),
+          evaluation: {
+            status: 'pass',
+            confidence: 0.8,
+            rationale: 'Access controls reviewed.',
+          },
+        },
+      ],
+      principleResults: [
+        {
+          principle: 'APP_11',
+          status: 'unknown',
+          confidence: 0.35,
+          rationale: 'No applicable blocking questionnaire answers have been recorded yet.',
+          answeredQuestionIds: ['Q-APP11-001'],
+        },
+      ],
+    });
+    const report = buildComplianceReport([
+      makeFinding({
+        id: 'F-APP11-001',
+        severity: 'high',
+        sourceRule: 'AL-KEY-011',
+        title: 'Exposed secret material',
+        appMappings: [{
+          principle: 'APP_11',
+          obligation: 'Reasonable steps to protect personal information',
+          status: 'fail',
+          confidence: 0.9,
+        }],
+      }),
+    ], defaultOptions, 1000, session);
+
+    const md = generateMarkdownReport(report, session);
+    expect(md).toContain('#### Scanner-Derived APP 11 Evidence');
+    expect(md).toContain('F-APP11-001');
+    expect(md).toContain('#### Questionnaire Principle Outcomes');
+    expect(md).toContain('#### Evidence-Limited Unknowns');
+    expect(md).toContain('Codebase-only review');
   });
 
   it('uses frozen session question text for evidence notes when provided', () => {

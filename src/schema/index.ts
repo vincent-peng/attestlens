@@ -122,6 +122,9 @@ export type QuestionRole = z.infer<typeof QuestionRole>;
 export const QuestionPassValue = z.enum(['yes', 'no']);
 export type QuestionPassValue = z.infer<typeof QuestionPassValue>;
 
+export const AssessmentMode = z.enum(['artifact_only', 'codebase_only', 'operator_attested']);
+export type AssessmentMode = z.infer<typeof AssessmentMode>;
+
 export const Question = z.object({
   id: z.string(),
   appPrinciple: APPPrinciple,
@@ -134,6 +137,7 @@ export const Question = z.object({
   blocking: z.boolean().optional(),
   minimumSelectedOptions: z.number().int().positive().optional(),
   failOnOptions: z.array(z.string()).optional(),
+  assessmentModes: z.array(AssessmentMode).optional(),
   helpText: z.string().optional(),
   dependsOn: QuestionDependency.optional(),
   relatedFindings: z.array(z.string()).optional(), // Finding IDs
@@ -202,18 +206,29 @@ export const TransitionalQuestionnaireSession = QuestionnaireSessionBase.extend(
 });
 export type TransitionalQuestionnaireSession = z.infer<typeof TransitionalQuestionnaireSession>;
 
-export const QuestionnaireSession = QuestionnaireSessionBase.extend({
+export const FrozenQuestionnaireSession = QuestionnaireSessionBase.extend({
   version: z.literal('1.2'),
   questionnaireVersion: z.string(),
   principles: z.array(APPPrinciple),
   sessionQuestions: z.array(Question),
   questionSetHash: z.string(),
 });
+export type FrozenQuestionnaireSession = z.infer<typeof FrozenQuestionnaireSession>;
+
+export const QuestionnaireSession = QuestionnaireSessionBase.extend({
+  version: z.literal('1.3'),
+  questionnaireVersion: z.string(),
+  principles: z.array(APPPrinciple),
+  sessionQuestions: z.array(Question),
+  questionSetHash: z.string(),
+  assessmentMode: AssessmentMode,
+});
 export type QuestionnaireSession = z.infer<typeof QuestionnaireSession>;
 
 export const AnyQuestionnaireSession = z.union([
   LegacyQuestionnaireSession,
   TransitionalQuestionnaireSession,
+  FrozenQuestionnaireSession,
   QuestionnaireSession,
 ]);
 export type AnyQuestionnaireSession = z.infer<typeof AnyQuestionnaireSession>;

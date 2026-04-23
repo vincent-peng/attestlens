@@ -1,7 +1,13 @@
 import { checkbox, input, select } from '@inquirer/prompts';
 import chalk from 'chalk';
 
-import { APPInfo, type AttestLensFinding, type Question, type QuestionnaireResponse } from '../schema/index.js';
+import {
+  APPInfo,
+  type AssessmentMode,
+  type AttestLensFinding,
+  type Question,
+  type QuestionnaireResponse,
+} from '../schema/index.js';
 
 export type AttestationPromptResult =
   | { kind: 'save_and_exit' }
@@ -22,7 +28,13 @@ export interface AttestationPromptContext {
   relevantFindings: AttestLensFinding[];
 }
 
+export interface AttestationAssessmentModeContext {
+  targetKind: 'path' | 'url';
+  targetName: string;
+}
+
 export interface AttestationPromptRunner {
+  promptAssessmentMode(context: AttestationAssessmentModeContext): Promise<AssessmentMode>;
   prompt(question: Question, context: AttestationPromptContext): Promise<AttestationPromptResult>;
 }
 
@@ -59,6 +71,38 @@ function printQuestionContext(question: Question, context: AttestationPromptCont
 
 export function createInteractivePromptRunner(): AttestationPromptRunner {
   return {
+    async promptAssessmentMode(context) {
+      if (!process.stdin.isTTY || !process.stdout.isTTY) {
+        throw new Error('Attestation requires an interactive terminal.');
+      }
+
+      console.log('');
+      console.log(chalk.bold.cyan('Assessment Basis'));
+      console.log(chalk.gray(`Target: ${context.targetName} (${context.targetKind === 'url' ? 'URL' : 'path'})`));
+      console.log(chalk.gray('Choose the evidence basis for this attestation. This choice is frozen into the saved session.'));
+
+      return select<AssessmentMode>({
+        message: 'Which assessment basis best fits this run?',
+        choices: [
+          {
+            name: 'Artifact-only review',
+            value: 'artifact_only',
+            description: 'Saved/public artifact review without live operator or process evidence.',
+          },
+          {
+            name: 'Codebase-only review',
+            value: 'codebase_only',
+            description: 'Local repo/code scan without observed deployment or operational process evidence.',
+          },
+          {
+            name: 'Operator-attested review',
+            value: 'operator_attested',
+            description: 'Reviewer has live organisational/process knowledge and is attesting those controls.',
+          },
+        ],
+      });
+    },
+
     async prompt(question, context) {
       if (!process.stdin.isTTY || !process.stdout.isTTY) {
         throw new Error('Attestation requires an interactive terminal.');

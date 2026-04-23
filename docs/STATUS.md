@@ -1,6 +1,6 @@
 # AttestLens — Status
 
-**Last Updated:** 2026-04-20  
+**Last Updated:** 2026-04-23  
 **Purpose:** Near-term source of truth for product status, current milestone, and next actions.
 
 ---
@@ -41,7 +41,7 @@ In practice, that means:
 - Questionnaire session model, JSON persistence, resume flow, and merged report support
 - Supply-chain scanner with Axios-style attack coverage
 - Validation corpus runner with 9 public targets and Markdown summaries
-- Attestation validation workflow scaffolding with scenario manifest, runbook, review template, and prep helper
+- Attestation validation workflow with scenario manifest, runbook, review template, prep helper, and first validation-cycle log
 - Stack-specific repo security checks for Supabase, Firebase, Stripe, Clerk/Auth0, and platform secrets
 - URL scanner hardening:
   - shared guarded fetch path
@@ -53,7 +53,7 @@ In practice, that means:
 ### In Progress
 
 - Design-partner validation and consultant/MSP outreach
-- Phase 2 follow-on work: broader questionnaire coverage, breach-readiness scoring, and report refinement
+- Phase 2 follow-on work: breach-readiness scoring, consultant-facing report narratives, and the small remaining validation follow-ups
 - Validation-driven rule cleanup for remaining live-site false positives and CDN/bot-blocked targets
 
 ### Not Shipped
@@ -86,18 +86,24 @@ In practice, that means:
 - PDF report MVP exists
 - `attest` CLI foundation exists with saved scan snapshots, resume support, and questionnaire/report merge
 - questionnaire coverage now spans all APP/NDB principles with frozen per-session question sets
+- validation-driven remediation patch landed:
+  - frozen assessment basis per attestation session
+  - APP 3 / APP 5 direct-collection gate for reviewed-surface applicability
+  - governance-heavy controls stay `UNKNOWN` in artifact-only and codebase-only runs
+  - report sections now distinguish scanner-derived APP 11 evidence from questionnaire assumptions
 - rule-level fix prompts exist across URL/header/key/JS findings
 - mapping engine includes URL-scan categories
 - validation corpus and findings log exist
-- attestation validation runbook, scenarios, and local prep helper exist
+- first attestation validation cycle completed across 3 public scenarios plus 1 sanitized private dry run
+- attestation validation runbook, scenarios, local prep helper, and patch queue exist
 - stack-specific repo checks exist
 - sanitized sample Juice Shop report exists
 
 ### Immediate M2 Work
 
-1. Add breach-readiness scoring and consultant-facing narrative sections on top of the merged report path.
-2. Execute the new public/private attestation validation workflow and tighten any remaining awkward or noisy questionnaire branches.
-3. Tighten the small set of validation-corpus false positives and intermittent live-site fetch failures.
+1. Add breach-readiness scoring on top of the remediated merged scan + questionnaire baseline.
+2. Add consultant-facing narrative sections once the scoring layer is in place.
+3. Close the small remaining follow-up queue from `docs/validation/ATTESTATION-LOG.md` (`APP_2` artifact-only wording and `AL-INFRA-006` validation noise).
 
 ---
 
@@ -149,10 +155,9 @@ These are the default operating rules for the project.
 ### Next 2 Weeks
 
 1. Start design-partner outreach with the v0.2.0 sample report.
-2. Run the attestation validation workflow on public corpus artifacts plus one private dry run, then tighten the remaining unresolved principles.
-3. Add breach-readiness scoring on top of the merged scan + questionnaire baseline.
+2. Add breach-readiness scoring on top of the merged scan + questionnaire baseline.
+3. Add consultant-facing narrative sections now that the remediation patch has stabilized the merged report shape.
 4. Triage the remaining validation noise (`AL-KEY-011`, `AL-INFRA-006`, duplicate API-key semantics).
-5. Keep milestone docs aligned as M2 lands.
 
 ### Explicitly Not Now
 
