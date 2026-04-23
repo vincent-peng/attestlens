@@ -24,6 +24,7 @@ function makeTemplate(): string {
     '# {{SCENARIO_LABEL}}',
     'Date: {{RUN_DATE}}',
     'Scan source: {{SCAN_SOURCE}}',
+    'Recommended assessment mode: {{RECOMMENDED_ASSESSMENT_MODE}}',
     'Sanitized target label: {{SANITIZED_LABEL}}',
     'Operator context file: {{OPERATOR_CONTEXT_FILE}}',
     '{{OPERATOR_ASSUMPTIONS}}',
@@ -51,6 +52,7 @@ async function writeFixtureFiles(tempDir: string): Promise<{
     type: public
     label: Example Baseline
     corpusTargetId: example
+    recommendedAssessmentMode: artifact_only
     reviewGoal: Public baseline
     focusPrinciples: [APP_1, APP_11]
     operatorAssumptions:
@@ -59,6 +61,7 @@ async function writeFixtureFiles(tempDir: string): Promise<{
   - id: private-consultant-dry-run
     type: private_template
     label: Private Consultant Dry Run
+    recommendedAssessmentMode: codebase_only
     reviewGoal: Private dry run
     focusPrinciples: [APP_1, APP_11]
     operatorAssumptions:
@@ -238,16 +241,23 @@ describe('attestation validation helper', () => {
     );
     expect(prepared.scanSource).toBe('corpus report');
     expect(prepared.sourceScanPath).toBe(corpusJson);
+    expect(prepared.recommendedAssessmentMode).toBe('artifact_only');
 
     const commandFile = await fs.readFile(prepared.commandPath, 'utf-8');
     expect(commandFile).toContain('attestlens attest');
     expect(commandFile).toContain('--from-scan');
+    expect(commandFile).toContain('--assessment-mode');
+    expect(commandFile).toContain('artifact_only');
     expect(commandFile).toContain(corpusJson);
 
     const reviewFile = await fs.readFile(prepared.reviewPath, 'utf-8');
     expect(reviewFile).toContain('# Example Baseline');
     expect(reviewFile).toContain('Scan source: corpus report');
+    expect(reviewFile).toContain('Recommended assessment mode: artifact_only');
     expect(reviewFile).toContain('Sanitized target label: N/A');
+
+    const metaFile = await fs.readFile(prepared.metaPath, 'utf-8');
+    expect(metaFile).toContain('"recommendedAssessmentMode": "artifact_only"');
   });
 
   it('keeps private shared artifacts sanitized and writes raw details to the operator context file', async () => {
@@ -269,25 +279,30 @@ describe('attestation validation helper', () => {
     expect(prepared.scanSource).toBe('local scan');
     expect(prepared.sanitizedLabel).toBe('Internal SaaS #1');
     expect(prepared.localContextPath).toBeTruthy();
+    expect(prepared.recommendedAssessmentMode).toBe('codebase_only');
 
     const commandFile = await fs.readFile(prepared.commandPath, 'utf-8');
     expect(commandFile).not.toContain('attestlens attest');
     expect(commandFile).not.toContain('/tmp/private-app');
     expect(commandFile).toContain('.operator-context.json');
     expect(commandFile).toContain('Internal SaaS #1');
+    expect(commandFile).toContain('codebase_only');
 
     const reviewFile = await fs.readFile(prepared.reviewPath, 'utf-8');
+    expect(reviewFile).toContain('Recommended assessment mode: codebase_only');
     expect(reviewFile).toContain('Sanitized target label: Internal SaaS #1');
     expect(reviewFile).not.toContain('/tmp/private-app');
 
     const metaFile = await fs.readFile(prepared.metaPath, 'utf-8');
     expect(metaFile).toContain('Internal SaaS #1');
+    expect(metaFile).toContain('"recommendedAssessmentMode": "codebase_only"');
     expect(metaFile).not.toContain('/tmp/private-app');
     expect(metaFile).not.toContain('attestlens attest');
 
     const localContextFile = await fs.readFile(prepared.localContextPath!, 'utf-8');
     expect(localContextFile).toContain('/tmp/private-app');
     expect(localContextFile).toContain('attestlens attest');
+    expect(localContextFile).toContain('"recommendedAssessmentMode": "codebase_only"');
   });
 
   it('supports private saved-scan runs while keeping shared artifacts sanitized', async () => {
@@ -313,10 +328,12 @@ describe('attestation validation helper', () => {
 
     const commandFile = await fs.readFile(prepared.commandPath, 'utf-8');
     expect(commandFile).not.toContain(savedScan);
+    expect(commandFile).toContain('codebase_only');
 
     const localContextFile = await fs.readFile(prepared.localContextPath!, 'utf-8');
     expect(localContextFile).toContain(savedScan);
     expect(localContextFile).toContain('--from-scan');
+    expect(localContextFile).toContain('"recommendedAssessmentMode": "codebase_only"');
   });
 
   it('creates unique run directories for repeated same-day runs', async () => {

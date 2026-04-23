@@ -227,6 +227,38 @@ describe('buildComplianceReport', () => {
     const app11 = report.appControls.find((control) => control.principle === 'APP_11');
     expect(app11?.status).toBe('fail');
   });
+
+  it('caps evidence-limited questionnaire reports and marks them incomplete', () => {
+    const report = buildComplianceReport([], defaultOptions, 1000, makeQuestionnaireSession({
+      assessmentMode: 'artifact_only',
+      answers: [],
+      principleResults: [],
+    }));
+
+    expect(report.overallScore).toBe(69);
+    expect(report.overallGrade).toBe('C');
+    expect(report.riskLevel).toBe('medium');
+    expect(report.assessment).toEqual(expect.objectContaining({
+      mode: 'artifact_only',
+      incomplete: true,
+    }));
+    expect(report.assessment?.unknownPrinciples.length).toBeGreaterThan(0);
+  });
+
+  it('changes the deterministic hash when questionnaire assessment metadata changes', () => {
+    const artifactOnlyReport = buildComplianceReport([], defaultOptions, 1000, makeQuestionnaireSession({
+      assessmentMode: 'artifact_only',
+      answers: [],
+      principleResults: [],
+    }));
+    const codebaseOnlyReport = buildComplianceReport([], defaultOptions, 1000, makeQuestionnaireSession({
+      assessmentMode: 'codebase_only',
+      answers: [],
+      principleResults: [],
+    }));
+
+    expect(artifactOnlyReport.metadata.deterministicHash).not.toBe(codebaseOnlyReport.metadata.deterministicHash);
+  });
 });
 
 describe('generateJSONReport', () => {
@@ -236,6 +268,22 @@ describe('generateJSONReport', () => {
     const parsed = JSON.parse(json);
     expect(parsed.id).toBeTruthy();
     expect(parsed.appControls.length).toBe(14);
+    expect(parsed.assessment).toBeUndefined();
+  });
+
+  it('includes assessment metadata for merged questionnaire reports', () => {
+    const report = buildComplianceReport([], defaultOptions, 1000, makeQuestionnaireSession({
+      assessmentMode: 'artifact_only',
+      answers: [],
+      principleResults: [],
+    }));
+    const json = generateJSONReport(report);
+    const parsed = JSON.parse(json);
+
+    expect(parsed.assessment).toEqual(expect.objectContaining({
+      mode: 'artifact_only',
+      incomplete: true,
+    }));
   });
 });
 
@@ -283,6 +331,7 @@ describe('generateMarkdownReport', () => {
     const md = generateMarkdownReport(report, session);
     expect(md).toContain('### Questionnaire Attestation');
     expect(md).toContain('**Assessment Basis:** Artifact-only review');
+    expect(md).toContain('**Assessment Incomplete:**');
     expect(md).toContain('Policy is public.');
     expect(md).toContain('#### Evidence Notes');
     expect(md).toContain('docs/privacy-policy.md');
@@ -333,6 +382,7 @@ describe('generateMarkdownReport', () => {
     expect(md).toContain('F-APP11-001');
     expect(md).toContain('#### Questionnaire Principle Outcomes');
     expect(md).toContain('#### Evidence-Limited Unknowns');
+    expect(md).toContain('#### Assessment Incomplete');
     expect(md).toContain('Codebase-only review');
   });
 

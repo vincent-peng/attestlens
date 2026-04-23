@@ -1,6 +1,6 @@
 # AttestLens — Status
 
-**Last Updated:** 2026-04-23  
+**Last Updated:** 2026-04-24  
 **Purpose:** Near-term source of truth for product status, current milestone, and next actions.
 
 ---
@@ -35,10 +35,11 @@ In practice, that means:
 - APP/NDB mapping engine
 - CLI commands: `scan`, `audit`, `report`
 - CLI attestation workflow: `attest <target>`, `attest --from-scan`, `attest --resume`
+- Interactive questionnaire flow engine with saved sessions, resume support, and frozen per-session question sets
 - MCP server with path scan, URL scan, audit, and mapping tools
 - HTML, JSON, Markdown, and PDF reporting
 - Strict mode (`UNKNOWN -> FAIL`)
-- Questionnaire session model, JSON persistence, resume flow, and merged report support
+- Questionnaire session model, JSON persistence, resume flow, merged report support, and assessment-basis tracking
 - Supply-chain scanner with Axios-style attack coverage
 - Validation corpus runner with 9 public targets and Markdown summaries
 - Attestation validation workflow with scenario manifest, runbook, review template, prep helper, and first validation-cycle log
@@ -49,16 +50,21 @@ In practice, that means:
   - deterministic JS byte budgeting
   - corrected source-map probing
   - duplicate Cache-Control to APP_12 path removed
+- Assessment-basis correctness follow-up:
+  - explicit `artifact_only`, `codebase_only`, and `operator_attested` attestation modes
+  - known pre-remediation `1.2` sessions upgrade onto `1.3` using their stored questionnaire bank
+  - APP 5 direct-notice branch now has a principle-local gate
+  - evidence-limited merged reports now carry `assessment` metadata and cap incomplete outcomes
+  - validation helper commands now freeze scenario-recommended assessment modes
 
 ### In Progress
 
 - Design-partner validation and consultant/MSP outreach
-- Phase 2 follow-on work: breach-readiness scoring, consultant-facing report narratives, and the small remaining validation follow-ups
+- Phase 2 follow-on work: breach-readiness scoring, consultant-facing report narratives, and the remaining validation/rule cleanup
 - Validation-driven rule cleanup for remaining live-site false positives and CDN/bot-blocked targets
 
 ### Not Shipped
 
-- interactive questionnaire flow engine
 - breach-readiness scoring
 - rule update pipeline
 - web dashboard / billing / SaaS operations
@@ -91,6 +97,12 @@ In practice, that means:
   - APP 3 / APP 5 direct-collection gate for reviewed-surface applicability
   - governance-heavy controls stay `UNKNOWN` in artifact-only and codebase-only runs
   - report sections now distinguish scanner-derived APP 11 evidence from questionnaire assumptions
+- correctness follow-up landed:
+  - explicit assessment-basis selection is required when resuming pre-`1.3` sessions
+  - known `m2-coverage-v1` frozen sessions migrate forward instead of failing closed
+  - APP 5 direct notice is reachable in `APP_5`-only runs
+  - incomplete merged questionnaire reports no longer emit `A / low-risk`
+  - `attest --assessment-mode` and validation-helper recommended modes are wired through
 - rule-level fix prompts exist across URL/header/key/JS findings
 - mapping engine includes URL-scan categories
 - validation corpus and findings log exist
@@ -98,12 +110,14 @@ In practice, that means:
 - attestation validation runbook, scenarios, local prep helper, and patch queue exist
 - stack-specific repo checks exist
 - sanitized sample Juice Shop report exists
+- M2 pickup note exists in `docs/milestones/M2-CURRENT-HANDOFF.md`
 
 ### Immediate M2 Work
 
 1. Add breach-readiness scoring on top of the remediated merged scan + questionnaire baseline.
 2. Add consultant-facing narrative sections once the scoring layer is in place.
-3. Close the small remaining follow-up queue from `docs/validation/ATTESTATION-LOG.md` (`APP_2` artifact-only wording and `AL-INFRA-006` validation noise).
+3. Close the small remaining follow-up queue from `docs/validation/ATTESTATION-LOG.md` (`AL-INFRA-006` validation noise).
+4. Restore a fully green `npm test` by fixing the GuardVibe static-fallback regressions tracked in `docs/milestones/M2-CURRENT-HANDOFF.md`.
 
 ---
 
@@ -157,7 +171,8 @@ These are the default operating rules for the project.
 1. Start design-partner outreach with the v0.2.0 sample report.
 2. Add breach-readiness scoring on top of the merged scan + questionnaire baseline.
 3. Add consultant-facing narrative sections now that the remediation patch has stabilized the merged report shape.
-4. Triage the remaining validation noise (`AL-KEY-011`, `AL-INFRA-006`, duplicate API-key semantics).
+4. Fix the GuardVibe static-fallback regression so the full test suite is green again.
+5. Triage the remaining validation noise (`AL-INFRA-006`, duplicate API-key semantics).
 
 ### Explicitly Not Now
 

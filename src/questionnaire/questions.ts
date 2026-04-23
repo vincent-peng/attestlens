@@ -1,6 +1,7 @@
 import type { APPPrinciple, Question } from '../schema/index.js';
 
 export const QUESTIONNAIRE_VERSION = 'm2-remediation-v1';
+export const PRE_REMEDIATION_QUESTIONNAIRE_VERSION = 'm2-coverage-v1';
 export const LEGACY_QUESTIONNAIRE_VERSION = 'legacy-1.0';
 
 export const LEGACY_QUESTION_BANK_V1: Question[] = [
@@ -302,11 +303,28 @@ export const QUESTION_BANK: Question[] = [
     role: 'control',
     passOn: 'yes',
     blocking: true,
+    assessmentModes: ['operator_attested'],
     dependsOn: {
       questionId: 'Q-APP2-001',
       answers: [false, 'no'],
     },
     helpText: 'This captures the minimum governance evidence for APP 2 exceptions when real-world identity is necessary.',
+  },
+  {
+    id: 'Q-APP2-003',
+    appPrinciple: 'APP_2',
+    question: 'When identified interaction appears to be required, does the reviewed evidence clearly establish why anonymous or pseudonymous interaction is not lawful or practicable?',
+    type: 'yes_no_na',
+    required: true,
+    role: 'control',
+    passOn: 'yes',
+    blocking: true,
+    assessmentModes: ['artifact_only', 'codebase_only'],
+    dependsOn: {
+      questionId: 'Q-APP2-001',
+      answers: [false, 'no'],
+    },
+    helpText: 'Use "Not applicable" when the reviewed artifacts do not clearly establish the exception basis. That keeps APP 2 unresolved instead of guessed.',
   },
   {
     id: 'Q-APP3-000',
@@ -317,7 +335,7 @@ export const QUESTION_BANK: Question[] = [
     role: 'applicability_gate',
     passOn: 'yes',
     blocking: true,
-    helpText: 'Use this to scope direct-collection controls to the reviewed surface. If direct personal-information collection is not established here, APP 3 and the direct APP 5 branch should not hard-fail for this run.',
+    helpText: 'Use this to scope direct-collection controls to the reviewed surface. If direct personal-information collection is not established here, APP 3 should not hard-fail for this run.',
   },
   {
     id: 'Q-APP3-001',
@@ -421,6 +439,17 @@ export const QUESTION_BANK: Question[] = [
     helpText: 'APP 4.3 requires destruction or de-identification where unsolicited information could not lawfully have been collected and is not contained in a Commonwealth record.',
   },
   {
+    id: 'Q-APP5-000',
+    appPrinciple: 'APP_5',
+    question: 'Does the reviewed surface or workflow clearly collect personal information directly from individuals?',
+    type: 'yes_no',
+    required: true,
+    role: 'applicability_gate',
+    passOn: 'yes',
+    blocking: true,
+    helpText: 'Use this to scope the direct-notice branch of APP 5 to the reviewed surface.',
+  },
+  {
     id: 'Q-APP5-001',
     appPrinciple: 'APP_5',
     question: 'When collecting personal information directly, do you notify individuals of your identity, contact details, collection purpose, legal authority, consequences of non-provision, and any overseas disclosure?',
@@ -430,7 +459,7 @@ export const QUESTION_BANK: Question[] = [
     passOn: 'yes',
     blocking: true,
     dependsOn: {
-      questionId: 'Q-APP3-000',
+      questionId: 'Q-APP5-000',
       answers: [true, 'yes'],
     },
     helpText: 'APP 5.1 requires notice at or before collection when information is collected directly from the individual.',
@@ -800,3 +829,27 @@ export function getQuestionsForUnknownControls(
 ): Question[] {
   return getQuestionsForPrinciples(unknownPrinciples, questions);
 }
+
+function stripAssessmentModes(question: Question): Question {
+  const legacyShape = { ...question };
+  delete legacyShape.assessmentModes;
+  return legacyShape;
+}
+
+export const PRE_REMEDIATION_QUESTION_BANK_V2: Question[] = QUESTION_BANK
+  .filter((question) => question.id !== 'Q-APP3-000' && question.id !== 'Q-APP5-000' && question.id !== 'Q-APP2-003')
+  .map((question) => {
+    const normalized = stripAssessmentModes(question);
+
+    if (normalized.id === 'Q-APP5-001') {
+      delete normalized.dependsOn;
+      return normalized;
+    }
+
+    if (normalized.appPrinciple === 'APP_3' && /^Q-APP3-00[1-4]$/.test(normalized.id)) {
+      delete normalized.dependsOn;
+      return normalized;
+    }
+
+    return normalized;
+  });

@@ -3,6 +3,7 @@ scenarios:
     type: public
     label: Example Baseline
     corpusTargetId: example
+    recommendedAssessmentMode: artifact_only
     reviewGoal: Validate low-risk questionnaire wording and evidence-note usability on a mostly clean marketing site.
     focusPrinciples:
       - APP_1
@@ -21,6 +22,7 @@ scenarios:
     type: public
     label: Vercel Marketing
     corpusTargetId: vercel
+    recommendedAssessmentMode: artifact_only
     reviewGoal: Validate question ordering and report usefulness against a modern SaaS marketing surface with moderate scanner findings.
     focusPrinciples:
       - APP_1
@@ -39,6 +41,7 @@ scenarios:
     type: public
     label: Juice Shop Demo
     corpusTargetId: juice-shop
+    recommendedAssessmentMode: artifact_only
     reviewGoal: Validate that obvious technical failures remain dominant and that the questionnaire does not create misleading pass signals.
     focusPrinciples:
       - APP_3
@@ -55,6 +58,7 @@ scenarios:
   - id: private-consultant-dry-run
     type: private_template
     label: Private Consultant Dry Run
+    recommendedAssessmentMode: codebase_only
     reviewGoal: Validate the questionnaire against a real non-public repo or app using actual engagement knowledge while keeping committed output sanitized.
     focusPrinciples:
       - APP_1

@@ -27,11 +27,17 @@ Fixed in the remediation patch:
 - P2 APP 11 report clarity gap between scanner-derived evidence and questionnaire-backed assumptions
 - P2 repo-only dry-run context handling for codebase-only validation
 
+Fixed in the 2026-04-24 correctness follow-up:
+
+- P1 known pre-remediation `1.2` attestation sessions now upgrade onto `1.3` using their stored questionnaire bank instead of failing closed
+- P1 evidence-limited merged reports no longer present `A / low-risk` summaries while controls remain unresolved
+- P1 APP 5 direct-notice branch is reachable in `APP_5`-only sessions
+- P2 validation commands now freeze the scenario-recommended assessment basis via `--assessment-mode`
+
 ## Remaining Follow-up Queue
 
 | Severity | Type | Affected Scenarios | Symptom | Recommended Fix Type |
 |---|---|---|---|---|
-| P2 | false fail / applicability bug | juice-shop-demo | APP 2 still invites speculative outcomes on a public demo surface where interaction is obvious but lawful/practicable anonymity cannot be established from artifacts alone. | reword |
 | P3 | scanner-noise issue | vercel-marketing | `AL-INFRA-006` WordPress admin detection still reads as validation noise in the saved Vercel artifact. | rule cleanup |
 
-No P1 false-pass outcome was observed in either the first validation cycle or the post-remediation replay.
+No P1 false-pass outcome was observed in the first validation cycle, the post-remediation replay, or the 2026-04-24 correctness follow-up.

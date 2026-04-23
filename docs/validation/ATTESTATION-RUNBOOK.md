@@ -20,6 +20,7 @@ Rules:
 
 - Prepare the run with `npm run validate:attest -- <scenario-id>`
 - The helper resolves the latest saved corpus JSON under `attestlens-reports/validation/...`
+- The generated command freezes the scenario's recommended assessment basis with `--assessment-mode`
 - Public scenarios do not accept `--from-scan`, `--target`, or `--name`
 - Complete the questionnaire with `attest --from-scan`
 - Use only:
@@ -40,6 +41,7 @@ Rules:
   - or `--from-scan <json> --name <sanitized-label>`
 - `--name` must be a sanitized alias such as `Internal SaaS #1`, not a customer-identifying name
 - Private runs require exactly one of `--target` or `--from-scan`
+- The generated command includes the scenario's recommended assessment basis; override it only when the engagement context really differs
 - Raw artifacts stay local under `attestlens-reports/attest-validation/...`
 - Shared generated files stay sanitized; exact commands and raw target details live only in `.operator-context.json`
 - Only sanitized summaries go into `ATTESTATION-LOG.md`

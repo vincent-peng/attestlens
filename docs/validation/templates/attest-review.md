@@ -7,6 +7,7 @@
 - Focus principles: {{FOCUS_PRINCIPLES}}
 - Expected outcome pattern: {{EXPECTED_OUTCOME_PATTERN}}
 - Scan source: {{SCAN_SOURCE}}
+- Recommended assessment mode: {{RECOMMENDED_ASSESSMENT_MODE}}
 - Sanitized target label: {{SANITIZED_LABEL}}
 - Operator context file: {{OPERATOR_CONTEXT_FILE}}
 

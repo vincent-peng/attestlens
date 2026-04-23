@@ -179,6 +179,34 @@ describe('CLI attest command', () => {
     }
   });
 
+  it('honours an explicit assessment mode when starting a new session', async () => {
+    const projectDir = await fs.mkdtemp(path.join(os.tmpdir(), 'attestlens-attest-project-'));
+    const outputDir = await fs.mkdtemp(path.join(os.tmpdir(), 'attestlens-attest-output-'));
+
+    try {
+      await fs.writeFile(path.join(projectDir, 'README.md'), '# Example project\n');
+
+      const result = await executeAttestCommand(projectDir, {
+        output: outputDir,
+        format: 'json',
+        strict: false,
+        assessmentMode: 'artifact_only',
+      }, makePromptRunner({ assessmentMode: 'operator_attested', saveAfter: 0 }));
+
+      expect(result.status).toBe('saved');
+
+      const session = await loadQuestionnaireSession(result.sessionPath);
+      expect(session.version).toBe('1.3');
+      if (session.version !== '1.3') {
+        throw new Error('Expected a frozen 1.3 questionnaire session');
+      }
+      expect(session.assessmentMode).toBe('artifact_only');
+    } finally {
+      await fs.rm(projectDir, { recursive: true, force: true });
+      await fs.rm(outputDir, { recursive: true, force: true });
+    }
+  });
+
   it('starts from a saved URL scan, resumes, and writes merged report artifacts', async () => {
     const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'attestlens-attest-session-'));
     const scanFile = path.join(tempDir, 'scan.json');
@@ -313,6 +341,75 @@ describe('CLI attest command', () => {
     }
   });
 
+  it('honours an explicit assessment mode when upgrading a pre-1.3 session', async () => {
+    const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'attestlens-attest-legacy-'));
+    const sessionDir = path.join(tempDir, 'attest', 'legacy-app', 'session-legacy');
+    const sessionPath = path.join(sessionDir, 'session.json');
+    const snapshotPath = path.join(sessionDir, 'scan-results.json');
+
+    try {
+      await fs.mkdir(sessionDir, { recursive: true });
+      await fs.writeFile(snapshotPath, JSON.stringify({
+        targetType: 'path',
+        targetPath: '/tmp/legacy-app',
+        target: {
+          name: 'Legacy App',
+          path: '/tmp/legacy-app',
+        },
+        findings: [],
+        results: [],
+        errors: [],
+        totalDurationMs: 10,
+      }, null, 2));
+
+      await fs.writeFile(sessionPath, JSON.stringify({
+        id: 'session-legacy',
+        version: '1.0',
+        status: 'in_progress',
+        target: {
+          kind: 'path',
+          name: 'Legacy App',
+          path: '/tmp/legacy-app',
+        },
+        startedAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        strictMode: false,
+        scanSnapshotPath: snapshotPath,
+        findingsHash: buildFindingsHash([]),
+        answers: [],
+        principleResults: [
+          {
+            principle: 'APP_5',
+            status: 'unknown',
+            confidence: 0,
+            rationale: 'Awaiting required questionnaire answers: Q-APP5-001',
+            answeredQuestionIds: [],
+          },
+        ],
+        currentQuestionId: 'Q-APP5-001',
+      }, null, 2));
+
+      const saved = await executeAttestCommand(undefined, {
+        resume: sessionPath,
+        output: tempDir,
+        format: 'json',
+        strict: false,
+        assessmentMode: 'codebase_only',
+      }, makePromptRunner({ assessmentMode: 'operator_attested', saveAfter: 0 }));
+
+      expect(saved.status).toBe('saved');
+
+      const upgraded = await loadQuestionnaireSession(sessionPath);
+      expect(upgraded.version).toBe('1.3');
+      if (upgraded.version !== '1.3') {
+        throw new Error('Expected upgraded 1.3 session');
+      }
+      expect(upgraded.assessmentMode).toBe('codebase_only');
+    } finally {
+      await fs.rm(tempDir, { recursive: true, force: true });
+    }
+  });
+
   it('fails closed when a transitional 1.1 session has a tampered frozen question set', async () => {
     const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'attestlens-attest-tampered-'));
     const sessionDir = path.join(tempDir, 'attest', 'example-app', 'session-tampered');
@@ -421,6 +518,32 @@ describe('CLI attest command', () => {
       expect(after).toBe(before);
     } finally {
       await fs.rm(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it('rejects --assessment-mode when resuming a current session with a mismatched frozen basis', async () => {
+    const projectDir = await fs.mkdtemp(path.join(os.tmpdir(), 'attestlens-attest-project-'));
+    const outputDir = await fs.mkdtemp(path.join(os.tmpdir(), 'attestlens-attest-output-'));
+
+    try {
+      await fs.writeFile(path.join(projectDir, 'README.md'), '# Example project\n');
+
+      const initial = await executeAttestCommand(projectDir, {
+        output: outputDir,
+        format: 'json',
+        strict: false,
+      }, makePromptRunner({ saveAfter: 0, assessmentMode: 'operator_attested' }));
+
+      await expect(executeAttestCommand(undefined, {
+        resume: initial.sessionPath,
+        output: outputDir,
+        format: 'json',
+        strict: false,
+        assessmentMode: 'artifact_only',
+      }, makePromptRunner({ saveAfter: 0 }))).rejects.toThrow(/already frozen for this session/i);
+    } finally {
+      await fs.rm(projectDir, { recursive: true, force: true });
+      await fs.rm(outputDir, { recursive: true, force: true });
     }
   });
 });

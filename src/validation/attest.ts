@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url';
 
 import YAML from 'yaml';
 
+import type { AssessmentMode } from '../schema/index.js';
 import { sanitizeValidationTargetId } from './corpus.js';
 
 export interface AttestValidationScenario {
@@ -15,6 +16,7 @@ export interface AttestValidationScenario {
   focusPrinciples: string[];
   operatorAssumptions: string[];
   expectedOutcomePattern: string;
+  recommendedAssessmentMode?: AssessmentMode;
 }
 
 export interface AttestValidationManifest {
@@ -46,6 +48,7 @@ export interface PreparedAttestValidation {
   sourceScanPath?: string;
   target?: string;
   sanitizedLabel?: string;
+  recommendedAssessmentMode?: AssessmentMode;
   installedCommand: string;
   repoLocalCommand: string;
 }
@@ -75,6 +78,10 @@ export async function loadAttestValidationManifest(
 
     if (scenario.type === 'public' && !scenario.corpusTargetId) {
       throw new Error(`Public attestation validation scenario requires corpusTargetId: ${scenario.id}`);
+    }
+
+    if (scenario.recommendedAssessmentMode && !isAssessmentMode(scenario.recommendedAssessmentMode)) {
+      throw new Error(`Attestation validation scenario has an invalid recommendedAssessmentMode: ${scenario.id}`);
     }
   }
 
@@ -142,6 +149,10 @@ export function getDefaultRunId(date = new Date()): string {
   return `${values.hour}${values.minute}${values.second}`;
 }
 
+function isAssessmentMode(value: unknown): value is AssessmentMode {
+  return value === 'artifact_only' || value === 'codebase_only' || value === 'operator_attested';
+}
+
 function shellEscape(value: string): string {
   return `'${value.replace(/'/g, `'\\''`)}'`;
 }
@@ -190,6 +201,7 @@ async function renderReviewTemplate(
     scanSource: PreparedAttestValidation['scanSource'];
     sanitizedLabel?: string;
     operatorContextFile?: string;
+    recommendedAssessmentMode?: AssessmentMode;
   },
 ): Promise<string> {
   const template = await fs.readFile(templatePath, 'utf-8');
@@ -205,7 +217,8 @@ async function renderReviewTemplate(
     .replaceAll('{{OPERATOR_ASSUMPTIONS}}', renderBulletList(params.scenario.operatorAssumptions))
     .replaceAll('{{SCAN_SOURCE}}', params.scanSource)
     .replaceAll('{{SANITIZED_LABEL}}', params.sanitizedLabel || 'N/A')
-    .replaceAll('{{OPERATOR_CONTEXT_FILE}}', params.operatorContextFile || 'N/A');
+    .replaceAll('{{OPERATOR_CONTEXT_FILE}}', params.operatorContextFile || 'N/A')
+    .replaceAll('{{RECOMMENDED_ASSESSMENT_MODE}}', params.recommendedAssessmentMode || 'N/A');
 }
 
 function buildInstalledCommand(args: string[]): string {
@@ -285,6 +298,10 @@ export async function prepareAttestValidation(
     }
   }
 
+  if (scenario.recommendedAssessmentMode) {
+    attestArgs.push('--assessment-mode', scenario.recommendedAssessmentMode);
+  }
+
   const { runId, runDir } = await createRunDir(path.resolve(options.outputRoot), runDate, scenario.id);
   attestArgs.push('-o', runDir);
 
@@ -302,6 +319,7 @@ export async function prepareAttestValidation(
     scanSource,
     sanitizedLabel,
     operatorContextFile: localContextPath ? path.basename(localContextPath) : undefined,
+    recommendedAssessmentMode: scenario.recommendedAssessmentMode,
   });
 
   await fs.writeFile(reviewPath, reviewContent, 'utf-8');
@@ -309,11 +327,12 @@ export async function prepareAttestValidation(
     await fs.writeFile(metaPath, JSON.stringify({
       scenarioId: scenario.id,
       scenarioLabel: scenario.label,
-      lane: scenario.type,
-      runDate,
-      scanSource,
-      sanitizedLabel,
-    }, null, 2), 'utf-8');
+        lane: scenario.type,
+        runDate,
+        scanSource,
+        sanitizedLabel,
+        recommendedAssessmentMode: scenario.recommendedAssessmentMode,
+      }, null, 2), 'utf-8');
     await fs.writeFile(
       localContextPath!,
       JSON.stringify({
@@ -323,6 +342,7 @@ export async function prepareAttestValidation(
         runDir,
         scanSource,
         sanitizedLabel,
+        recommendedAssessmentMode: scenario.recommendedAssessmentMode,
         sourceScanPath,
         target,
         installedCommand,
@@ -339,6 +359,7 @@ export async function prepareAttestValidation(
         '',
         `Sanitized label: ${sanitizedLabel}`,
         `Scan source: ${scanSource}`,
+        `Recommended assessment mode: ${scenario.recommendedAssessmentMode || 'N/A'}`,
         `Operator context file: ${path.basename(localContextPath!)}`,
         '',
       ].join('\n'),
@@ -349,11 +370,12 @@ export async function prepareAttestValidation(
       scenario,
       runDate,
       runId,
-      runDir,
-      scanSource,
-      sourceScanPath,
-      installedCommand,
-      repoLocalCommand,
+        runDir,
+        scanSource,
+        sourceScanPath,
+        recommendedAssessmentMode: scenario.recommendedAssessmentMode,
+        installedCommand,
+        repoLocalCommand,
     }, null, 2), 'utf-8');
     await fs.writeFile(
       commandPath,
@@ -382,6 +404,7 @@ export async function prepareAttestValidation(
     sourceScanPath,
     target,
     sanitizedLabel,
+    recommendedAssessmentMode: scenario.recommendedAssessmentMode,
     installedCommand,
     repoLocalCommand,
   };

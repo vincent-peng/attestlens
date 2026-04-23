@@ -102,11 +102,11 @@ export function evaluateResponse(
 
       if (normalized === 'na') {
         return withEvidenceConfidenceBoost({
-          status: isConditionallyApplicableQuestion(question) ? 'pass' : 'unknown',
-          confidence: isConditionallyApplicableQuestion(question) ? 0.7 : 0.35,
-          rationale: isConditionallyApplicableQuestion(question)
+          status: role === 'applicability_gate' ? 'pass' : 'unknown',
+          confidence: role === 'applicability_gate' ? 0.7 : 0.35,
+          rationale: role === 'applicability_gate'
             ? `Marked not applicable for: "${question.question}"`
-            : `Not-applicable response requires manual confirmation for: "${question.question}"`,
+            : `Insufficient evidence to resolve: "${question.question}"`,
         }, answer);
       }
 

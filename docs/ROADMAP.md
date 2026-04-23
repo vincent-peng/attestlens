@@ -1,6 +1,6 @@
 # AttestLens — Master Development Roadmap
 
-**Last Updated:** 2026-04-19
+**Last Updated:** 2026-04-24
 **Status:** Living document — update as we ship
 
 ---
@@ -14,20 +14,26 @@
 - ✅ URL scanner with headers, JS, infra, cookies, and source-map checks
 - ✅ Scanner orchestrator (parallel, dedup, disable flags)
 - ✅ CLI: `scan`, `audit`, `report` commands
+- ✅ CLI attestation workflow: `attest <target>`, `attest --from-scan`, `attest --resume`
+- ✅ Interactive APP/NDB questionnaire flow with branching, frozen per-session question sets, and resume support
+- ✅ Assessment-basis modes: `artifact_only`, `codebase_only`, `operator_attested`
+- ✅ Merged report output that combines scanner evidence with questionnaire outcomes
+- ✅ Assessment metadata in merged reports, including incomplete-assessment handling for evidence-limited runs
 - ✅ MCP server: path scan, URL scan, audit, and mapping tools
 - ✅ Report generator: HTML, JSON, Markdown, PDF
 - ✅ AI-ready `fixPrompt` support in schema and scanner rules
 - ✅ Validation corpus runner + findings log
+- ✅ Attestation validation workflow with scenario manifest, prep helper, runbook, and sanitized review log
 - ✅ Stack-specific repo checks for Supabase, Firebase, Stripe, Clerk/Auth0, and platform secrets
-- ✅ 125 tests passing
 - ✅ Security hardening including SSRF protection for URL scanning
 
 **What's NOT built yet:**
-- ❌ Interactive compliance questionnaire
+- ❌ Breach-readiness scoring
+- ❌ Consultant-facing narrative report sections
 - ❌ Rule update pipeline
 - ❌ Web dashboard
 
-**Current focus:** Move into questionnaire-driven differentiation while cleaning up the remaining live-site fetch variability and heuristic noise discovered during validation.
+**Current focus:** Close M2 with breach-readiness scoring and consultant-grade narratives on top of the now-stable attestation/report baseline, while cleaning up the remaining validation noise and restoring a fully green test suite.
 
 ---
 
@@ -69,57 +75,45 @@ Phase 4   — Launch & Growth
 
 ---
 
-## Phase 2 — Compliance Differentiation (Weeks 3-6)
+## Phase 2 — Compliance Differentiation
 
-**Goal:** Build the moat — features no competitor has.
+**Goal:** Build the moat — questionnaire-backed APP/NDB assessment and consultant-grade outputs that generic scanners do not offer.
 
-### Week 3-4: Interactive Compliance Questionnaire
+### Shipped Foundation
 
-| Day | Task | Details |
-|-----|------|---------|
-| D1-2 | **Question bank** | 50-70 questions mapped to APP sub-obligations |
-| | | - APP 1-13: 3-5 questions each |
-| | | - NDB s26WE: 5 questions |
-| | | - Add APP 2, 4, 7, 9, 12 (currently zero questions) |
-| | | - Question types: yes/no, yes/no/evidence, multi-choice, checklist, scale |
-| D3-4 | **Flow engine** | `src/questionnaire/flow.ts` |
-| | | - Branching logic (skip APP 8 follow-ups if no overseas disclosure) |
-| | | - Confidence scoring per answer |
-| | | - Pre-populate from scan findings where possible |
-| D5 | **Session management** | `src/questionnaire/session.ts` |
-| | | - Save/resume (JSON file) |
-| | | - Progress tracking |
-| D6-7 | **Evaluator** | `src/questionnaire/evaluator.ts` |
-| | | - Answer → PASS/FAIL/UNKNOWN with confidence |
-| | | - Merge questionnaire results with scan findings |
-| | | - UNKNOWN controls → PASS/FAIL after questionnaire |
-| D8 | **CLI command** | `attestlens attest ./my-project` |
-| | | - Interactive prompts with `inquirer` |
-| | | - Auto-launch after scan (`--attest` flag) |
-| D9-10 | **Tests** | Full test suite for questionnaire module |
+- APP/NDB questionnaire coverage across all principles, including branching/applicability logic
+- Attestation session persistence with frozen question sets, resume support, and scan-snapshot integrity checks
+- Assessment-basis modes:
+  - `artifact_only` for saved/public artifact review
+  - `codebase_only` for local repo review without live-process attestations
+  - `operator_attested` for real governance/process attestations
+- Merged scan + questionnaire reporting in HTML, JSON, Markdown, and PDF
+- Attestation validation workflow:
+  - scenario manifest
+  - prep helper
+  - local review template
+  - sanitized validation log
+- Validation-driven remediation:
+  - reviewed-surface collection gates for APP 3 / APP 5
+  - governance-heavy principles remain `UNKNOWN` in evidence-limited modes instead of false-failing
+  - APP 11 scanner evidence is separated from questionnaire-backed assumptions
+  - incomplete evidence-limited merged reports no longer surface as `A / low-risk`
 
-### Week 5-6: Breach Readiness Score + Enhanced Reports
+### Remaining Phase 2 Work
 
-| Day | Task | Details |
-|-----|------|---------|
-| D1-3 | **NDB Breach Readiness Score** | Aggregate findings + questionnaire → single score |
-| | | - Weighted by APP/NDB relevance |
-| | | - Grade: A-F with breakdown by APP principle |
-| | | - "If you had a data breach tomorrow, how ready are you?" |
-| D4-5 | **Enhanced PDF Reports** | Consultant-grade deliverables |
-| | | - White-label support (consultant branding) |
-| | | - Cover page with org name + date |
-| | | - Executive summary (1-page) |
-| | | - Detailed findings with APP references |
-| | | - Compliance scorecard by APP principle |
-| | | - Remediation roadmap (prioritized) |
-| D6-7 | **Breach readiness visualization** | Dashboard-style scorecard in HTML/PDF |
-| D8 | **AI report narrative** | LLM-written executive summaries |
-| | | - Provider/model config (OpenAI, Anthropic, local) |
-| | | - Fallback to template if no API key |
-| D9-10 | **Integration testing** | End-to-end: scan → attest → report → PDF |
+1. **Breach-readiness scoring**
+   - aggregate scanner findings + questionnaire state into a single readiness score
+   - reflect incomplete evidence basis without overstating confidence
+   - render the score consistently in JSON/HTML/Markdown/PDF
+2. **Consultant-facing report narratives**
+   - executive-summary narrative
+   - principle-level consultant framing
+   - clearer remediation prioritization for external delivery
+3. **Remaining cleanup**
+   - `AL-INFRA-006` validation noise in saved public artifacts
+   - restore full green `npm test` by fixing the GuardVibe static-fallback regression
 
-**Exit criteria:** Full compliance assessment workflow, 50-70 questions, breach readiness score, white-label PDF.
+**Exit criteria:** breach-readiness scoring shipped, consultant-facing narrative sections shipped, validation follow-up queue reduced to routine rule tuning, and the attestation/report baseline remains stable under rerun.
 
 ---
 

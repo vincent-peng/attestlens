@@ -12,6 +12,7 @@ import type {
   AttestLensFinding,
   APPControl,
   APPPrinciple,
+  ReportAssessment,
   ComplianceReport,
   AssessmentMode,
   RemediationItem,
@@ -69,10 +70,12 @@ export function buildComplianceReport(
     }
   }
 
+  const assessment = buildReportAssessment(questionnaireSession, appControls);
+
   // Step 3: Calculate overall score and grade
-  const overallScore = calculateOverallScore(appControls);
+  const overallScore = applyIncompleteAssessmentScoreCap(calculateOverallScore(appControls), assessment);
   const overallGrade = calculateGrade(overallScore);
-  const riskLevel = calculateRiskLevel(mappedFindings);
+  const riskLevel = applyIncompleteAssessmentRiskFloor(calculateRiskLevel(mappedFindings), assessment);
 
   // Step 4: Generate remediation items
   const remediation = generateRemediation(mappedFindings);
@@ -96,13 +99,11 @@ export function buildComplianceReport(
     findings: mappedFindings,
     questionnaire: questionnaireSession?.answers,
     questionnaireResults: questionnaireSession?.principleResults,
+    assessment,
     remediation,
     metadata: {
       scannerVersions: {},
-      deterministicHash: crypto.createHash('sha256')
-        .update(JSON.stringify(mappedFindings.map(f => f.id).sort()))
-        .digest('hex')
-        .substring(0, 32),
+      deterministicHash: buildDeterministicHash(mappedFindings, assessment),
       scanDurationMs: durationMs,
       configHash: '',
     },
@@ -112,6 +113,26 @@ export function buildComplianceReport(
   };
 
   return report;
+}
+
+function buildDeterministicHash(
+  findings: AttestLensFinding[],
+  assessment?: ReportAssessment,
+): string {
+  return crypto
+    .createHash('sha256')
+    .update(JSON.stringify({
+      findings: findings.map((finding) => finding.id).sort(),
+      assessment: assessment
+        ? {
+          mode: assessment.mode,
+          incomplete: assessment.incomplete,
+          unknownPrinciples: [...assessment.unknownPrinciples],
+        }
+        : null,
+    }))
+    .digest('hex')
+    .substring(0, 32);
 }
 
 function mergeQuestionnaireResults(
@@ -152,6 +173,48 @@ function applyStrictModeToUnknownControls(controls: APPControl[]): void {
     control.score = 0;
     control.questionnaireRequired = false;
   }
+}
+
+function buildReportAssessment(
+  questionnaireSession: QuestionnaireSession | undefined,
+  controls: APPControl[],
+): ReportAssessment | undefined {
+  if (!questionnaireSession) {
+    return undefined;
+  }
+
+  const unknownPrinciples = controls
+    .filter((control) => control.status === 'unknown')
+    .map((control) => control.principle);
+
+  return {
+    mode: questionnaireSession.assessmentMode,
+    summary: getAssessmentModeSummary(questionnaireSession.assessmentMode),
+    incomplete: unknownPrinciples.length > 0,
+    unknownPrinciples,
+  };
+}
+
+function applyIncompleteAssessmentScoreCap(
+  overallScore: number,
+  assessment?: ReportAssessment,
+): number {
+  if (!assessment?.incomplete) {
+    return overallScore;
+  }
+
+  return Math.min(overallScore, 69);
+}
+
+function applyIncompleteAssessmentRiskFloor(
+  riskLevel: ComplianceReport['riskLevel'],
+  assessment?: ReportAssessment,
+): ComplianceReport['riskLevel'] {
+  if (!assessment?.incomplete || riskLevel !== 'low') {
+    return riskLevel;
+  }
+
+  return 'medium';
 }
 
 // ─── Score Calculation ────────────────────────────────────────────────────────
@@ -268,6 +331,7 @@ export function generateHTMLReport(
   const failRed = '#e63946';
   const unknownAmber = '#f4a261';
   const passGreen = '#2a9d8f';
+  const incompleteSummary = getAssessmentIncompleteSummary(report.assessment);
 
   return `<!DOCTYPE html>
 <html lang="en">
@@ -388,6 +452,7 @@ export function generateHTMLReport(
       <div>
         <p><strong>Risk Level:</strong> <span class="risk-badge risk-${report.riskLevel}">${report.riskLevel.toUpperCase()}</span></p>
         <p style="margin-top: 12px;">${getRiskSummary(report)}</p>
+        ${incompleteSummary ? `<p style="margin-top: 12px; color: #a16207;"><strong>Assessment incomplete:</strong> ${escapeHtml(incompleteSummary)}</p>` : ''}
         <div class="stats-grid" style="margin-top: 16px;">
           <div class="stat-card">
             <div class="stat-number" style="color: var(--fail-red);">${report.findings.filter(f => f.severity === 'critical').length}</div>
@@ -569,6 +634,14 @@ function getAssessmentBasisUnknownSummary(
   return `These principles remain UNKNOWN because the ${getAssessmentModeLabel(questionnaireSession.assessmentMode).toLowerCase()} did not include enough live governance/process evidence to safely resolve them: ${unresolvedRows.map((row) => row.principle).join(', ')}.`;
 }
 
+function getAssessmentIncompleteSummary(assessment?: ReportAssessment): string | null {
+  if (!assessment?.incomplete) {
+    return null;
+  }
+
+  return `This assessment remains incomplete because ${getAssessmentModeLabel(assessment.mode).toLowerCase()} left these principles unresolved: ${assessment.unknownPrinciples.join(', ')}. The overall summary is capped until those controls are resolved or explicitly attested.`;
+}
+
 function getScannerDerivedApp11Findings(report: ComplianceReport): AttestLensFinding[] {
   return report.findings.filter((finding) =>
     finding.appMappings.some((mapping) => mapping.principle === 'APP_11'),
@@ -625,11 +698,13 @@ function generateHTMLQuestionnaireSection(
   const assessmentLabel = questionnaireSession ? getAssessmentModeLabel(questionnaireSession.assessmentMode) : null;
   const assessmentSummary = questionnaireSession ? getAssessmentModeSummary(questionnaireSession.assessmentMode) : null;
   const unresolvedSummary = getAssessmentBasisUnknownSummary(unresolvedRows, questionnaireSession);
+  const incompleteSummary = getAssessmentIncompleteSummary(report.assessment);
   const app11Findings = getScannerDerivedApp11Findings(report);
   return `
     <h2>Questionnaire Attestation</h2>
     ${assessmentLabel ? `<p><strong>Assessment basis:</strong> ${escapeHtml(assessmentLabel)}</p>` : ''}
     ${assessmentSummary ? `<p>${escapeHtml(assessmentSummary)}</p>` : ''}
+    ${incompleteSummary ? `<p><strong>Assessment incomplete:</strong> ${escapeHtml(incompleteSummary)}</p>` : ''}
     <p>${report.questionnaire.length} questionnaire response${report.questionnaire.length === 1 ? '' : 's'} captured.</p>
     ${app11Findings.length > 0 ? `
       <h3>Scanner-Derived APP 11 Evidence</h3>
@@ -715,6 +790,9 @@ export function generateMarkdownReport(
   lines.push(`- **Overall Grade:** ${report.overallGrade} (${report.overallScore}/100)`);
   lines.push(`- **Risk Level:** ${report.riskLevel.toUpperCase()}`);
   lines.push(`- **Total Findings:** ${report.findings.length}`);
+  if (report.assessment?.incomplete) {
+    lines.push(`- **Assessment Incomplete:** ${getAssessmentIncompleteSummary(report.assessment)}`);
+  }
   lines.push('');
 
   lines.push(`### APP Control Status`);
@@ -759,11 +837,18 @@ export function generateMarkdownReport(
       lines.push(`| ${row.principle} | ${row.status.toUpperCase()} | ${row.rationale.replace(/\|/g, '\\|')} |`);
     }
     const unresolvedSummary = getAssessmentBasisUnknownSummary(questionnaireRows.filter((row) => row.status === 'unknown'), questionnaireSession);
+    const incompleteSummary = getAssessmentIncompleteSummary(report.assessment);
     if (unresolvedSummary) {
       lines.push('');
       lines.push(`#### Evidence-Limited Unknowns`);
       lines.push('');
       lines.push(unresolvedSummary);
+    }
+    if (incompleteSummary) {
+      lines.push('');
+      lines.push(`#### Assessment Incomplete`);
+      lines.push('');
+      lines.push(incompleteSummary);
     }
     const evidenceRows = getQuestionnaireEvidenceRowsWithLookup(report, questionnaireSession);
     if (evidenceRows.length > 0) {
@@ -913,6 +998,10 @@ function renderPDFExecutiveSummary(
   doc.text(`Risk Level: ${report.riskLevel.toUpperCase()}`);
   doc.moveDown(0.5);
   doc.fontSize(11).fillColor('#334155').text(getRiskSummary(report));
+  if (report.assessment?.incomplete) {
+    doc.moveDown(0.5);
+    doc.fillColor('#a16207').text(getAssessmentIncompleteSummary(report.assessment)!);
+  }
   doc.moveDown();
 
   doc.fontSize(16).fillColor('#1a2332').text('Finding Summary');
@@ -947,6 +1036,7 @@ function renderPDFExecutiveSummary(
     const evidenceRows = getQuestionnaireEvidenceRowsWithLookup(report, questionnaireSession);
     const app11Findings = getScannerDerivedApp11Findings(report);
     const unresolvedSummary = getAssessmentBasisUnknownSummary(unresolvedRows, questionnaireSession);
+    const incompleteSummary = getAssessmentIncompleteSummary(report.assessment);
     doc.moveDown();
     doc.fontSize(16).fillColor('#1a2332').text('Questionnaire Attestation');
     doc.moveDown(0.5);
@@ -984,6 +1074,12 @@ function renderPDFExecutiveSummary(
       doc.moveDown();
       doc.fontSize(12).fillColor('#1a2332').text('Evidence-Limited Unknowns');
       doc.fontSize(10).fillColor('#334155').text(unresolvedSummary);
+    }
+
+    if (incompleteSummary) {
+      doc.moveDown();
+      doc.fontSize(12).fillColor('#1a2332').text('Assessment Incomplete');
+      doc.fontSize(10).fillColor('#334155').text(incompleteSummary);
     }
 
     if (evidenceRows.length > 0) {

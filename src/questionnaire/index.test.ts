@@ -15,8 +15,12 @@ import type {
 import {
   LEGACY_QUESTION_BANK_V1,
   LEGACY_QUESTIONNAIRE_VERSION,
+  PRE_REMEDIATION_QUESTION_BANK_V2,
+  PRE_REMEDIATION_QUESTIONNAIRE_VERSION,
   QUESTION_BANK,
   QUESTIONNAIRE_VERSION,
+  SESSION_INTEGRITY_FAILURE,
+  UPGRADE_ASSESSMENT_MODE_REQUIRED,
   aggregatePrincipleResults,
   buildFindingsHash,
   buildFrozenSessionQuestions,
@@ -156,19 +160,21 @@ describe('question bank coverage and flow', () => {
 
   it('adds APP 5 indirect collection follow-up only when the gate is triggered', () => {
     const directOnly = getApplicableQuestionsForPrinciple('APP_5', [
-      makeResponse('Q-APP3-000', true),
+      makeResponse('Q-APP5-000', true),
       makeResponse('Q-APP5-003', false),
     ]);
     expect(directOnly.map((question) => question.id)).toEqual([
+      'Q-APP5-000',
       'Q-APP5-001',
       'Q-APP5-003',
     ]);
 
     const indirectCollection = getApplicableQuestionsForPrinciple('APP_5', [
-      makeResponse('Q-APP3-000', true),
+      makeResponse('Q-APP5-000', true),
       makeResponse('Q-APP5-003', true),
     ]);
     expect(indirectCollection.map((question) => question.id)).toEqual([
+      'Q-APP5-000',
       'Q-APP5-001',
       'Q-APP5-003',
       'Q-APP5-002',
@@ -207,12 +213,20 @@ describe('question bank coverage and flow', () => {
     ]);
     expect(anonymousFlow.map((question) => question.id)).toEqual(['Q-APP2-001']);
 
-    const identifiedFlow = getApplicableQuestionsForPrinciple('APP_2', [
+    const identifiedOperatorFlow = getApplicableQuestionsForPrinciple('APP_2', [
       makeResponse('Q-APP2-001', false),
     ]);
-    expect(identifiedFlow.map((question) => question.id)).toEqual([
+    expect(identifiedOperatorFlow.map((question) => question.id)).toEqual([
       'Q-APP2-001',
       'Q-APP2-002',
+    ]);
+
+    const identifiedArtifactFlow = getApplicableQuestionsForPrinciple('APP_2', [
+      makeResponse('Q-APP2-001', false),
+    ], QUESTION_BANK, 'artifact_only');
+    expect(identifiedArtifactFlow.map((question) => question.id)).toEqual([
+      'Q-APP2-001',
+      'Q-APP2-003',
     ]);
   });
 });
@@ -352,6 +366,7 @@ describe('questionnaire evaluator', () => {
   it('passes APP 3 and APP 5 direct collection branches when the reviewed surface does not directly collect personal information', () => {
     const result = aggregatePrincipleResults(['APP_3', 'APP_5'], [
       makeResponse('Q-APP3-000', false),
+      makeResponse('Q-APP5-000', false),
       makeResponse('Q-APP5-003', false),
     ])[0];
 
@@ -361,12 +376,24 @@ describe('questionnaire evaluator', () => {
     });
 
     const app5Result = aggregatePrincipleResults(['APP_5'], [
-      makeResponse('Q-APP3-000', false),
+      makeResponse('Q-APP5-000', false),
       makeResponse('Q-APP5-003', false),
     ])[0];
     expect(app5Result).toMatchObject({
       principle: 'APP_5',
       status: 'pass',
+    });
+  });
+
+  it('keeps APP 2 unknown in artifact-only mode when the exception basis is not established', () => {
+    const result = aggregatePrincipleResults(['APP_2'], [
+      makeResponse('Q-APP2-001', false),
+      makeResponse('Q-APP2-003', 'na'),
+    ], QUESTION_BANK, 'artifact_only')[0];
+
+    expect(result).toMatchObject({
+      principle: 'APP_2',
+      status: 'unknown',
     });
   });
 
@@ -560,19 +587,49 @@ describe('questionnaire session persistence', () => {
     })).toThrow(/integrity check failed/i);
   });
 
-  it('upgrades canonical 1.2 sessions to 1.3 with operator-attested compatibility mode', () => {
-    const principles = ['APP_1'] as const;
-    const sessionQuestions = buildFrozenSessionQuestions([...principles]);
+  it('requires an explicit assessment basis before upgrading pre-1.3 sessions', () => {
+    const principles = ['APP_6'] as const;
+    const sessionQuestions = buildFrozenSessionQuestions([...principles], PRE_REMEDIATION_QUESTION_BANK_V2);
     const findingsHash = buildFindingsHash([]);
     const frozenSession = {
       ...makeCurrentSession({
         principles: [...principles],
         findingsHash,
+        questionnaireVersion: PRE_REMEDIATION_QUESTIONNAIRE_VERSION,
         sessionQuestions,
       }),
       version: '1.2' as const,
       questionSetHash: buildQuestionSetHash({
-        questionnaireVersion: QUESTIONNAIRE_VERSION,
+        questionnaireVersion: PRE_REMEDIATION_QUESTIONNAIRE_VERSION,
+        findingsHash,
+        principles: [...principles],
+        sessionQuestions,
+      }),
+    };
+    delete (frozenSession as unknown as Record<string, unknown>).assessmentMode;
+
+    expect(() => prepareQuestionnaireSessionForResume({
+      session: frozenSession,
+      findings: [],
+      expectedPrinciples: [...principles],
+      expectedQuestions: buildFrozenSessionQuestions([...principles]),
+    })).toThrow(UPGRADE_ASSESSMENT_MODE_REQUIRED);
+  });
+
+  it('upgrades known pre-remediation 1.2 sessions to 1.3 with an explicit assessment basis', () => {
+    const principles = ['APP_6'] as const;
+    const sessionQuestions = buildFrozenSessionQuestions([...principles], PRE_REMEDIATION_QUESTION_BANK_V2);
+    const findingsHash = buildFindingsHash([]);
+    const frozenSession = {
+      ...makeCurrentSession({
+        principles: [...principles],
+        findingsHash,
+        questionnaireVersion: PRE_REMEDIATION_QUESTIONNAIRE_VERSION,
+        sessionQuestions,
+      }),
+      version: '1.2' as const,
+      questionSetHash: buildQuestionSetHash({
+        questionnaireVersion: PRE_REMEDIATION_QUESTIONNAIRE_VERSION,
         findingsHash,
         principles: [...principles],
         sessionQuestions,
@@ -584,13 +641,46 @@ describe('questionnaire session persistence', () => {
       session: frozenSession,
       findings: [],
       expectedPrinciples: [...principles],
-      expectedQuestions: sessionQuestions,
+      expectedQuestions: buildFrozenSessionQuestions([...principles]),
+      upgradeAssessmentMode: 'artifact_only',
     });
 
     expect(prepared.didUpgrade).toBe(true);
     expect(prepared.session.version).toBe('1.3');
-    expect(prepared.session.assessmentMode).toBe('operator_attested');
+    expect(prepared.session.questionnaireVersion).toBe(QUESTIONNAIRE_VERSION);
+    expect(prepared.session.assessmentMode).toBe('artifact_only');
+    expect(prepared.session.sessionQuestions).toEqual(buildFrozenSessionQuestions([...principles]));
     expect(prepared.session.questionSetHash).toBeTruthy();
+  });
+
+  it('fails closed for unknown 1.2 questionnaire versions', () => {
+    const principles = ['APP_1'] as const;
+    const sessionQuestions = buildFrozenSessionQuestions([...principles]);
+    const findingsHash = buildFindingsHash([]);
+    const frozenSession = {
+      ...makeCurrentSession({
+        principles: [...principles],
+        findingsHash,
+        questionnaireVersion: 'unknown-v1',
+        sessionQuestions,
+      }),
+      version: '1.2' as const,
+      questionSetHash: buildQuestionSetHash({
+        questionnaireVersion: 'unknown-v1',
+        findingsHash,
+        principles: [...principles],
+        sessionQuestions,
+      }),
+    };
+    delete (frozenSession as unknown as Record<string, unknown>).assessmentMode;
+
+    expect(() => prepareQuestionnaireSessionForResume({
+      session: frozenSession,
+      findings: [],
+      expectedPrinciples: [...principles],
+      expectedQuestions: buildFrozenSessionQuestions([...principles]),
+      upgradeAssessmentMode: 'operator_attested',
+    })).toThrow(SESSION_INTEGRITY_FAILURE);
   });
 
   it('upgrades canonical 1.1 sessions to 1.3 only when they exactly match the canonical frozen set', () => {
@@ -612,6 +702,7 @@ describe('questionnaire session persistence', () => {
       findings: [],
       expectedPrinciples: [...principles],
       expectedQuestions: sessionQuestions,
+      upgradeAssessmentMode: 'operator_attested',
     });
 
     expect(prepared.didUpgrade).toBe(true);
@@ -636,6 +727,7 @@ describe('questionnaire session persistence', () => {
       findings: [],
       expectedPrinciples: [...principles],
       expectedQuestions: buildFrozenSessionQuestions([...principles]),
+      upgradeAssessmentMode: 'operator_attested',
     })).toThrow(/integrity check failed/i);
   });
 
@@ -666,6 +758,7 @@ describe('questionnaire session persistence', () => {
       findings: [],
       expectedPrinciples: ['APP_5'],
       expectedQuestions: buildFrozenSessionQuestions(['APP_5']),
+      upgradeAssessmentMode: 'operator_attested',
     });
     const upgraded = prepared.session;
 

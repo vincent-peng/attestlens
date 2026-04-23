@@ -19,10 +19,14 @@ import type {
 import {
   LEGACY_QUESTION_BANK_V1,
   LEGACY_QUESTIONNAIRE_VERSION,
+  PRE_REMEDIATION_QUESTION_BANK_V2,
+  PRE_REMEDIATION_QUESTIONNAIRE_VERSION,
   QUESTION_BANK,
   QUESTIONNAIRE_VERSION,
   getQuestionsForPrinciples,
 } from './questions.js';
+import { aggregatePrincipleResults } from './evaluator.js';
+import { getNextQuestion } from './flow.js';
 
 export type SessionTarget =
   | { kind: 'path'; name: string; path: string; url?: undefined }
@@ -42,6 +46,8 @@ export interface PreparedQuestionnaireSession {
 const SESSION_INTEGRITY_FAILURE =
   'Attestation session integrity check failed. Start a new attestation session.';
 const DEFAULT_ASSESSMENT_MODE: AssessmentMode = 'operator_attested';
+const UPGRADE_ASSESSMENT_MODE_REQUIRED =
+  'Pre-1.3 attestation sessions require an explicit assessment basis before they can be resumed.';
 
 function slugifyTarget(targetName: string): string {
   return targetName
@@ -91,6 +97,10 @@ function principlesExactlyMatch(left: APPPrinciple[], right: APPPrinciple[]): bo
 function getKnownQuestionBank(version: string): Question[] | null {
   if (version === QUESTIONNAIRE_VERSION) {
     return QUESTION_BANK;
+  }
+
+  if (version === PRE_REMEDIATION_QUESTIONNAIRE_VERSION) {
+    return PRE_REMEDIATION_QUESTION_BANK_V2;
   }
 
   if (version === LEGACY_QUESTIONNAIRE_VERSION) {
@@ -161,29 +171,17 @@ function normalizeFindingsHash(findingsHash: string, findings: AttestLensFinding
 function upgradeLegacyQuestionnaireSession(
   session: LegacyQuestionnaireSession,
   findingsHash: string,
+  assessmentMode: AssessmentMode,
 ): QuestionnaireSessionType {
   const principles = buildLegacySessionPrinciples(session);
   const sessionQuestions = buildFrozenSessionQuestions(principles, LEGACY_QUESTION_BANK_V1);
-  const questionSetHash = buildQuestionSetHash({
+  return rebuildUpgradedQuestionnaireSession(session, {
     questionnaireVersion: LEGACY_QUESTIONNAIRE_VERSION,
     findingsHash,
     principles,
     sessionQuestions,
-    assessmentMode: DEFAULT_ASSESSMENT_MODE,
+    assessmentMode,
   });
-
-  const upgraded: QuestionnaireSessionType = {
-    ...session,
-    version: '1.3',
-    questionnaireVersion: LEGACY_QUESTIONNAIRE_VERSION,
-    findingsHash,
-    principles,
-    sessionQuestions,
-    questionSetHash,
-    assessmentMode: DEFAULT_ASSESSMENT_MODE,
-  };
-  assertSessionQuestionRefs(upgraded);
-  return upgraded;
 }
 
 function upgradeCanonicalQuestionnaireSession(
@@ -191,6 +189,7 @@ function upgradeCanonicalQuestionnaireSession(
   findingsHash: string,
   expectedPrinciples: APPPrinciple[],
   expectedQuestions: Question[],
+  assessmentMode: AssessmentMode,
 ): QuestionnaireSessionType {
   if (session.questionnaireVersion !== QUESTIONNAIRE_VERSION) {
     throw new Error(SESSION_INTEGRITY_FAILURE);
@@ -204,21 +203,13 @@ function upgradeCanonicalQuestionnaireSession(
     throw new Error(SESSION_INTEGRITY_FAILURE);
   }
 
-  const upgraded: QuestionnaireSessionType = {
-    ...session,
-    version: '1.3',
+  return rebuildUpgradedQuestionnaireSession(session, {
+    questionnaireVersion: QUESTIONNAIRE_VERSION,
     findingsHash,
-    questionSetHash: buildQuestionSetHash({
-      questionnaireVersion: session.questionnaireVersion,
-      findingsHash,
-      principles: session.principles,
-      sessionQuestions: session.sessionQuestions,
-      assessmentMode: DEFAULT_ASSESSMENT_MODE,
-    }),
-    assessmentMode: DEFAULT_ASSESSMENT_MODE,
-  };
-  assertSessionQuestionRefs(upgraded);
-  return upgraded;
+    principles: expectedPrinciples,
+    sessionQuestions: expectedQuestions,
+    assessmentMode,
+  });
 }
 
 function upgradeFrozenQuestionnaireSession(
@@ -226,40 +217,91 @@ function upgradeFrozenQuestionnaireSession(
   findingsHash: string,
   expectedPrinciples: APPPrinciple[],
   expectedQuestions: Question[],
+  assessmentMode: AssessmentMode,
 ): QuestionnaireSessionType {
+  const knownQuestionBank = getKnownQuestionBank(session.questionnaireVersion);
+  if (!knownQuestionBank) {
+    throw new Error(SESSION_INTEGRITY_FAILURE);
+  }
+
   if (!principlesExactlyMatch(session.principles, expectedPrinciples)) {
     throw new Error(SESSION_INTEGRITY_FAILURE);
   }
 
-  if (!questionsExactlyMatch(session.sessionQuestions, expectedQuestions)) {
+  const storedExpectedQuestions = buildFrozenSessionQuestions(expectedPrinciples, knownQuestionBank);
+  if (!questionsExactlyMatch(session.sessionQuestions, storedExpectedQuestions)) {
     throw new Error(SESSION_INTEGRITY_FAILURE);
   }
 
-  const expectedHash = buildQuestionSetHash({
+  const storedExpectedHash = buildQuestionSetHash({
     questionnaireVersion: session.questionnaireVersion,
     findingsHash,
     principles: expectedPrinciples,
-    sessionQuestions: expectedQuestions,
+    sessionQuestions: storedExpectedQuestions,
   });
 
-  if (session.questionSetHash !== expectedHash) {
+  if (session.questionSetHash !== storedExpectedHash) {
     throw new Error(SESSION_INTEGRITY_FAILURE);
   }
 
-  const upgraded: QuestionnaireSessionType = {
-    ...session,
-    version: '1.3',
+  return rebuildUpgradedQuestionnaireSession(session, {
+    questionnaireVersion: QUESTIONNAIRE_VERSION,
     findingsHash,
     principles: expectedPrinciples,
     sessionQuestions: expectedQuestions,
+    assessmentMode,
+  });
+}
+
+function requireUpgradeAssessmentMode(assessmentMode?: AssessmentMode): AssessmentMode {
+  if (!assessmentMode) {
+    throw new Error(UPGRADE_ASSESSMENT_MODE_REQUIRED);
+  }
+
+  return assessmentMode;
+}
+
+function rebuildUpgradedQuestionnaireSession(
+  session: LegacyQuestionnaireSession | TransitionalQuestionnaireSession | FrozenQuestionnaireSession,
+  params: {
+    questionnaireVersion: string;
+    findingsHash: string;
+    principles: APPPrinciple[];
+    sessionQuestions: Question[];
+    assessmentMode: AssessmentMode;
+  },
+): QuestionnaireSessionType {
+  const principleResults = aggregatePrincipleResults(
+    params.principles,
+    session.answers,
+    params.sessionQuestions,
+    params.assessmentMode,
+  );
+  const currentQuestionId = session.status === 'completed'
+    ? undefined
+    : getNextQuestion(
+      params.principles,
+      session.answers,
+      params.sessionQuestions,
+      params.assessmentMode,
+    )?.id;
+  const upgraded: QuestionnaireSessionType = {
+    ...session,
+    version: '1.3',
+    questionnaireVersion: params.questionnaireVersion,
+    findingsHash: params.findingsHash,
+    principles: params.principles,
+    sessionQuestions: params.sessionQuestions,
     questionSetHash: buildQuestionSetHash({
-      questionnaireVersion: session.questionnaireVersion,
-      findingsHash,
-      principles: expectedPrinciples,
-      sessionQuestions: expectedQuestions,
-      assessmentMode: DEFAULT_ASSESSMENT_MODE,
+      questionnaireVersion: params.questionnaireVersion,
+      findingsHash: params.findingsHash,
+      principles: params.principles,
+      sessionQuestions: params.sessionQuestions,
+      assessmentMode: params.assessmentMode,
     }),
-    assessmentMode: DEFAULT_ASSESSMENT_MODE,
+    assessmentMode: params.assessmentMode,
+    principleResults,
+    currentQuestionId,
   };
   assertSessionQuestionRefs(upgraded);
   return upgraded;
@@ -351,13 +393,18 @@ export function prepareQuestionnaireSessionForResume(params: {
   findings: AttestLensFinding[];
   expectedPrinciples: APPPrinciple[];
   expectedQuestions: Question[];
+  upgradeAssessmentMode?: AssessmentMode;
 }): PreparedQuestionnaireSession {
   normalizeFindingsHash(params.session.findingsHash, params.findings);
   const findingsHash = buildFindingsHash(params.findings);
 
   if (params.session.version === '1.0') {
     return {
-      session: upgradeLegacyQuestionnaireSession(params.session, findingsHash),
+      session: upgradeLegacyQuestionnaireSession(
+        params.session,
+        findingsHash,
+        requireUpgradeAssessmentMode(params.upgradeAssessmentMode),
+      ),
       didUpgrade: true,
     };
   }
@@ -369,6 +416,7 @@ export function prepareQuestionnaireSessionForResume(params: {
         findingsHash,
         params.expectedPrinciples,
         params.expectedQuestions,
+        requireUpgradeAssessmentMode(params.upgradeAssessmentMode),
       ),
       didUpgrade: true,
     };
@@ -381,6 +429,7 @@ export function prepareQuestionnaireSessionForResume(params: {
         findingsHash,
         params.expectedPrinciples,
         params.expectedQuestions,
+        requireUpgradeAssessmentMode(params.upgradeAssessmentMode),
       ),
       didUpgrade: true,
     };
@@ -522,6 +571,8 @@ export function completeQuestionnaireSession(
 
 export {
   LEGACY_QUESTIONNAIRE_VERSION,
+  PRE_REMEDIATION_QUESTIONNAIRE_VERSION,
   QUESTIONNAIRE_VERSION,
   SESSION_INTEGRITY_FAILURE,
+  UPGRADE_ASSESSMENT_MODE_REQUIRED,
 };

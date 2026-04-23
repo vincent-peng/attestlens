@@ -36,7 +36,7 @@ import {
   runAttestationSession,
   saveQuestionnaireSession,
 } from '../questionnaire/index.js';
-import type { AttestLensFinding, QuestionnaireSession } from '../schema/index.js';
+import type { AssessmentMode, AttestLensFinding, QuestionnaireSession } from '../schema/index.js';
 import type { ReportFormat, ReportOptions } from '../report/generator.js';
 import type { ScannerError, ScannerResult } from '../scanner/types.js';
 import type { AttestationPromptRunner, AttestationScanSnapshot, SessionTarget } from '../questionnaire/index.js';
@@ -211,6 +211,7 @@ program
   .option('-n, --name <name>', 'Target name', '')
   .option('-o, --output <dir>', 'Output directory', './attestlens-reports')
   .option('-f, --format <formats>', 'Output formats (json,html,markdown,pdf)', 'html,json,markdown,pdf')
+  .option('--assessment-mode <mode>', 'Frozen assessment basis (artifact_only, codebase_only, operator_attested)')
   .option('--strict', 'Treat unresolved controls as FAIL after questionnaire merge')
   .option('--no-guardvibe', 'Disable GuardVibe scanner')
   .option('--no-mcp-scan', 'Disable mcp-scan')
@@ -444,6 +445,7 @@ export async function executeAttestCommand(
   const runner = promptRunner || createInteractivePromptRunner();
   const outputRoot = path.resolve(options.output);
   const reportFormats = parseReportFormats(options.format);
+  const requestedAssessmentMode = parseAssessmentModeOption(options.assessmentMode);
 
   let sessionPath: string;
   let scanSnapshotPath: string;
@@ -461,11 +463,31 @@ export async function executeAttestCommand(
     snapshot = await loadScanSnapshot<AttestationScanSnapshot>(loadedSession.scanSnapshotPath);
     const expectedPrinciples = deriveQuestionnairePrinciples(snapshot.findings);
     const expectedQuestions = buildFrozenSessionQuestions(expectedPrinciples);
+    const upgradeAssessmentMode = loadedSession.version === '1.3'
+      ? undefined
+      : await resolveAssessmentModeSelection(
+        requestedAssessmentMode,
+        runner,
+        loadedSession.target.kind,
+        loadedSession.target.name,
+      );
+
+    if (
+      loadedSession.version === '1.3'
+      && requestedAssessmentMode
+      && requestedAssessmentMode !== loadedSession.assessmentMode
+    ) {
+      throw new Error(
+        `Assessment basis is already frozen for this session as "${loadedSession.assessmentMode}". Remove --assessment-mode to resume it.`,
+      );
+    }
+
     const preparedSession = prepareQuestionnaireSessionForResume({
       session: loadedSession,
       findings: snapshot.findings,
       expectedPrinciples,
       expectedQuestions,
+      upgradeAssessmentMode,
     });
 
     session = preparedSession.session;
@@ -483,10 +505,12 @@ export async function executeAttestCommand(
     const normalized = normalizeScanSnapshot(rawScanData, resolvedScanPath, options.name);
     snapshot = normalized.snapshot;
     sessionTarget = normalized.target;
-    const assessmentMode = await runner.promptAssessmentMode({
-      targetKind: sessionTarget.kind,
-      targetName: sessionTarget.name,
-    });
+    const assessmentMode = await resolveAssessmentModeSelection(
+      requestedAssessmentMode,
+      runner,
+      sessionTarget.kind,
+      sessionTarget.name,
+    );
 
     const spinner = ora('Creating attestation session from saved scan...').start();
     const initialized = await initializeAttestationSession({
@@ -521,10 +545,12 @@ export async function executeAttestCommand(
       errors: scanResult.errors,
       totalDurationMs: Date.now() - startTime,
     });
-    const assessmentMode = await runner.promptAssessmentMode({
-      targetKind: sessionTarget.kind,
-      targetName: sessionTarget.name,
-    });
+    const assessmentMode = await resolveAssessmentModeSelection(
+      requestedAssessmentMode,
+      runner,
+      sessionTarget.kind,
+      sessionTarget.name,
+    );
 
     const initialized = await initializeAttestationSession({
       snapshot,
@@ -586,6 +612,12 @@ export async function executeAttestCommand(
   console.log(chalk.bold(`  Questionnaire Resolved: ${questionnaireSummary.resolved}`));
   console.log(chalk.bold('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━'));
 
+  if (report.assessment?.incomplete) {
+    console.log(chalk.yellow('\nAssessment incomplete:'));
+    console.log(chalk.yellow(report.assessment.summary));
+    console.log(chalk.yellow(`Unresolved principles: ${report.assessment.unknownPrinciples.join(', ')}`));
+  }
+
   if (questionnaireSummary.unresolved.length > 0) {
     console.log(chalk.yellow(`\nUnresolved questionnaire principles: ${questionnaireSummary.unresolved.join(', ')}`));
   }
@@ -602,6 +634,37 @@ export async function executeAttestCommand(
     outputDir: path.dirname(sessionPath),
     reportPaths,
   };
+}
+
+function parseAssessmentModeOption(rawValue: unknown): AssessmentMode | undefined {
+  if (typeof rawValue !== 'string' || rawValue.trim().length === 0) {
+    return undefined;
+  }
+
+  switch (rawValue.trim()) {
+    case 'artifact_only':
+    case 'codebase_only':
+    case 'operator_attested':
+      return rawValue.trim() as AssessmentMode;
+    default:
+      throw new Error(`Unsupported assessment mode: ${rawValue}`);
+  }
+}
+
+async function resolveAssessmentModeSelection(
+  requestedAssessmentMode: AssessmentMode | undefined,
+  runner: AttestationPromptRunner,
+  targetKind: 'path' | 'url',
+  targetName: string,
+): Promise<AssessmentMode> {
+  if (requestedAssessmentMode) {
+    return requestedAssessmentMode;
+  }
+
+  return runner.promptAssessmentMode({
+    targetKind,
+    targetName,
+  });
 }
 
 function getUrlScanFailureMessage(

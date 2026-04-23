@@ -1,6 +1,8 @@
 export {
   LEGACY_QUESTION_BANK_V1,
   LEGACY_QUESTIONNAIRE_VERSION,
+  PRE_REMEDIATION_QUESTION_BANK_V2,
+  PRE_REMEDIATION_QUESTIONNAIRE_VERSION,
   QUESTION_BANK,
   QUESTIONNAIRE_VERSION,
   getQuestionsForPrinciples,
@@ -37,6 +39,8 @@ export {
   loadScanSnapshot,
   prepareQuestionnaireSessionForResume,
   saveQuestionnaireSession,
+  SESSION_INTEGRITY_FAILURE,
+  UPGRADE_ASSESSMENT_MODE_REQUIRED,
   updateSessionProgress,
   writeScanSnapshot,
 } from './session.js';

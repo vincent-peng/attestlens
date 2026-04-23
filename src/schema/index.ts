@@ -277,6 +277,14 @@ export type RemediationItem = z.infer<typeof RemediationItem>;
 export const ReportGrade = z.enum(['A', 'B', 'C', 'D', 'F']);
 export type ReportGrade = z.infer<typeof ReportGrade>;
 
+export const ReportAssessment = z.object({
+  mode: AssessmentMode,
+  summary: z.string(),
+  incomplete: z.boolean(),
+  unknownPrinciples: z.array(APPPrinciple),
+});
+export type ReportAssessment = z.infer<typeof ReportAssessment>;
+
 export const ComplianceReport = z.object({
   id: z.string(),
   timestamp: z.string().datetime(),
@@ -293,6 +301,7 @@ export const ComplianceReport = z.object({
   findings: z.array(AttestLensFinding),
   questionnaire: z.array(QuestionnaireResponse).optional(),
   questionnaireResults: z.array(QuestionnairePrincipleResult).optional(),
+  assessment: ReportAssessment.optional(),
   remediation: z.array(RemediationItem),
   metadata: z.object({
     scannerVersions: z.record(z.string(), z.string()),
