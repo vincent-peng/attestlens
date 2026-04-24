@@ -84,7 +84,7 @@ CheckVibe is a **URL-based scanner** — you enter a deployed website URL and it
 
 ---
 
-## 3. Gap Analysis: What We're Missing
+## 3. Gap Analysis: What We Closed in M2
 
 ### TIER 1 — Must-Have (we lose to CheckVibe without these)
 
@@ -259,20 +259,21 @@ Our mapping engine maps technical findings → APP sub-obligations → NDB secti
 
 **Enhancement:** Add confidence-weighted mappings to the PDF report. Show "APP 11.1 — Data Storage (85% confidence)" etc.
 
-#### 3.7 Compliance Questionnaire (Planned Phase 2)
+#### 3.7 Compliance Questionnaire (Shipped in M2)
 
 Interactive questionnaire that fills gaps the scanner can't detect (policies, procedures, training). This transforms AttestLens from a scanner into an **assessment tool**.
 
-#### 3.8 NDB Breach Readiness Score
+#### 3.8 NDB Breach Readiness Score (Shipped in M2)
 
 Aggregate findings + questionnaire answers into a single "breach readiness" score. Consultants can present this to boards.
 
-#### 3.9 Consultant Workflow Features
+#### 3.9 Consultant Workflow Features (Partially Shipped)
 
-- White-label PDF reports (consultant branding)
+- Consultant-facing deterministic report narratives
+- Breach-readiness score and confidence model
 - Finding acknowledgment tracking (client confirms fixes)
 - Re-scan diff (what changed between scans)
-- Executive summary (1-page for boards)
+- White-label PDF reports (consultant branding)
 
 ---
 

@@ -91,6 +91,22 @@ describe('buildComplianceReport', () => {
     expect(report.riskLevel).toBe('low');
   });
 
+  it('adds scanner-only breach readiness and consultant narrative without changing the overall score', () => {
+    const report = buildComplianceReport([], defaultOptions, 1000);
+
+    expect(report.overallScore).toBe(100);
+    expect(report.breachReadiness).toEqual(expect.objectContaining({
+      evidenceBasis: 'scanner_only',
+      score: 74,
+      level: 'moderate',
+      confidence: 0.45,
+    }));
+    expect(report.consultantNarrative).toEqual(expect.objectContaining({
+      executiveSummary: expect.stringContaining('moderate breach readiness'),
+      remediationFocus: expect.any(String),
+    }));
+  });
+
   it('should reduce score with critical findings', () => {
     const findings = [
       makeFinding({ id: 'F-1', severity: 'critical', sourceRule: 'VS-HARDKEY' }),
@@ -243,6 +259,12 @@ describe('buildComplianceReport', () => {
       incomplete: true,
     }));
     expect(report.assessment?.unknownPrinciples.length).toBeGreaterThan(0);
+    expect(report.breachReadiness).toEqual(expect.objectContaining({
+      evidenceBasis: 'artifact_only',
+      score: expect.any(Number),
+    }));
+    expect(report.breachReadiness!.score).toBeLessThanOrEqual(69);
+    expect(report.breachReadiness!.confidence).toBeLessThanOrEqual(0.65);
   });
 
   it('changes the deterministic hash when questionnaire assessment metadata changes', () => {
@@ -269,6 +291,12 @@ describe('generateJSONReport', () => {
     expect(parsed.id).toBeTruthy();
     expect(parsed.appControls.length).toBe(14);
     expect(parsed.assessment).toBeUndefined();
+    expect(parsed.breachReadiness).toEqual(expect.objectContaining({
+      evidenceBasis: 'scanner_only',
+    }));
+    expect(parsed.consultantNarrative).toEqual(expect.objectContaining({
+      executiveSummary: expect.any(String),
+    }));
   });
 
   it('includes assessment metadata for merged questionnaire reports', () => {
@@ -295,6 +323,8 @@ describe('generateMarkdownReport', () => {
     const report = buildComplianceReport(findings, defaultOptions, 1000);
     const md = generateMarkdownReport(report);
     expect(md).toContain('# Privacy Act Compliance Report');
+    expect(md).toContain('### Consultant Narrative');
+    expect(md).toContain('### Breach Readiness');
     expect(md).toContain('APP_11');
     expect(md).toContain('Hardcoded key');
   });

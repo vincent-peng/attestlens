@@ -158,6 +158,9 @@ program
       console.log(chalk.bold('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━'));
       console.log(chalk.bold(`  Grade: ${getGradeDisplay(report.overallGrade, report.overallScore)}`));
       console.log(chalk.bold(`  Risk:  ${getRiskDisplay(report.riskLevel)}`));
+      if (report.breachReadiness) {
+        console.log(chalk.bold(`  Breach Readiness: ${report.breachReadiness.level.toUpperCase()} (${report.breachReadiness.score}/100, ${Math.round(report.breachReadiness.confidence * 100)}% confidence)`));
+      }
       console.log(chalk.bold('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━'));
       console.log('');
 
@@ -609,6 +612,9 @@ export async function executeAttestCommand(
   console.log(chalk.bold('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━'));
   console.log(chalk.bold(`  Grade: ${getGradeDisplay(report.overallGrade, report.overallScore)}`));
   console.log(chalk.bold(`  Risk:  ${getRiskDisplay(report.riskLevel)}`));
+  if (report.breachReadiness) {
+    console.log(chalk.bold(`  Breach Readiness: ${report.breachReadiness.level.toUpperCase()} (${report.breachReadiness.score}/100, ${Math.round(report.breachReadiness.confidence * 100)}% confidence)`));
+  }
   console.log(chalk.bold(`  Questionnaire Resolved: ${questionnaireSummary.resolved}`));
   console.log(chalk.bold('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━'));
 

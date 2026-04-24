@@ -144,11 +144,13 @@ We are **NOT** a generic security scanner. We compose the best OSS tools and own
 - [x] Strict mode (UNKNOWN → FAIL)
 - [x] Validation corpus runner + findings log
 - [x] Stack-specific repo security checks (Supabase, Firebase, Stripe, Clerk/Auth0, Vercel/Netlify)
-- [x] 125 tests
+- [x] Interactive attestation questionnaire with saved sessions, resume support, and frozen question sets
+- [x] Merged scan + questionnaire reports
+- [x] Breach-readiness scoring and consultant-facing deterministic narratives
+- [x] 195 tests
 - [x] Security hardening (execFileSync, path validation, no command injection)
 
-### Not Yet Shipped (Phase 2+)
-- [ ] Interactive attestation questionnaire (UNKNOWN → PASS/FAIL)
+### Not Yet Shipped (Post-M2)
 - [ ] Web dashboard (React + real-time scan progress)
 - [ ] Live GuardVibe MCP integration (not just static fallback)
 - [ ] Additional compliance packs (GDPR, SOC 2)
@@ -157,12 +159,12 @@ We are **NOT** a generic security scanner. We compose the best OSS tools and own
 
 ## 9. Validation Plan
 
-Before building deeper Phase 2 workflow:
+For M2 validation and M2.5 prioritization:
 1. **Use the completed validation corpus** to keep false positives and misses visible.
 2. **Find 5-10 AU consultants/MSPs** on LinkedIn.
-3. **Show the v0.2.0 sample report** and ask: "Would you pay $199 for this? $499/mo for unlimited?"
+3. **Show the refreshed M2 sample report** and ask: "Would you pay $199 for this? $499/mo for unlimited?"
 4. **3+ yes** → build. Crickets → pivot or kill.
-5. **Use feedback to prioritize questionnaire flow and report structure.**
+5. **Use feedback to prioritize rule freshness, report refinements, and hosted product surfaces.**
 
 ---
 

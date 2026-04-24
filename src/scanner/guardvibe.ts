@@ -253,6 +253,7 @@ export class GuardVibeAdapter implements ScannerAdapter {
 
           for (const pattern of patterns) {
             for (let i = 0; i < lines.length; i++) {
+              pattern.regex.lastIndex = 0;
               const match = pattern.regex.exec(lines[i]);
               if (match) {
                 findings.push({

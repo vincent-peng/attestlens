@@ -17,6 +17,7 @@ import type {
   AssessmentMode,
   RemediationItem,
   ControlStatus,
+  Severity,
   QuestionnaireSession,
 } from '../schema/index.js';
 import { APPInfo, calculateGrade, calculateRiskLevel } from '../schema/index.js';
@@ -28,6 +29,9 @@ const ATTESTLENS_VERSION = '0.2.0';
 
 export const SUPPORTED_REPORT_FORMATS = ['json', 'html', 'markdown', 'pdf'] as const;
 export type ReportFormat = (typeof SUPPORTED_REPORT_FORMATS)[number];
+type BreachReadiness = NonNullable<ComplianceReport['breachReadiness']>;
+type BreachReadinessFactor = BreachReadiness['topFactors'][number];
+type ConsultantNarrative = NonNullable<ComplianceReport['consultantNarrative']>;
 
 // ─── Report Builder ─────────────────────────────────────────────────────────
 
@@ -77,8 +81,16 @@ export function buildComplianceReport(
   const overallGrade = calculateGrade(overallScore);
   const riskLevel = applyIncompleteAssessmentRiskFloor(calculateRiskLevel(mappedFindings), assessment);
 
-  // Step 4: Generate remediation items
+  // Step 4: Generate M2 consultant-facing assessment layers
+  const breachReadiness = buildBreachReadiness(mappedFindings, appControls, assessment, questionnaireSession);
   const remediation = generateRemediation(mappedFindings);
+  const consultantNarrative = buildConsultantNarrative(
+    appControls,
+    mappedFindings,
+    remediation,
+    assessment,
+    breachReadiness,
+  );
   const targetPath = sanitizeTargetPathForOutput(options.targetPath);
   const targetUrl = sanitizeTargetUrlForOutput(options.targetUrl);
 
@@ -100,10 +112,12 @@ export function buildComplianceReport(
     questionnaire: questionnaireSession?.answers,
     questionnaireResults: questionnaireSession?.principleResults,
     assessment,
+    breachReadiness,
+    consultantNarrative,
     remediation,
     metadata: {
       scannerVersions: {},
-      deterministicHash: buildDeterministicHash(mappedFindings, assessment),
+      deterministicHash: buildDeterministicHash(mappedFindings, assessment, breachReadiness),
       scanDurationMs: durationMs,
       configHash: '',
     },
@@ -118,6 +132,7 @@ export function buildComplianceReport(
 function buildDeterministicHash(
   findings: AttestLensFinding[],
   assessment?: ReportAssessment,
+  breachReadiness?: BreachReadiness,
 ): string {
   return crypto
     .createHash('sha256')
@@ -128,6 +143,21 @@ function buildDeterministicHash(
           mode: assessment.mode,
           incomplete: assessment.incomplete,
           unknownPrinciples: [...assessment.unknownPrinciples],
+        }
+        : null,
+      breachReadiness: breachReadiness
+        ? {
+          evidenceBasis: breachReadiness.evidenceBasis,
+          score: breachReadiness.score,
+          level: breachReadiness.level,
+          confidence: breachReadiness.confidence,
+          topFactors: breachReadiness.topFactors.map((factor) => ({
+            type: factor.type,
+            principle: factor.principle,
+            severity: factor.severity,
+            title: factor.title,
+            findingIds: factor.findingIds,
+          })),
         }
         : null,
     }))
@@ -215,6 +245,294 @@ function applyIncompleteAssessmentRiskFloor(
   }
 
   return 'medium';
+}
+
+// ─── Breach Readiness ───────────────────────────────────────────────────────
+
+type InternalBreachReadinessFactor = BreachReadinessFactor & { deduction: number };
+
+const BREACH_RELEVANT_PRINCIPLES = new Set<APPPrinciple>(['APP_6', 'APP_8', 'APP_11', 'NDB']);
+const SEVERITY_RANK: Record<Severity, number> = {
+  critical: 5,
+  high: 4,
+  medium: 3,
+  low: 2,
+  info: 1,
+};
+const SCANNER_DEDUCTIONS: Record<Severity, number> = {
+  critical: 25,
+  high: 16,
+  medium: 8,
+  low: 3,
+  info: 1,
+};
+
+function buildBreachReadiness(
+  findings: AttestLensFinding[],
+  controls: APPControl[],
+  assessment: ReportAssessment | undefined,
+  questionnaireSession?: QuestionnaireSession,
+): BreachReadiness {
+  const evidenceBasis = getBreachReadinessEvidenceBasis(questionnaireSession);
+  const factors: InternalBreachReadinessFactor[] = [];
+
+  for (const finding of findings.filter(isBreachRelevantFinding)) {
+    const principle = finding.appMappings.find((mapping) =>
+      BREACH_RELEVANT_PRINCIPLES.has(mapping.principle),
+    )?.principle;
+    factors.push({
+      type: 'scanner',
+      principle,
+      severity: finding.severity,
+      title: finding.title,
+      detail: `${finding.sourceRule} indicates ${finding.severity} breach exposure in ${finding.category}.`,
+      findingIds: [finding.id],
+      deduction: SCANNER_DEDUCTIONS[finding.severity],
+    });
+  }
+
+  if (!questionnaireSession) {
+    factors.push({
+      type: 'assessment_gap',
+      severity: 'medium',
+      title: 'Questionnaire attestation not completed',
+      detail: 'Breach readiness is based on scanner evidence only, without operator or evidence-basis attestation.',
+      deduction: 12,
+    });
+  }
+
+  for (const control of controls) {
+    if (control.status === 'pass') {
+      continue;
+    }
+
+    if (control.status === 'fail') {
+      const severity = getQuestionnaireFactorSeverity(control, 'fail');
+      factors.push({
+        type: 'questionnaire',
+        principle: control.principle,
+        severity,
+        title: `${control.principle} ${control.shortName} failed`,
+        detail: `${control.obligation} is not satisfied in the merged assessment.`,
+        findingIds: control.findings.length > 0 ? control.findings : undefined,
+        deduction: getQuestionnaireDeduction(control, 'fail'),
+      });
+      continue;
+    }
+
+    if (assessment?.incomplete) {
+      const severity = getQuestionnaireFactorSeverity(control, 'unknown');
+      factors.push({
+        type: 'assessment_gap',
+        principle: control.principle,
+        severity,
+        title: `${control.principle} remains unresolved`,
+        detail: `${control.obligation} could not be resolved under the ${getAssessmentModeLabel(assessment.mode).toLowerCase()}.`,
+        findingIds: control.findings.length > 0 ? control.findings : undefined,
+        deduction: getQuestionnaireDeduction(control, 'unknown'),
+      });
+    }
+  }
+
+  const rawScore = factors.reduce((score, factor) => score - factor.deduction, 100);
+  const cappedScore = applyBreachReadinessEvidenceCap(Math.max(0, rawScore), evidenceBasis, assessment);
+  const topFactors = factors
+    .sort((left, right) => {
+      const severityDelta = SEVERITY_RANK[right.severity] - SEVERITY_RANK[left.severity];
+      if (severityDelta !== 0) return severityDelta;
+      return right.deduction - left.deduction;
+    })
+    .slice(0, 5)
+    .map(({ deduction: _deduction, ...factor }) => factor);
+  const level = getBreachReadinessLevel(cappedScore);
+  const confidence = calculateBreachReadinessConfidence(evidenceBasis, assessment, topFactors);
+
+  return {
+    evidenceBasis,
+    score: cappedScore,
+    level,
+    confidence,
+    summary: getBreachReadinessSummary(cappedScore, level, confidence, evidenceBasis, assessment, topFactors),
+    topFactors,
+  };
+}
+
+function getBreachReadinessEvidenceBasis(
+  questionnaireSession?: QuestionnaireSession,
+): BreachReadiness['evidenceBasis'] {
+  return questionnaireSession?.assessmentMode || 'scanner_only';
+}
+
+function isBreachRelevantFinding(finding: AttestLensFinding): boolean {
+  if (finding.appMappings.some((mapping) => BREACH_RELEVANT_PRINCIPLES.has(mapping.principle))) {
+    return true;
+  }
+
+  return /security|secret|credential|auth|data flow|infrastructure/i.test(finding.category);
+}
+
+function getQuestionnaireFactorSeverity(control: APPControl, status: 'fail' | 'unknown'): Severity {
+  if (status === 'fail' && (control.principle === 'APP_11' || control.principle === 'NDB')) {
+    return 'critical';
+  }
+
+  if (status === 'fail' || BREACH_RELEVANT_PRINCIPLES.has(control.principle)) {
+    return 'high';
+  }
+
+  return 'medium';
+}
+
+function getQuestionnaireDeduction(control: APPControl, status: 'fail' | 'unknown'): number {
+  if (status === 'fail') {
+    if (control.principle === 'APP_11' || control.principle === 'NDB') return 18;
+    if (BREACH_RELEVANT_PRINCIPLES.has(control.principle)) return 14;
+    return 8;
+  }
+
+  if (control.principle === 'APP_11' || control.principle === 'NDB') return 10;
+  if (BREACH_RELEVANT_PRINCIPLES.has(control.principle)) return 8;
+  return 4;
+}
+
+function applyBreachReadinessEvidenceCap(
+  score: number,
+  evidenceBasis: BreachReadiness['evidenceBasis'],
+  assessment?: ReportAssessment,
+): number {
+  if (evidenceBasis === 'scanner_only') {
+    return Math.min(score, 74);
+  }
+
+  if (!assessment?.incomplete) {
+    return score;
+  }
+
+  if (evidenceBasis === 'artifact_only' || evidenceBasis === 'codebase_only') {
+    return Math.min(score, 69);
+  }
+
+  return Math.min(score, 79);
+}
+
+function getBreachReadinessLevel(score: number): BreachReadiness['level'] {
+  if (score >= 85) return 'strong';
+  if (score >= 70) return 'moderate';
+  if (score >= 50) return 'limited';
+  return 'weak';
+}
+
+function calculateBreachReadinessConfidence(
+  evidenceBasis: BreachReadiness['evidenceBasis'],
+  assessment: ReportAssessment | undefined,
+  topFactors: BreachReadinessFactor[],
+): number {
+  const basisConfidence: Record<BreachReadiness['evidenceBasis'], number> = {
+    scanner_only: 0.45,
+    artifact_only: 0.7,
+    codebase_only: 0.7,
+    operator_attested: 0.9,
+  };
+  const confidenceCap = evidenceBasis === 'scanner_only'
+    ? 0.45
+    : assessment?.incomplete && (evidenceBasis === 'artifact_only' || evidenceBasis === 'codebase_only')
+      ? 0.65
+      : assessment?.incomplete
+        ? 0.8
+        : basisConfidence[evidenceBasis];
+  const severeFactorPenalty = topFactors.some((factor) => factor.severity === 'critical') ? 0.08 : 0;
+  const incompletePenalty = assessment?.incomplete ? 0.05 : 0;
+  return Math.round(Math.max(0.2, Math.min(confidenceCap, basisConfidence[evidenceBasis] - severeFactorPenalty - incompletePenalty)) * 100) / 100;
+}
+
+function getBreachReadinessSummary(
+  score: number,
+  level: BreachReadiness['level'],
+  confidence: number,
+  evidenceBasis: BreachReadiness['evidenceBasis'],
+  assessment: ReportAssessment | undefined,
+  topFactors: BreachReadinessFactor[],
+): string {
+  const basisLabel = evidenceBasis === 'scanner_only'
+    ? 'scanner-only review'
+    : getAssessmentModeLabel(evidenceBasis);
+  const primaryRisk = topFactors[0]?.title;
+  const confidencePercent = Math.round(confidence * 100);
+  const incompleteNote = assessment?.incomplete
+    ? ' Unresolved controls cap the score until the evidence basis is completed.'
+    : '';
+
+  return `Breach readiness is ${level} at ${score}/100 with ${confidencePercent}% confidence under a ${basisLabel.toLowerCase()}.${primaryRisk ? ` Primary factor: ${primaryRisk}.` : ''}${incompleteNote}`;
+}
+
+function buildConsultantNarrative(
+  controls: APPControl[],
+  findings: AttestLensFinding[],
+  remediation: RemediationItem[],
+  assessment: ReportAssessment | undefined,
+  breachReadiness: BreachReadiness,
+): ConsultantNarrative {
+  const failedControls = controls.filter((control) => control.status === 'fail');
+  const unknownControls = controls.filter((control) => control.status === 'unknown');
+  const severeFindings = findings.filter((finding) => finding.severity === 'critical' || finding.severity === 'high');
+  const keyRisks = breachReadiness.topFactors.length > 0
+    ? breachReadiness.topFactors.map((factor) => factor.detail)
+    : ['No high-priority breach-readiness factors were identified in the available evidence.'];
+
+  return {
+    executiveSummary: buildExecutiveNarrative(breachReadiness, failedControls, unknownControls, severeFindings),
+    evidenceBasis: assessment?.summary || 'This run used scanner evidence only. Organisational process controls still require operator attestation.',
+    keyRisks,
+    principleNarratives: controls.map((control) => buildPrincipleNarrative(control)),
+    remediationFocus: buildRemediationFocus(remediation, breachReadiness),
+  };
+}
+
+function buildExecutiveNarrative(
+  breachReadiness: BreachReadiness,
+  failedControls: APPControl[],
+  unknownControls: APPControl[],
+  severeFindings: AttestLensFinding[],
+): string {
+  return `This assessment shows ${breachReadiness.level} breach readiness (${breachReadiness.score}/100). ` +
+    `${failedControls.length} APP/NDB control${failedControls.length === 1 ? '' : 's'} failed, ` +
+    `${unknownControls.length} remain unresolved, and ${severeFindings.length} critical/high technical finding${severeFindings.length === 1 ? '' : 's'} should be prioritised before external delivery.`;
+}
+
+function buildPrincipleNarrative(control: APPControl): ConsultantNarrative['principleNarratives'][number] {
+  const findingTotal =
+    control.findingCount.critical +
+    control.findingCount.high +
+    control.findingCount.medium +
+    control.findingCount.low +
+    control.findingCount.info;
+  const priority = control.status === 'fail'
+    ? 'immediate'
+    : control.status === 'unknown'
+      ? 'near_term'
+      : 'monitor';
+  const findingSummary = findingTotal > 0
+    ? `${findingTotal} linked finding${findingTotal === 1 ? '' : 's'}`
+    : 'no linked scanner findings';
+
+  return {
+    principle: control.principle,
+    status: control.status,
+    priority,
+    summary: `${APPInfo[control.principle].shortName} is ${control.status.toUpperCase()} at ${control.score}/100 with ${findingSummary}. ${control.obligation}.`,
+  };
+}
+
+function buildRemediationFocus(
+  remediation: RemediationItem[],
+  breachReadiness: BreachReadiness,
+): string {
+  const firstImmediate = remediation.find((item) => item.priority === 'quick_win') || remediation[0];
+  if (!firstImmediate) {
+    return `Maintain current controls and resolve any evidence gaps before claiming stronger than ${breachReadiness.level} breach readiness.`;
+  }
+
+  return `Start with "${firstImmediate.title}" because it addresses ${firstImmediate.appReferences.join(', ')} and improves the highest-priority breach-readiness factors.`;
 }
 
 // ─── Score Calculation ────────────────────────────────────────────────────────
@@ -474,6 +792,9 @@ export function generateHTMLReport(
       </div>
     </div>
 
+    ${generateHTMLConsultantNarrativeSection(report)}
+    ${generateHTMLBreachReadinessSection(report)}
+
     <!-- APP Control Checklist -->
     <h2>APP Control Checklist</h2>
     <table class="checklist">
@@ -580,6 +901,82 @@ function getRiskSummary(report: ComplianceReport): string {
       `Address findings to improve compliance posture.`;
   }
   return 'Low risk. All identified APP controls are passing. Continue monitoring and complete attestation questionnaires for unknown controls.';
+}
+
+function generateHTMLConsultantNarrativeSection(report: ComplianceReport): string {
+  const narrative = report.consultantNarrative;
+  if (!narrative) {
+    return '';
+  }
+
+  const priorityRows = narrative.principleNarratives.filter((row) => row.priority !== 'monitor').slice(0, 6);
+  return `
+    <h2>Consultant Narrative</h2>
+    <p>${escapeHtml(narrative.executiveSummary)}</p>
+    <p><strong>Evidence basis:</strong> ${escapeHtml(narrative.evidenceBasis)}</p>
+    <h3>Key Risks</h3>
+    <ul>
+      ${narrative.keyRisks.map((risk) => `<li>${escapeHtml(risk)}</li>`).join('')}
+    </ul>
+    <h3>Priority Principles</h3>
+    <table class="checklist">
+      <thead>
+        <tr>
+          <th>Principle</th>
+          <th>Priority</th>
+          <th>Summary</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${(priorityRows.length > 0 ? priorityRows : narrative.principleNarratives.slice(0, 4)).map((row) => `
+          <tr>
+            <td><strong>${row.principle}</strong></td>
+            <td>${row.priority.replace('_', ' ').toUpperCase()}</td>
+            <td>${escapeHtml(row.summary)}</td>
+          </tr>
+        `).join('')}
+      </tbody>
+    </table>
+    <p><strong>Remediation focus:</strong> ${escapeHtml(narrative.remediationFocus)}</p>
+  `;
+}
+
+function generateHTMLBreachReadinessSection(report: ComplianceReport): string {
+  const readiness = report.breachReadiness;
+  if (!readiness) {
+    return '';
+  }
+
+  return `
+    <h2>Breach Readiness</h2>
+    <div class="stats-grid">
+      <div class="stat-card">
+        <div class="stat-number">${readiness.score}</div>
+        <div class="stat-label">Score</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-number" style="font-size: 16pt;">${readiness.level.toUpperCase()}</div>
+        <div class="stat-label">Level</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-number">${Math.round(readiness.confidence * 100)}%</div>
+        <div class="stat-label">Confidence</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-number" style="font-size: 12pt;">${readiness.evidenceBasis.replace('_', ' ').toUpperCase()}</div>
+        <div class="stat-label">Evidence</div>
+      </div>
+    </div>
+    <p>${escapeHtml(readiness.summary)}</p>
+    ${readiness.topFactors.length > 0 ? `
+      <h3>Top Readiness Factors</h3>
+      <ul>
+        ${readiness.topFactors.map((factor) => `
+          <li><strong>${factor.severity.toUpperCase()}</strong> — ${escapeHtml(factor.title)}${factor.principle ? ` (${factor.principle})` : ''}: ${escapeHtml(factor.detail)}</li>
+        `).join('')}
+      </ul>
+    ` : ''}
+  `;
 }
 
 function getQuestionnaireSummaryRows(report: ComplianceReport): Array<{
@@ -795,6 +1192,40 @@ export function generateMarkdownReport(
   }
   lines.push('');
 
+  if (report.consultantNarrative) {
+    lines.push(`### Consultant Narrative`);
+    lines.push('');
+    lines.push(report.consultantNarrative.executiveSummary);
+    lines.push('');
+    lines.push(`**Evidence Basis:** ${report.consultantNarrative.evidenceBasis}`);
+    lines.push('');
+    lines.push(`**Key Risks:**`);
+    for (const risk of report.consultantNarrative.keyRisks) {
+      lines.push(`- ${risk}`);
+    }
+    lines.push('');
+    lines.push(`**Remediation Focus:** ${report.consultantNarrative.remediationFocus}`);
+    lines.push('');
+  }
+
+  if (report.breachReadiness) {
+    lines.push(`### Breach Readiness`);
+    lines.push('');
+    lines.push(`- **Score:** ${report.breachReadiness.score}/100`);
+    lines.push(`- **Level:** ${report.breachReadiness.level.toUpperCase()}`);
+    lines.push(`- **Confidence:** ${Math.round(report.breachReadiness.confidence * 100)}%`);
+    lines.push(`- **Evidence Basis:** ${report.breachReadiness.evidenceBasis}`);
+    lines.push(`- **Summary:** ${report.breachReadiness.summary}`);
+    if (report.breachReadiness.topFactors.length > 0) {
+      lines.push('');
+      lines.push(`**Top Readiness Factors:**`);
+      for (const factor of report.breachReadiness.topFactors) {
+        lines.push(`- **${factor.severity.toUpperCase()} / ${factor.type}:** ${factor.title}${factor.principle ? ` (${factor.principle})` : ''} — ${factor.detail}`);
+      }
+    }
+    lines.push('');
+  }
+
   lines.push(`### APP Control Status`);
   lines.push('');
   lines.push(`| Principle | Obligation | Status | Score |`);
@@ -1003,6 +1434,39 @@ function renderPDFExecutiveSummary(
     doc.fillColor('#a16207').text(getAssessmentIncompleteSummary(report.assessment)!);
   }
   doc.moveDown();
+
+  if (report.consultantNarrative) {
+    doc.fontSize(16).fillColor('#1a2332').text('Consultant Narrative');
+    doc.moveDown(0.5);
+    doc.fontSize(11).fillColor('#334155').text(report.consultantNarrative.executiveSummary);
+    doc.moveDown(0.3);
+    doc.text(`Evidence basis: ${report.consultantNarrative.evidenceBasis}`);
+    doc.moveDown(0.3);
+    doc.text(`Remediation focus: ${report.consultantNarrative.remediationFocus}`);
+    doc.moveDown();
+  }
+
+  if (report.breachReadiness) {
+    doc.fontSize(16).fillColor('#1a2332').text('Breach Readiness');
+    doc.moveDown(0.5);
+    doc.fontSize(11).fillColor('#0f172a').text(`Score: ${report.breachReadiness.score}/100`);
+    doc.text(`Level: ${report.breachReadiness.level.toUpperCase()}`);
+    doc.text(`Confidence: ${Math.round(report.breachReadiness.confidence * 100)}%`);
+    doc.text(`Evidence basis: ${report.breachReadiness.evidenceBasis}`);
+    doc.moveDown(0.3);
+    doc.fillColor('#334155').text(report.breachReadiness.summary);
+    if (report.breachReadiness.topFactors.length > 0) {
+      doc.moveDown(0.3);
+      doc.fillColor('#0f172a').text('Top readiness factors:');
+      for (const factor of report.breachReadiness.topFactors) {
+        doc
+          .fontSize(10)
+          .fillColor('#334155')
+          .text(`${factor.severity.toUpperCase()} / ${factor.type}: ${factor.title}${factor.principle ? ` (${factor.principle})` : ''}`);
+      }
+    }
+    doc.moveDown();
+  }
 
   doc.fontSize(16).fillColor('#1a2332').text('Finding Summary');
   doc.moveDown(0.5);

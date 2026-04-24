@@ -8,6 +8,7 @@ AttestLens automatically scans your codebase for Australian Privacy Act (APP/NDB
 
 - **Hard moat**: Questionnaire questions reflect actual *statutory requirements* from the Australian Privacy Act, not generic compliance checkboxes
 - **Automated mapping**: Security findings → APP obligations with confidence scoring
+- **Breach readiness**: Additive readiness score and confidence model without hiding the underlying APP/NDB result
 - **Consultant-grade reports**: HTML/JSON/Markdown/PDF output that looks like a Big 4 deliverable
 - **Strict mode**: Treat all UNKNOWN controls as FAIL — no hiding behind "we don't know"
 - **AI-native**: MCP server for Cursor/Windsurf integration, including direct URL scans in-context
@@ -235,7 +236,7 @@ npm install
 # Build
 npm run build
 
-# Test (125 tests)
+# Test (195 tests)
 npm test
 
 # Run the live validation corpus
@@ -260,16 +261,21 @@ npm run lint
 - MCP server (4 tools, including URL scan)
 - Validation corpus runner + findings log
 - Stack-specific repo security checks for Supabase, Firebase, Stripe, Clerk/Auth0, Vercel/Netlify secrets
-- 125 tests
+- 195 tests
 - Strict mode
 - Supply chain detection (7 rules, Axios-attack coverage)
 
-### Phase 2 (Next)
+### Phase 2 ✅ (M2 closeout)
 - Interactive attestation questionnaire (UNKNOWN → PASS/FAIL)
-- Design-partner validation and consultant outreach
-- Breach-readiness scoring and richer consultant deliverables
+- Frozen assessment basis (`artifact_only`, `codebase_only`, `operator_attested`)
+- Merged scan + questionnaire reporting
+- Breach-readiness scoring and deterministic consultant narratives
+- Design-partner validation workflow and refreshed sample reports
+
+### Phase 2.5 (Next)
+- Rule freshness pipeline
 - GuardVibe MCP integration (live scanner, not just fallback)
-- Additional framework support (GDPR, SOC 2, HIPAA)
+- Additional framework support research (GDPR, SOC 2, HIPAA)
 
 ### Phase 3 (Future)
 - Web dashboard (React + real-time scan progress)

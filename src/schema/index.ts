@@ -285,6 +285,52 @@ export const ReportAssessment = z.object({
 });
 export type ReportAssessment = z.infer<typeof ReportAssessment>;
 
+export const BreachReadinessEvidenceBasis = z.enum(['scanner_only', 'artifact_only', 'codebase_only', 'operator_attested']);
+export type BreachReadinessEvidenceBasis = z.infer<typeof BreachReadinessEvidenceBasis>;
+
+export const BreachReadinessLevel = z.enum(['strong', 'moderate', 'limited', 'weak']);
+export type BreachReadinessLevel = z.infer<typeof BreachReadinessLevel>;
+
+export const BreachReadinessFactor = z.object({
+  type: z.enum(['scanner', 'questionnaire', 'assessment_gap']),
+  principle: APPPrinciple.optional(),
+  severity: Severity,
+  title: z.string(),
+  detail: z.string(),
+  findingIds: z.array(z.string()).optional(),
+});
+export type BreachReadinessFactor = z.infer<typeof BreachReadinessFactor>;
+
+export const BreachReadiness = z.object({
+  evidenceBasis: BreachReadinessEvidenceBasis,
+  score: z.number().min(0).max(100),
+  level: BreachReadinessLevel,
+  confidence: z.number().min(0).max(1),
+  summary: z.string(),
+  topFactors: z.array(BreachReadinessFactor),
+});
+export type BreachReadiness = z.infer<typeof BreachReadiness>;
+
+export const ConsultantNarrativePriority = z.enum(['immediate', 'near_term', 'monitor']);
+export type ConsultantNarrativePriority = z.infer<typeof ConsultantNarrativePriority>;
+
+export const PrincipleNarrative = z.object({
+  principle: APPPrinciple,
+  status: ControlStatus,
+  priority: ConsultantNarrativePriority,
+  summary: z.string(),
+});
+export type PrincipleNarrative = z.infer<typeof PrincipleNarrative>;
+
+export const ConsultantNarrative = z.object({
+  executiveSummary: z.string(),
+  evidenceBasis: z.string(),
+  keyRisks: z.array(z.string()),
+  principleNarratives: z.array(PrincipleNarrative),
+  remediationFocus: z.string(),
+});
+export type ConsultantNarrative = z.infer<typeof ConsultantNarrative>;
+
 export const ComplianceReport = z.object({
   id: z.string(),
   timestamp: z.string().datetime(),
@@ -302,6 +348,8 @@ export const ComplianceReport = z.object({
   questionnaire: z.array(QuestionnaireResponse).optional(),
   questionnaireResults: z.array(QuestionnairePrincipleResult).optional(),
   assessment: ReportAssessment.optional(),
+  breachReadiness: BreachReadiness.optional(),
+  consultantNarrative: ConsultantNarrative.optional(),
   remediation: z.array(RemediationItem),
   metadata: z.object({
     scannerVersions: z.record(z.string(), z.string()),

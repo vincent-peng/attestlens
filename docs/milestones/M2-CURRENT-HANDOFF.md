@@ -23,26 +23,27 @@ The latest correctness follow-up also landed:
 - evidence-limited merged reports now carry `assessment` metadata and no longer surface as `A / low-risk`
 - `attest --assessment-mode` exists and validation scenarios now freeze recommended modes
 
+The M2 closeout implementation is now in place:
+
+- breach-readiness scoring is additive to the existing overall score/grade/risk fields
+- consultant-facing deterministic narrative sections render in report outputs
+- GuardVibe fallback and orchestrator tests use deterministic temp fixtures
+- `AL-INFRA-006` now requires stronger WordPress-login evidence and has regression coverage
+
 ---
 
 ## Verified In This State
 
 These commands passed on 2026-04-24:
 
-- `npm test -- src/questionnaire/index.test.ts src/cli/index.test.ts src/report/generator.test.ts src/validation/attest.test.ts`
+- `npm test -- src/scanner/guardvibe.test.ts src/scanner/orchestrator.test.ts`
+- `npm test -- src/report/generator.test.ts src/cli/index.test.ts src/schema/index.test.ts`
+- `npm test -- src/scanner/url-scan.test.ts`
+- `npm test`
 - `npm run lint`
 - `npm run build`
 
-Full `npm test` is **not** green yet.
-
-Known unrelated failures still present:
-
-- `src/scanner/guardvibe.test.ts`
-  - static fallback findings for `VS-HARDKEY`, `VS-XSS`, `VS-DEBUG`, and `VS-ENV` are returning `0`
-- `src/scanner/orchestrator.test.ts`
-  - `should return findings from scan` fails because the GuardVibe fallback returns `0` findings
-
-Treat those as the current engineering cleanup item, not as unresolved M2 questionnaire/report correctness work.
+Run the full verification suite again after any further report or scanner-rule changes.
 
 ---
 
@@ -76,17 +77,14 @@ Project tracking:
 
 ## Remaining M2 Work
 
-1. Add breach-readiness scoring on top of the current merged report baseline.
-2. Add consultant-facing narrative sections once scoring lands.
-3. Clean up the remaining validation noise:
-   - `AL-INFRA-006` in the saved Vercel artifact
-4. Restore a fully green `npm test` by fixing the GuardVibe static-fallback regression.
+1. Keep the closeout verification suite green.
+2. Use the refreshed sample reports for design-partner review.
+3. Treat future corpus findings as routine rule-tuning follow-up rather than unresolved M2 foundation work.
 
 ---
 
 ## Suggested Pickup Order
 
-1. Fix the GuardVibe static-fallback regression so the full suite is green again.
-2. Implement breach-readiness scoring using the new `assessment` metadata and incomplete-assessment rules.
-3. Add consultant-facing report narratives after the scoring model is stable.
-4. Re-run the attestation validation scenarios if scoring or report structure meaningfully changes.
+1. Run `npm test`, `npm run lint`, and `npm run build`.
+2. Review refreshed Juice Shop sample report output.
+3. Move to M2.5 rule freshness once design-partner review does not uncover M2 report-shape blockers.

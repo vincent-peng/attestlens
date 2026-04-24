@@ -16,9 +16,9 @@ Replay basis: the saved 2026-04-23 scenario answers were re-evaluated against th
 | Date | Scenario | Replay Basis | Outcome Shift | Remaining Notes |
 |---|---|---|---|---|
 | 2026-04-23 | example-baseline | artifact_only | APP 3 and APP 5 now resolve as `PASS` for the reviewed surface; APP 6 / 7 / 8 / 10 / 12 / NDB now stay `UNKNOWN` instead of false-failing from missing operator evidence. | APP 1 and APP 13 still depend on what the public artifact visibly discloses. |
-| 2026-04-23 | vercel-marketing | artifact_only | APP 3 and APP 5 now resolve as `PASS` for the reviewed surface; APP 6 / 7 / 8 / 10 / 12 / NDB now stay `UNKNOWN` instead of false-failing from missing operator evidence. | `AL-INFRA-006` remains validation noise in the saved corpus artifact. |
+| 2026-04-23 | vercel-marketing | artifact_only | APP 3 and APP 5 now resolve as `PASS` for the reviewed surface; APP 6 / 7 / 8 / 10 / 12 / NDB now stay `UNKNOWN` instead of false-failing from missing operator evidence. | `AL-INFRA-006` was fixed in the M2 closeout rule cleanup. |
 | 2026-04-23 | juice-shop-demo | artifact_only | Governance-heavy branches now stay `UNKNOWN` without operator evidence; APP 3 / APP 5 still fail when direct collection is clearly in scope on the reviewed surface. | APP 2 remains the main speculative branch on a high-interaction public demo surface. |
-| 2026-04-23 | private-consultant-dry-run | codebase_only | Repo-only replay no longer forces live-service governance fails; APP 7 / 8 / 10 / 12 now stay `UNKNOWN`, and the report now labels codebase-only evidence plus scanner-derived APP 11 findings separately. | Further report polish can wait for consultant-facing narrative sections. |
+| 2026-04-23 | private-consultant-dry-run | codebase_only | Repo-only replay no longer forces live-service governance fails; APP 7 / 8 / 10 / 12 now stay `UNKNOWN`, and the report now labels codebase-only evidence plus scanner-derived APP 11 findings separately. | Consultant-facing narrative sections shipped in the M2 closeout. |
 
 Fixed in the remediation patch:
 
@@ -34,10 +34,15 @@ Fixed in the 2026-04-24 correctness follow-up:
 - P1 APP 5 direct-notice branch is reachable in `APP_5`-only sessions
 - P2 validation commands now freeze the scenario-recommended assessment basis via `--assessment-mode`
 
+Fixed in the 2026-04-24 M2 closeout:
+
+- P3 `AL-INFRA-006` WordPress admin detection now requires stronger WordPress-login evidence and has regression coverage for marketing-page `/wp-admin` mentions.
+- M2 reports now include additive breach-readiness scoring and deterministic consultant-facing narrative sections.
+
 ## Remaining Follow-up Queue
 
 | Severity | Type | Affected Scenarios | Symptom | Recommended Fix Type |
 |---|---|---|---|---|
-| P3 | scanner-noise issue | vercel-marketing | `AL-INFRA-006` WordPress admin detection still reads as validation noise in the saved Vercel artifact. | rule cleanup |
+| — | — | — | No open M2 validation follow-up remains after the `AL-INFRA-006` regression fix. | — |
 
 No P1 false-pass outcome was observed in the first validation cycle, the post-remediation replay, or the 2026-04-24 correctness follow-up.

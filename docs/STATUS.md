@@ -56,16 +56,19 @@ In practice, that means:
   - APP 5 direct-notice branch now has a principle-local gate
   - evidence-limited merged reports now carry `assessment` metadata and cap incomplete outcomes
   - validation helper commands now freeze scenario-recommended assessment modes
+- M2 closeout:
+  - additive breach-readiness score and confidence model in JSON, HTML, Markdown, PDF, and CLI summaries
+  - deterministic consultant-facing narrative sections for executive summary, evidence basis, key risks, principle framing, and remediation focus
+  - GuardVibe fallback tests now use deterministic local fixtures
+  - `AL-INFRA-006` WordPress admin detection now requires stronger WordPress-login evidence
 
 ### In Progress
 
 - Design-partner validation and consultant/MSP outreach
-- Phase 2 follow-on work: breach-readiness scoring, consultant-facing report narratives, and the remaining validation/rule cleanup
 - Validation-driven rule cleanup for remaining live-site false positives and CDN/bot-blocked targets
 
 ### Not Shipped
 
-- breach-readiness scoring
 - rule update pipeline
 - web dashboard / billing / SaaS operations
 
@@ -110,14 +113,15 @@ In practice, that means:
 - attestation validation runbook, scenarios, local prep helper, and patch queue exist
 - stack-specific repo checks exist
 - sanitized sample Juice Shop report exists
+- breach-readiness scoring and consultant-facing report narratives exist
+- `AL-INFRA-006` validation-noise regression coverage exists
 - M2 pickup note exists in `docs/milestones/M2-CURRENT-HANDOFF.md`
 
 ### Immediate M2 Work
 
-1. Add breach-readiness scoring on top of the remediated merged scan + questionnaire baseline.
-2. Add consultant-facing narrative sections once the scoring layer is in place.
-3. Close the small remaining follow-up queue from `docs/validation/ATTESTATION-LOG.md` (`AL-INFRA-006` validation noise).
-4. Restore a fully green `npm test` by fixing the GuardVibe static-fallback regressions tracked in `docs/milestones/M2-CURRENT-HANDOFF.md`.
+1. Use the refreshed M2 sample reports for design-partner validation.
+2. Keep the closeout suite green while collecting report-shape feedback.
+3. Start M2.5 rule-freshness work once design-partner review does not uncover M2 report blockers.
 
 ---
 
@@ -168,11 +172,10 @@ These are the default operating rules for the project.
 
 ### Next 2 Weeks
 
-1. Start design-partner outreach with the v0.2.0 sample report.
-2. Add breach-readiness scoring on top of the merged scan + questionnaire baseline.
-3. Add consultant-facing narrative sections now that the remediation patch has stabilized the merged report shape.
-4. Fix the GuardVibe static-fallback regression so the full test suite is green again.
-5. Triage the remaining validation noise (`AL-INFRA-006`, duplicate API-key semantics).
+1. Start design-partner outreach with the refreshed M2 sample report.
+2. Collect consultant feedback on breach-readiness scoring, narrative usefulness, and remediation ordering.
+3. Keep `npm test`, `npm run lint`, and `npm run build` green while feedback-driven tuning happens.
+4. Move into M2.5 rule freshness once report-shape feedback does not expose M2 blockers.
 
 ### Explicitly Not Now
 

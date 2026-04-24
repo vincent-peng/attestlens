@@ -1,13 +1,25 @@
-import { beforeAll, describe, expect, it } from 'vitest';
+import fs from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
+
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { GuardVibeAdapter } from './guardvibe.js';
 import type { ScannerResult } from './types.js';
 
 describe('GuardVibeAdapter', { timeout: 20000 }, () => {
   const adapter = new GuardVibeAdapter();
   let scanResult: ScannerResult;
+  let fixtureDir: string;
 
   beforeAll(async () => {
-    scanResult = await adapter.scan('/tmp/vulnerable-app');
+    fixtureDir = await createVulnerableAppFixture();
+    scanResult = await adapter.scan(fixtureDir);
+  });
+
+  afterAll(async () => {
+    if (fixtureDir) {
+      await fs.rm(fixtureDir, { recursive: true, force: true });
+    }
   });
 
   it('should always be available (static fallback)', async () => {
@@ -60,3 +72,28 @@ describe('GuardVibeAdapter', { timeout: 20000 }, () => {
     expect(scanResult.errors.length).toBeGreaterThanOrEqual(0);
   });
 });
+
+async function createVulnerableAppFixture(): Promise<string> {
+  const fixtureDir = await fs.mkdtemp(path.join(os.tmpdir(), 'attestlens-vulnerable-app-'));
+  await fs.mkdir(path.join(fixtureDir, 'src'), { recursive: true });
+
+  await fs.writeFile(
+    path.join(fixtureDir, '.env'),
+    [
+      'api_key="1234567890abcdef1234567890abcdef"',
+      'NEXT_PUBLIC_SECRET=public-secret-value',
+    ].join('\n'),
+  );
+
+  await fs.writeFile(
+    path.join(fixtureDir, 'src', 'App.tsx'),
+    [
+      'export function App({ html, token }: { html: string; token: string }) {',
+      '  console.log("token", token);',
+      '  return <div dangerouslySetInnerHTML={{ __html: html }} />;',
+      '}',
+    ].join('\n'),
+  );
+
+  return fixtureDir;
+}

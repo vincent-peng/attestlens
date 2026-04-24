@@ -463,6 +463,35 @@ describe('Infrastructure Checks', () => {
       expect(check.fixPrompt.length).toBeGreaterThan(50);
     }
   });
+
+  it('does not flag WordPress admin when a marketing page only mentions wp-admin', async () => {
+    const wordpressCheck = INFRA_CHECKS.find(c => c.id === 'AL-INFRA-006')!;
+    const adapter = new UrlScanAdapter();
+    stubPublicLookup(adapter);
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(response('Our migration guide mentions /wp-admin for customers.', {
+      status: 200,
+    })));
+    const findings: any[] = [];
+
+    await (adapter as any).probeInfra(wordpressCheck, new URL('https://example.com'), findings);
+
+    expect(findings).toHaveLength(0);
+  });
+
+  it('flags WordPress admin when login-page evidence is present', async () => {
+    const wordpressCheck = INFRA_CHECKS.find(c => c.id === 'AL-INFRA-006')!;
+    const adapter = new UrlScanAdapter();
+    stubPublicLookup(adapter);
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(response('<html><form id="loginform"><input name="wp-submit"><a href="/wp-login.php">Log in</a></form></html>', {
+      status: 200,
+    })));
+    const findings: any[] = [];
+
+    await (adapter as any).probeInfra(wordpressCheck, new URL('https://example.com'), findings);
+
+    expect(findings).toHaveLength(1);
+    expect(findings[0].sourceRule).toBe('AL-INFRA-006');
+  });
 });
 
 describe('JS Pattern Analysis', () => {

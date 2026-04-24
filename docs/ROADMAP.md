@@ -26,14 +26,15 @@
 - ✅ Attestation validation workflow with scenario manifest, prep helper, runbook, and sanitized review log
 - ✅ Stack-specific repo checks for Supabase, Firebase, Stripe, Clerk/Auth0, and platform secrets
 - ✅ Security hardening including SSRF protection for URL scanning
+- ✅ Breach-readiness scoring as an additive report object
+- ✅ Consultant-facing deterministic narrative report sections
+- ✅ GuardVibe fallback test recovery and `AL-INFRA-006` rule-noise cleanup
 
 **What's NOT built yet:**
-- ❌ Breach-readiness scoring
-- ❌ Consultant-facing narrative report sections
 - ❌ Rule update pipeline
 - ❌ Web dashboard
 
-**Current focus:** Close M2 with breach-readiness scoring and consultant-grade narratives on top of the now-stable attestation/report baseline, while cleaning up the remaining validation noise and restoring a fully green test suite.
+**Current focus:** Use the refreshed consultant-grade M2 sample report for design-partner review, then move into M2.5 rule freshness.
 
 ---
 
@@ -98,20 +99,18 @@ Phase 4   — Launch & Growth
   - governance-heavy principles remain `UNKNOWN` in evidence-limited modes instead of false-failing
   - APP 11 scanner evidence is separated from questionnaire-backed assumptions
   - incomplete evidence-limited merged reports no longer surface as `A / low-risk`
+- Breach-readiness scoring rendered in JSON, HTML, Markdown, PDF, and CLI summaries
+- Consultant-facing deterministic report narratives before the detailed control checklist
+- GuardVibe static-fallback regression fixed with deterministic fixtures
+- `AL-INFRA-006` WordPress admin rule tightened to require stronger WordPress-login evidence
 
 ### Remaining Phase 2 Work
 
-1. **Breach-readiness scoring**
-   - aggregate scanner findings + questionnaire state into a single readiness score
-   - reflect incomplete evidence basis without overstating confidence
-   - render the score consistently in JSON/HTML/Markdown/PDF
-2. **Consultant-facing report narratives**
-   - executive-summary narrative
-   - principle-level consultant framing
-   - clearer remediation prioritization for external delivery
-3. **Remaining cleanup**
-   - `AL-INFRA-006` validation noise in saved public artifacts
-   - restore full green `npm test` by fixing the GuardVibe static-fallback regression
+1. **Final closeout verification**
+   - `npm test`, `npm run lint`, and `npm run build` are green as of 2026-04-24
+   - use refreshed samples for design-partner review
+2. **Routine validation follow-up**
+   - continue tuning live-site false positives as new corpus evidence appears
 
 **Exit criteria:** breach-readiness scoring shipped, consultant-facing narrative sections shipped, validation follow-up queue reduced to routine rule tuning, and the attestation/report baseline remains stable under rerun.
 
