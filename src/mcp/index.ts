@@ -267,6 +267,7 @@ function buildScanSummary(result: Awaited<ReturnType<ScannerOrchestrator['scan']
     },
     errors: result.errors,
     durationMs: result.totalDurationMs,
+    ruleFreshness: result.ruleFreshness,
   };
 }
 
@@ -369,6 +370,7 @@ export async function handleToolCall(name: string, args: Record<string, unknown>
         formats: [format],
         outputDir: '/tmp/attestlens-mcp',
         strictMode: strict,
+        ruleFreshness: scanResult.ruleFreshness,
       };
       const report = buildComplianceReport(scanResult.findings, reportOptions, duration);
       report.metadata.scannerVersions = Object.fromEntries(

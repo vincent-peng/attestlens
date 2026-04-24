@@ -1,7 +1,7 @@
 # AttestLens — Rule Update Pipeline & Rapid Response Design
 
 **Date:** 2026-04-18
-**Status:** Design Document (pre-implementation)
+**Status:** Foundation started
 
 ---
 
@@ -101,10 +101,10 @@ attestlens/
 ```
 
 **Update mechanism:**
-1. **npm package** ships with embedded `core.json` (offline-safe)
-2. **`attestlens update-rules`** fetches latest from GitHub Releases or CDN
-3. **`--auto-update`** flag on scan checks for new rules before scanning (with cache)
-4. **Rule freshness check** in every scan output: "Rules: 2026.4.18 (2 days old)"
+1. **npm package** ships with an embedded rule pack generated from current TypeScript rule definitions
+2. **`attestlens update-rules`** refreshes the local cache from embedded, local JSON, or HTTPS JSON sources
+3. **`--auto-update`** is available on scan/audit/attest scan flows and remains opt-in
+4. **Rule freshness metadata** is attached to scan summaries, MCP output, snapshots, JSON reports, Markdown, HTML, and PDF
 5. **Webhook/Poll** for Pro tier (future): push notifications when new rules available
 
 **Speed target:** New rule for a public CVE → published within **4 hours** of advisory.
@@ -218,12 +218,27 @@ jobs:
 
 ### Phase 1: Rule Pack System (Week 1)
 
-- [ ] Create `src/scanner/rules/` directory structure
-- [ ] Define rule schema (JSON with id, pattern, severity, APP mapping, fixPrompt, CVE, addedIn)
-- [ ] Build rule loader that reads from embedded + remote rule packs
-- [ ] Add `attestlens update-rules` CLI command
-- [ ] Add `--auto-update` flag (check for new rules, cache locally)
-- [ ] Add rule freshness timestamp to scan output
+Foundation shipped:
+
+- `RuleDefinition`, `RulePackManifest`, and `RuleFreshness` schemas
+- embedded rule pack generated from shipped GuardVibe static, supply-chain, URL header, infra, key, and JS definitions
+- deterministic loader with valid-cache overlay and corrupt-cache fallback to embedded rules
+- `attestlens update-rules`
+- opt-in `--auto-update`
+- rule freshness metadata in scan/report surfaces
+
+Still remaining:
+
+- execute selected scanner paths directly from the rule pack instead of only mirroring existing definitions
+- finalize remote publishing and trust policy
+- add advisory monitors and generated-rule publishing
+
+- [x] Create `src/scanner/rules/` directory structure
+- [x] Define rule schema (id, pattern, severity, APP mapping, fixPrompt, CVE, addedIn)
+- [x] Build rule loader that reads from embedded + cached rule packs
+- [x] Add `attestlens update-rules` CLI command
+- [x] Add opt-in `--auto-update` flag (refresh cache before scanning)
+- [x] Add rule freshness metadata to scan and report output
 
 ### Phase 2: Behavioral Heuristics Expansion (Week 2)
 

@@ -28,6 +28,9 @@ attestlens audit ./my-project -n "MyApp"
 # Live-site compliance audit
 attestlens audit https://example.com -n "Example" -f html,json,pdf
 
+# Refresh local rule-pack cache
+attestlens update-rules
+
 # Strict mode — UNKNOWN controls become FAIL
 attestlens audit ./my-project -n "MyApp" --strict
 
@@ -49,6 +52,7 @@ Scan a project directory or public URL for privacy compliance findings.
 ```bash
 attestlens scan ./my-project
 attestlens scan https://example.com
+attestlens scan ./my-project --auto-update      # Refresh cached rule pack before scanning
 attestlens scan ./my-project --no-guardvibe   # Skip GuardVibe scanner
 attestlens scan ./my-project --no-mcp-scan     # Skip MCP config scanner
 ```
@@ -72,9 +76,19 @@ attestlens audit ./my-project -n "MyApp" -o ./reports --strict
 | `-f, --format <formats>` | Output formats: json, html, markdown, pdf | `html,json` |
 | `-o, --output <dir>` | Output directory | `./attestlens-reports` |
 | `--strict` | Treat UNKNOWN controls as FAIL | `false` |
+| `--auto-update` | Refresh cached rule pack before scanning | `false` |
 | `--no-guardvibe` | Disable GuardVibe scanner | — |
 | `--no-mcp-scan` | Disable MCP config scanner | — |
 | `--no-supply-chain` | Disable supply chain scanner | — |
+
+### `attestlens update-rules`
+
+Refresh the local rule-pack cache. Without a source, AttestLens caches its embedded rule pack. Use `--source <url-or-path>` for local or HTTPS rule-pack JSON.
+
+```bash
+attestlens update-rules
+attestlens update-rules --source ./rules/latest.json
+```
 
 ### `attestlens report <file>`
 
@@ -273,7 +287,8 @@ npm run lint
 - Design-partner validation workflow and refreshed sample reports
 
 ### Phase 2.5 (Next)
-- Rule freshness pipeline
+- Rule freshness foundation: typed manifest, embedded rule pack, cache fallback, `update-rules`, opt-in `--auto-update`
+- Next: executable rule-pack migration and advisory monitoring pipeline
 - GuardVibe MCP integration (live scanner, not just fallback)
 - Additional framework support research (GDPR, SOC 2, HIPAA)
 

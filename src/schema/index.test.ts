@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { ScanSource } from './index.js';
+import { RulePackManifest, RuleFreshness, ScanSource } from './index.js';
 
 describe('ScanSource', () => {
   it('only exposes shipped scanner sources', () => {
@@ -15,5 +15,38 @@ describe('ScanSource', () => {
       'questionnaire',
     ]);
     expect(ScanSource.options).not.toContain('shannon');
+  });
+});
+
+describe('Rule pack schemas', () => {
+  it('validates rule pack manifests and freshness metadata', () => {
+    const manifest = RulePackManifest.parse({
+      schemaVersion: '1.0',
+      version: '2026.04.24',
+      generated: '2026-04-24T00:00:00.000Z',
+      rules: [
+        {
+          id: 'AL-TEST-001',
+          category: 'test',
+          severity: 'high',
+          title: 'Test rule',
+          description: 'A test rule',
+          addedIn: '2026.04.24',
+        },
+      ],
+    });
+
+    expect(manifest.rules[0].enabled).toBe(true);
+    expect(manifest.rules[0].tags).toEqual([]);
+
+    expect(RuleFreshness.parse({
+      version: '2026.04.24',
+      generated: '2026-04-24T00:00:00.000Z',
+      loadedAt: '2026-04-24T01:00:00.000Z',
+      source: 'embedded',
+      ruleCount: 1,
+      ageDays: 0,
+      stale: false,
+    }).source).toBe('embedded');
   });
 });

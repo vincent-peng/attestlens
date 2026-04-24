@@ -331,6 +331,48 @@ export const ConsultantNarrative = z.object({
 });
 export type ConsultantNarrative = z.infer<typeof ConsultantNarrative>;
 
+// ─── Rule Pack Metadata ─────────────────────────────────────────────────────
+
+export const RulePackSource = z.enum(['embedded', 'cache', 'remote']);
+export type RulePackSource = z.infer<typeof RulePackSource>;
+
+export const RuleDefinition = z.object({
+  id: z.string(),
+  category: z.string(),
+  severity: Severity,
+  title: z.string(),
+  description: z.string(),
+  pattern: z.string().optional(),
+  flags: z.string().optional(),
+  fixPrompt: z.string().optional(),
+  appMappings: z.array(APPMapping).default([]),
+  cve: z.string().nullable().optional(),
+  addedIn: z.string(),
+  enabled: z.boolean().default(true),
+  tags: z.array(z.string()).default([]),
+});
+export type RuleDefinition = z.infer<typeof RuleDefinition>;
+
+export const RulePackManifest = z.object({
+  schemaVersion: z.literal('1.0'),
+  version: z.string(),
+  generated: z.string().datetime(),
+  rules: z.array(RuleDefinition),
+});
+export type RulePackManifest = z.infer<typeof RulePackManifest>;
+
+export const RuleFreshness = z.object({
+  version: z.string(),
+  generated: z.string().datetime(),
+  loadedAt: z.string().datetime(),
+  source: RulePackSource,
+  cachePath: z.string().optional(),
+  ruleCount: z.number().int().nonnegative(),
+  ageDays: z.number().int().nonnegative(),
+  stale: z.boolean(),
+});
+export type RuleFreshness = z.infer<typeof RuleFreshness>;
+
 export const ComplianceReport = z.object({
   id: z.string(),
   timestamp: z.string().datetime(),
@@ -356,6 +398,7 @@ export const ComplianceReport = z.object({
     deterministicHash: z.string(),
     scanDurationMs: z.number(),
     configHash: z.string(),
+    ruleFreshness: RuleFreshness.optional(),
   }),
   disclaimer: z.string(),
 });

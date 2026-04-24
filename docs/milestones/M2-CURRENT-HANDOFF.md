@@ -30,6 +30,14 @@ The M2 closeout implementation is now in place:
 - GuardVibe fallback and orchestrator tests use deterministic temp fixtures
 - `AL-INFRA-006` now requires stronger WordPress-login evidence and has regression coverage
 
+The first M2.5 pickup slice has also started:
+
+- M2 was published to `origin/main` at `4e5cb31`
+- design-partner feedback now has one tracking file at `docs/validation/DESIGN-PARTNER-VALIDATION.md`
+- rule-pack manifest and freshness metadata exist
+- `attestlens update-rules` can refresh the local rule cache from embedded or local/HTTPS JSON sources
+- scan, audit, attest snapshots, MCP output, and reports can carry rule freshness metadata
+
 ---
 
 ## Verified In This State
@@ -80,6 +88,7 @@ Project tracking:
 1. Keep the closeout verification suite green.
 2. Use the refreshed sample reports for design-partner review.
 3. Treat future corpus findings as routine rule-tuning follow-up rather than unresolved M2 foundation work.
+4. Do not broaden M2.5 beyond compatibility-first rule freshness until design-partner feedback does not expose M2 report-shape blockers.
 
 ---
 
@@ -87,4 +96,5 @@ Project tracking:
 
 1. Run `npm test`, `npm run lint`, and `npm run build`.
 2. Review refreshed Juice Shop sample report output.
-3. Move to M2.5 rule freshness once design-partner review does not uncover M2 report-shape blockers.
+3. Log external feedback in `docs/validation/DESIGN-PARTNER-VALIDATION.md`.
+4. Continue M2.5 by making the rule-pack entries executable in scanner paths once report-shape feedback is clean.

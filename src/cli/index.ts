@@ -24,6 +24,7 @@ import {
   generateMarkdownReport,
   generatePDFReport,
 } from '../report/generator.js';
+import { updateRuleCache } from '../scanner/rules/index.js';
 import {
   buildAttestationScanSnapshot,
   buildFrozenSessionQuestions,
@@ -36,7 +37,13 @@ import {
   runAttestationSession,
   saveQuestionnaireSession,
 } from '../questionnaire/index.js';
-import type { AssessmentMode, AttestLensFinding, QuestionnaireSession } from '../schema/index.js';
+import { RuleFreshness } from '../schema/index.js';
+import type {
+  AssessmentMode,
+  AttestLensFinding,
+  QuestionnaireSession,
+  RuleFreshness as RuleFreshnessMetadata,
+} from '../schema/index.js';
 import type { ReportFormat, ReportOptions } from '../report/generator.js';
 import type { ScannerError, ScannerResult } from '../scanner/types.js';
 import type { AttestationPromptRunner, AttestationScanSnapshot, SessionTarget } from '../questionnaire/index.js';
@@ -61,11 +68,13 @@ program
   .option('--no-guardvibe', 'Disable GuardVibe scanner')
   .option('--no-mcp-scan', 'Disable mcp-scan')
   .option('--no-supply-chain', 'Disable supply chain scanner')
+  .option('--auto-update', 'Refresh the cached rule pack before scanning')
   .action(async (targetInput: string, options: any) => {
     console.log(chalk.bold.cyan('\n🔍 AttestLens — Privacy Act Compliance Scanner\n'));
 
     try {
       const target = await resolveCliTarget(targetInput, options.name);
+      await maybeAutoUpdateRules(options);
       const orchestrator = createOrchestrator(target.kind, options);
       const spinner = ora(target.kind === 'url' ? `Scanning URL: ${target.value}` : 'Scanning project...').start();
       const startTime = Date.now();
@@ -78,6 +87,7 @@ program
       }
       const duration = Date.now() - startTime;
       spinner.succeed(`${target.kind === 'url' ? 'URL scan' : 'Scan'} complete in ${(duration / 1000).toFixed(1)}s`);
+      displayRuleFreshness(result.ruleFreshness);
 
       const findings = result.findings;
       if (findings.length === 0) {
@@ -118,12 +128,14 @@ program
   .option('--no-guardvibe', 'Disable GuardVibe scanner')
   .option('--no-mcp-scan', 'Disable mcp-scan')
   .option('--no-supply-chain', 'Disable supply chain scanner')
+  .option('--auto-update', 'Refresh the cached rule pack before scanning')
   .action(async (targetInput: string, options: any) => {
     console.log(chalk.bold.cyan('\n🔍 AttestLens — Privacy Act Compliance Audit\n'));
 
     try {
       const target = await resolveCliTarget(targetInput, options.name);
       const projectName = target.name;
+      await maybeAutoUpdateRules(options);
       const orchestrator = createOrchestrator(target.kind, options);
       const spinner = ora(`Running compliance scan for ${target.kind === 'url' ? 'URL' : 'project'}...`).start();
       const startTime = Date.now();
@@ -144,6 +156,7 @@ program
         formats: reportFormats,
         outputDir: path.resolve(options.output),
         strictMode: options.strict,
+        ruleFreshness: scanResult.ruleFreshness,
       };
 
       const report = buildComplianceReport(scanResult.findings, reportOptions, duration);
@@ -161,6 +174,7 @@ program
       if (report.breachReadiness) {
         console.log(chalk.bold(`  Breach Readiness: ${report.breachReadiness.level.toUpperCase()} (${report.breachReadiness.score}/100, ${Math.round(report.breachReadiness.confidence * 100)}% confidence)`));
       }
+      console.log(chalk.bold(`  Rule Pack: ${formatRuleFreshnessForCli(scanResult.ruleFreshness)}`));
       console.log(chalk.bold('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━'));
       console.log('');
 
@@ -219,6 +233,7 @@ program
   .option('--no-guardvibe', 'Disable GuardVibe scanner')
   .option('--no-mcp-scan', 'Disable mcp-scan')
   .option('--no-supply-chain', 'Disable supply chain scanner')
+  .option('--auto-update', 'Refresh the cached rule pack before scanning')
   .action(async (targetInput: string | undefined, options: any) => {
     console.log(chalk.bold.cyan('\n📝 AttestLens — Privacy Act Attestation\n'));
 
@@ -257,6 +272,7 @@ program
         formats: reportFormats,
         outputDir: path.resolve(options.output),
         strictMode: options.strict,
+        ruleFreshness: extractRuleFreshness(scanData),
       };
 
       const report = buildComplianceReport(scanData.findings || scanData, reportOptions, 0);
@@ -264,6 +280,35 @@ program
 
       console.log(chalk.green('✅ Report generated successfully.'));
     } catch (error: any) {
+      console.error(chalk.red(`Error: ${error.message}`));
+      process.exit(1);
+    }
+  });
+
+// ─── Rule Update Command ─────────────────────────────────────────────────────
+
+program
+  .command('update-rules')
+  .description('Refresh the local AttestLens rule pack cache')
+  .option('--source <url-or-path>', 'Rule pack JSON source. Defaults to embedded pack or ATTESTLENS_RULE_SOURCE')
+  .option('--cache-dir <dir>', 'Rule pack cache directory')
+  .action(async (options: any) => {
+    const spinner = ora('Updating rule pack...').start();
+
+    try {
+      const loaded = await updateRuleCache({
+        source: options.source || process.env.ATTESTLENS_RULE_SOURCE,
+        cacheDir: options.cacheDir ? path.resolve(options.cacheDir) : undefined,
+      });
+
+      spinner.succeed(`Rule pack ${loaded.freshness.version} cached`);
+      console.log(chalk.gray(`  Rules: ${loaded.freshness.ruleCount}`));
+      console.log(chalk.gray(`  Source: ${loaded.freshness.source}`));
+      if (loaded.freshness.cachePath) {
+        console.log(chalk.gray(`  Cache: ${loaded.freshness.cachePath}`));
+      }
+    } catch (error: any) {
+      spinner.fail('Rule update failed');
       console.error(chalk.red(`Error: ${error.message}`));
       process.exit(1);
     }
@@ -310,6 +355,41 @@ async function resolveCliTarget(targetInput: string, explicitName?: string): Pro
     value: resolvedPath,
     name: explicitName || path.basename(resolvedPath),
   };
+}
+
+async function maybeAutoUpdateRules(options: any): Promise<void> {
+  if (!options.autoUpdate) {
+    return;
+  }
+
+  const spinner = ora('Refreshing rule pack...').start();
+  try {
+    const loaded = await updateRuleCache({
+      source: process.env.ATTESTLENS_RULE_SOURCE,
+    });
+    spinner.succeed(`Rule pack ready: ${formatRuleFreshnessForCli(loaded.freshness)}`);
+  } catch (error: any) {
+    spinner.warn(`Rule update skipped: ${error.message}. Continuing with cached or embedded rules.`);
+  }
+}
+
+function extractRuleFreshness(scanData: Record<string, any>): RuleFreshnessMetadata | undefined {
+  const raw = scanData.ruleFreshness || scanData.metadata?.ruleFreshness;
+  if (!raw) {
+    return undefined;
+  }
+
+  return RuleFreshness.parse(raw);
+}
+
+function displayRuleFreshness(ruleFreshness: RuleFreshnessMetadata): void {
+  console.log(chalk.gray(`Rules: ${formatRuleFreshnessForCli(ruleFreshness)}`));
+}
+
+function formatRuleFreshnessForCli(ruleFreshness: RuleFreshnessMetadata): string {
+  const age = ruleFreshness.ageDays === 1 ? '1 day old' : `${ruleFreshness.ageDays} days old`;
+  const state = ruleFreshness.stale ? 'stale' : 'fresh';
+  return `${ruleFreshness.version} (${ruleFreshness.source}, ${ruleFreshness.ruleCount} rules, ${age}, ${state})`;
 }
 
 function createOrchestrator(targetKind: CliTarget['kind'], options: any): ScannerOrchestrator {
@@ -398,6 +478,7 @@ function normalizeScanSnapshot(
         : typeof normalizedScanData.metadata?.scanDurationMs === 'number'
           ? normalizedScanData.metadata.scanDurationMs
           : 0,
+      ruleFreshness: extractRuleFreshness(normalizedScanData),
     },
   };
 }
@@ -407,6 +488,7 @@ function getReportOptionsForSession(
   formats: ReportFormat[],
   outputDir: string,
   strictMode: boolean,
+  ruleFreshness?: RuleFreshnessMetadata,
 ): ReportOptions {
   return {
     targetName: sessionTarget.name,
@@ -415,6 +497,7 @@ function getReportOptionsForSession(
     formats,
     outputDir,
     strictMode,
+    ruleFreshness,
   };
 }
 
@@ -531,6 +614,7 @@ export async function executeAttestCommand(
   } else {
     const target = await resolveCliTarget(targetInput!, options.name);
     sessionTarget = toSessionTarget(target);
+    await maybeAutoUpdateRules(options);
     const orchestrator = createOrchestrator(target.kind, options);
     const spinner = ora(target.kind === 'url' ? `Scanning URL: ${target.value}` : 'Scanning project...').start();
     const startTime = Date.now();
@@ -547,6 +631,7 @@ export async function executeAttestCommand(
       results: scanResult.results,
       errors: scanResult.errors,
       totalDurationMs: Date.now() - startTime,
+      ruleFreshness: scanResult.ruleFreshness,
     });
     const assessmentMode = await resolveAssessmentModeSelection(
       requestedAssessmentMode,
@@ -596,6 +681,7 @@ export async function executeAttestCommand(
     reportFormats,
     path.dirname(sessionPath),
     runResult.session.strictMode,
+    snapshot.ruleFreshness,
   );
   const report = buildComplianceReport(
     snapshot.findings,

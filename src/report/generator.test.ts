@@ -38,6 +38,16 @@ const defaultOptions: ReportOptions = {
   strictMode: false,
 };
 
+const defaultRuleFreshness = {
+  version: '2026.04.24',
+  generated: '2026-04-24T00:00:00.000Z',
+  loadedAt: '2026-04-24T00:00:00.000Z',
+  source: 'embedded' as const,
+  ruleCount: 42,
+  ageDays: 0,
+  stale: false,
+};
+
 function makeQuestionnaireSession(
   overrides: Partial<QuestionnaireSession> = {},
 ): QuestionnaireSession {
@@ -135,9 +145,13 @@ describe('buildComplianceReport', () => {
   });
 
   it('should include scanner metadata', () => {
-    const report = buildComplianceReport([], defaultOptions, 1000);
+    const report = buildComplianceReport([], {
+      ...defaultOptions,
+      ruleFreshness: defaultRuleFreshness,
+    }, 1000);
     expect(report.metadata.scanDurationMs).toBe(1000);
     expect(report.metadata.deterministicHash).toBeTruthy();
+    expect(report.metadata.ruleFreshness).toEqual(defaultRuleFreshness);
   });
 
   it('should include disclaimer', () => {
@@ -327,6 +341,17 @@ describe('generateMarkdownReport', () => {
     expect(md).toContain('### Breach Readiness');
     expect(md).toContain('APP_11');
     expect(md).toContain('Hardcoded key');
+  });
+
+  it('renders rule freshness metadata when present', () => {
+    const report = buildComplianceReport([], {
+      ...defaultOptions,
+      ruleFreshness: defaultRuleFreshness,
+    }, 1000);
+    const md = generateMarkdownReport(report);
+
+    expect(md).toContain('**Rule Pack:** 2026.04.24');
+    expect(md).toContain('42 rules');
   });
 
   it('includes questionnaire outcomes and evidence notes in merged markdown reports', () => {

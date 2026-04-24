@@ -15,6 +15,7 @@ import {
   loadScanSnapshot,
   type AttestationPromptRunner,
 } from '../questionnaire/index.js';
+import { buildEmbeddedRulePack } from '../scanner/rules/index.js';
 import { executeAttestCommand } from './index.js';
 
 const execFileAsync = promisify(execFile);
@@ -134,6 +135,32 @@ describe('CLI URL handling', () => {
       expect(markdown).toContain('**Target URL:** https://example.com/');
       expect(markdown).not.toContain('**Target Path:**');
       expect(markdown).toContain('# Privacy Act Compliance Report — example.com');
+    } finally {
+      await fs.rm(tempDir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('CLI rule update command', () => {
+  it('caches a local rule pack without network access', async () => {
+    const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'attestlens-cli-rules-'));
+    const sourcePath = path.join(tempDir, 'rules.json');
+    const cacheDir = path.join(tempDir, 'cache');
+
+    try {
+      await fs.writeFile(sourcePath, JSON.stringify({
+        ...buildEmbeddedRulePack(),
+        version: '2026.04.25',
+        generated: '2026-04-25T00:00:00.000Z',
+      }, null, 2));
+
+      const result = await runCli(['update-rules', '--source', sourcePath, '--cache-dir', cacheDir]);
+      expect(result.code).toBe(0);
+      expect(`${result.stdout}\n${result.stderr}`).toContain('Rule pack 2026.04.25 cached');
+      expect(result.stdout).toContain('Rules:');
+
+      const cached = JSON.parse(await fs.readFile(path.join(cacheDir, 'latest.json'), 'utf-8'));
+      expect(cached.version).toBe('2026.04.25');
     } finally {
       await fs.rm(tempDir, { recursive: true, force: true });
     }

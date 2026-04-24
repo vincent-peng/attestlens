@@ -7,6 +7,7 @@ import type {
   AttestLensFinding,
   QuestionnaireResponse,
   QuestionnaireSession,
+  RuleFreshness,
 } from '../schema/index.js';
 import type { ScannerError, ScannerResult } from '../scanner/types.js';
 import { aggregatePrincipleResults, evaluateResponse } from './evaluator.js';
@@ -40,6 +41,7 @@ export interface AttestationScanSnapshot {
   results: ScannerResult[];
   errors: ScannerError[];
   totalDurationMs: number;
+  ruleFreshness?: RuleFreshness;
 }
 
 export interface InitializedAttestationSession {
@@ -73,6 +75,7 @@ export function buildAttestationScanSnapshot(params: {
   results?: ScannerResult[];
   errors?: ScannerError[];
   totalDurationMs?: number;
+  ruleFreshness?: RuleFreshness;
 }): AttestationScanSnapshot {
   return {
     targetType: params.target.kind,
@@ -87,6 +90,7 @@ export function buildAttestationScanSnapshot(params: {
     results: params.results || [],
     errors: params.errors || [],
     totalDurationMs: params.totalDurationMs ?? 0,
+    ruleFreshness: params.ruleFreshness,
   };
 }
 

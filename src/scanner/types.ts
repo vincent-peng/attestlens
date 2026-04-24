@@ -5,7 +5,7 @@
  * Each scanner adapter normalizes its output into AttestLensFinding format.
  */
 
-import type { AttestLensFinding, Severity, ScanSource } from '../schema/index.js';
+import type { AttestLensFinding, Severity, ScanSource, RuleFreshness } from '../schema/index.js';
 
 // ─── Scanner Result ──────────────────────────────────────────────────────────
 
@@ -23,6 +23,14 @@ export interface ScannerError {
   message: string;
   code?: string;
   recoverable: boolean;
+}
+
+export interface OrchestratedScanResult {
+  findings: AttestLensFinding[];
+  results: ScannerResult[];
+  errors: ScannerError[];
+  totalDurationMs: number;
+  ruleFreshness: RuleFreshness;
 }
 
 // ─── Scanner Adapter Interface ───────────────────────────────────────────────

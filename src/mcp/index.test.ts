@@ -9,6 +9,18 @@ import { McpError } from '@modelcontextprotocol/sdk/types.js';
 import { ScannerOrchestrator } from '../scanner/orchestrator.js';
 import { handleToolCall, validatePath, validateUrl } from './index.js';
 
+function makeRuleFreshness() {
+  return {
+    version: '2026.04.24',
+    generated: '2026-04-24T00:00:00.000Z',
+    loadedAt: '2026-04-24T00:00:00.000Z',
+    source: 'embedded' as const,
+    ruleCount: 42,
+    ageDays: 0,
+    stale: false,
+  };
+}
+
 describe('MCP Server', () => {
   let tempDir: string;
 
@@ -104,6 +116,7 @@ describe('MCP Server', () => {
         ],
         errors: [],
         totalDurationMs: 42,
+        ruleFreshness: makeRuleFreshness(),
       });
       const disableSpy = vi.spyOn(ScannerOrchestrator.prototype, 'disable');
 
@@ -152,6 +165,7 @@ describe('MCP Server', () => {
           },
         ],
         totalDurationMs: 5,
+        ruleFreshness: makeRuleFreshness(),
       });
 
       await expect(handleToolCall('attestlens_scan_url', {
@@ -165,6 +179,7 @@ describe('MCP Server', () => {
         results: [],
         errors: [],
         totalDurationMs: 10,
+        ruleFreshness: makeRuleFreshness(),
       });
 
       const response = await handleToolCall('attestlens_audit', {

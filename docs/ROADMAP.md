@@ -29,12 +29,14 @@
 - ✅ Breach-readiness scoring as an additive report object
 - ✅ Consultant-facing deterministic narrative report sections
 - ✅ GuardVibe fallback test recovery and `AL-INFRA-006` rule-noise cleanup
+- ✅ M2.5 rule-pack foundation with typed manifests, embedded rules, cache fallback, explicit update command, opt-in auto-update, and rule freshness metadata
 
 **What's NOT built yet:**
-- ❌ Rule update pipeline
+- ❌ Advisory-monitoring rule update pipeline
+- ❌ Executable remote rule migration for all scanner checks
 - ❌ Web dashboard
 
-**Current focus:** Use the refreshed consultant-grade M2 sample report for design-partner review, then move into M2.5 rule freshness.
+**Current focus:** Run design-partner review from `docs/validation/DESIGN-PARTNER-VALIDATION.md` while keeping the M2.5 rule-pack foundation compatibility-first.
 
 ---
 
@@ -124,15 +126,16 @@ Phase 4   — Launch & Growth
 
 | Day | Task | Details |
 |-----|------|---------|
-| D1-2 | **Rule schema** | JSON format with id, pattern, severity, APP mapping, fixPrompt, CVE, addedIn |
-| | | - `src/scanner/rules/core.ts` (embedded) |
-| | | - `src/scanner/rules/loader.ts` (embedded + remote) |
-| D3 | **Rule loader** | Load from embedded pack, then overlay remote updates |
-| | | - `attestlens update-rules` CLI command |
-| | | - `--auto-update` flag on scan |
-| | | - Rule freshness timestamp in scan output |
-| D4 | **Migrate existing rules** | Convert 9 static regex + 8 supply chain → rule pack format |
-| D5 | **Test** | Verify embedded + remote loading, offline fallback |
+| D1-2 | **Rule schema** | Done: typed manifest with id, pattern, severity, APP mapping, fixPrompt, CVE, addedIn |
+| D3 | **Rule loader** | Done: embedded pack, cache overlay, corrupt-cache fallback, `attestlens update-rules`, opt-in `--auto-update` |
+| D4 | **Migrate existing rules** | Started: embedded manifest is generated from current GuardVibe, URL, JS, key, infra, and supply-chain rule definitions |
+| D5 | **Test** | Started: loader, CLI update, schema, report metadata, and MCP metadata tests exist |
+
+Remaining Week 5 work:
+
+- make selected rule-pack entries executable in scanner paths instead of metadata-only
+- define remote publish/source policy before enabling default remote fetches
+- decide whether rule freshness should appear in `attestlens --version`
 
 ### Week 6: Behavioral Heuristics Expansion
 

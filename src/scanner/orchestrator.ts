@@ -5,16 +5,23 @@
  */
 
 import type { AttestLensFinding, ScanSource } from '../schema/index.js';
-import type { ScannerResult, ScannerAdapter, ScannerError, ScannerRegistryEntry } from './types.js';
+import type { ScannerResult, ScannerAdapter, ScannerError, ScannerRegistryEntry, OrchestratedScanResult } from './types.js';
 import { GuardVibeAdapter } from './guardvibe.js';
 import { McpScanAdapter } from './mcp-scan.js';
 import { SupplyChainAdapter } from './supply-chain.js';
 import { UrlScanAdapter } from './url-scan.js';
+import { loadRulePack, type RulePackLoadOptions } from './rules/index.js';
+
+export interface ScannerOrchestratorOptions {
+  rulePack?: RulePackLoadOptions;
+}
 
 export class ScannerOrchestrator {
   private registry: Map<ScanSource, ScannerRegistryEntry> = new Map();
+  private rulePackOptions: RulePackLoadOptions;
 
-  constructor() {
+  constructor(options: ScannerOrchestratorOptions = {}) {
+    this.rulePackOptions = options.rulePack || {};
     // Register default scanners
     this.register(new GuardVibeAdapter());
     this.register(new McpScanAdapter());
@@ -37,16 +44,12 @@ export class ScannerOrchestrator {
     if (entry) entry.enabled = false;
   }
 
-  async scan(targetPath: string, sources?: ScanSource[]): Promise<{
-    findings: AttestLensFinding[];
-    results: ScannerResult[];
-    errors: ScannerError[];
-    totalDurationMs: number;
-  }> {
+  async scan(targetPath: string, sources?: ScanSource[]): Promise<OrchestratedScanResult> {
     const startTime = Date.now();
     const allFindings: AttestLensFinding[] = [];
     const results: ScannerResult[] = [];
     const allErrors: ScannerError[] = [];
+    const rulePack = await loadRulePack(this.rulePackOptions);
 
     const enabledAdapters = Array.from(this.registry.values())
       .filter(entry => entry.enabled)
@@ -99,6 +102,7 @@ export class ScannerOrchestrator {
       results,
       errors: allErrors,
       totalDurationMs: Date.now() - startTime,
+      ruleFreshness: rulePack.freshness,
     };
   }
 

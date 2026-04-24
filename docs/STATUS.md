@@ -61,15 +61,23 @@ In practice, that means:
   - deterministic consultant-facing narrative sections for executive summary, evidence basis, key risks, principle framing, and remediation focus
   - GuardVibe fallback tests now use deterministic local fixtures
   - `AL-INFRA-006` WordPress admin detection now requires stronger WordPress-login evidence
+- M2.5 rule freshness foundation:
+  - typed rule-pack manifest and freshness metadata
+  - embedded rule pack built from current shipped scanner rules
+  - local cache loader with corrupt-cache fallback to embedded rules
+  - explicit `attestlens update-rules` cache refresh command
+  - opt-in `--auto-update` on scan, audit, and attest scan flows
+  - rule-pack freshness metadata in scan summaries, MCP output, saved snapshots, and reports
 
 ### In Progress
 
 - Design-partner validation and consultant/MSP outreach
+- Design-partner feedback tracking in `docs/validation/DESIGN-PARTNER-VALIDATION.md`
 - Validation-driven rule cleanup for remaining live-site false positives and CDN/bot-blocked targets
 
 ### Not Shipped
 
-- rule update pipeline
+- advisory-monitoring rule update pipeline
 - web dashboard / billing / SaaS operations
 
 ---
@@ -121,7 +129,7 @@ In practice, that means:
 
 1. Use the refreshed M2 sample reports for design-partner validation.
 2. Keep the closeout suite green while collecting report-shape feedback.
-3. Start M2.5 rule-freshness work once design-partner review does not uncover M2 report blockers.
+3. Keep M2.5 rule freshness compatibility-first while design-partner review runs.
 
 ---
 
@@ -175,7 +183,7 @@ These are the default operating rules for the project.
 1. Start design-partner outreach with the refreshed M2 sample report.
 2. Collect consultant feedback on breach-readiness scoring, narrative usefulness, and remediation ordering.
 3. Keep `npm test`, `npm run lint`, and `npm run build` green while feedback-driven tuning happens.
-4. Move into M2.5 rule freshness once report-shape feedback does not expose M2 blockers.
+4. Expand M2.5 from rule-pack foundation to migrated executable rules only after report-shape feedback does not expose M2 blockers.
 
 ### Explicitly Not Now
 
