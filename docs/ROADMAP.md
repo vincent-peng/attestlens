@@ -127,9 +127,9 @@ Phase 4   — Launch & Growth
 | Day | Task | Details |
 |-----|------|---------|
 | D1-2 | **Rule schema** | Done: typed manifest with id, pattern, severity, APP mapping, fixPrompt, CVE, addedIn |
-| D3 | **Rule loader** | Done: embedded pack, cache overlay, corrupt-cache fallback, `attestlens update-rules`, opt-in `--auto-update` |
-| D4 | **Migrate existing rules** | Started: embedded manifest is generated from current GuardVibe, URL, JS, key, infra, and supply-chain rule definitions |
-| D5 | **Test** | Started: loader, CLI update, schema, report metadata, and MCP metadata tests exist |
+| D3 | **Rule loader** | Done: embedded pack, cache overlay, corrupt-cache fallback, cache-preserving `attestlens update-rules`, source-gated opt-in `--auto-update`, bounded source loading |
+| D4 | **Migrate existing rules** | Started: embedded manifest is generated from current GuardVibe, URL, JS, key, infra, repo-stack, and supply-chain rule definitions |
+| D5 | **Test** | Started: loader, CLI update, schema, report metadata, MCP metadata, snapshot redaction, and embedded-coverage tests exist |
 
 Remaining Week 5 work:
 

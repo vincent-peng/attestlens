@@ -5,6 +5,8 @@ export {
 } from './embedded.js';
 export {
   RULE_PACK_CACHE_FILENAME,
+  RULE_PACK_FETCH_TIMEOUT_MS,
+  RULE_PACK_MAX_BYTES,
   RULE_PACK_STALE_AFTER_DAYS,
   getDefaultRuleCacheDir,
   getRulePackCachePath,

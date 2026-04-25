@@ -13,11 +13,14 @@ import { buildEmbeddedRulePack } from './embedded.js';
 
 export const RULE_PACK_CACHE_FILENAME = 'latest.json';
 export const RULE_PACK_STALE_AFTER_DAYS = 14;
+export const RULE_PACK_FETCH_TIMEOUT_MS = 10_000;
+export const RULE_PACK_MAX_BYTES = 1_000_000;
 
 export interface LoadedRulePack {
   manifest: RulePackManifestType;
   freshness: RuleFreshnessType;
   warnings: string[];
+  cachePath?: string;
 }
 
 export interface RulePackLoadOptions {
@@ -60,8 +63,9 @@ export async function loadRulePack(options: RulePackLoadOptions = {}): Promise<L
       const cached = await readRulePackFromFile(cachePath);
       return {
         manifest: cached,
-        freshness: buildRuleFreshness(cached, 'cache', now, cachePath),
+        freshness: buildRuleFreshness(cached, 'cache', now),
         warnings,
+        cachePath,
       };
     } catch (error: any) {
       if (error.code !== 'ENOENT') {
@@ -82,22 +86,48 @@ export async function updateRuleCache(options: RulePackUpdateOptions = {}): Prom
   const cacheDir = options.cacheDir || getDefaultRuleCacheDir();
   const cachePath = getRulePackCachePath(cacheDir);
   const now = options.now || new Date();
-  const manifest = options.source
-    ? await loadRulePackFromSource(options.source, options.fetchImpl)
-    : validateRulePackManifest(buildEmbeddedRulePack());
+  const source = options.source?.trim();
 
-  await fs.mkdir(cacheDir, { recursive: true });
-  await fs.writeFile(cachePath, `${JSON.stringify(manifest, null, 2)}\n`, 'utf-8');
+  if (!source) {
+    try {
+      const cached = await readRulePackFromFile(cachePath);
+      return {
+        manifest: cached,
+        freshness: buildRuleFreshness(cached, 'cache', now),
+        warnings: [],
+        cachePath,
+      };
+    } catch (error: any) {
+      if (error.code !== 'ENOENT') {
+        throw new Error(`Cached rule pack is invalid: ${error.message}`);
+      }
+    }
+
+    const embedded = validateRulePackManifest(buildEmbeddedRulePack());
+    await writeRulePackCache(cacheDir, cachePath, embedded);
+
+    return {
+      manifest: embedded,
+      freshness: buildRuleFreshness(embedded, 'cache', now),
+      warnings: [],
+      cachePath,
+    };
+  }
+
+  const manifest = await loadRulePackFromSource(source, options.fetchImpl);
+
+  await writeRulePackCache(cacheDir, cachePath, manifest);
 
   return {
     manifest,
-    freshness: buildRuleFreshness(manifest, options.source && isHttpsUrl(options.source) ? 'remote' : 'cache', now, cachePath),
+    freshness: buildRuleFreshness(manifest, isHttpsUrl(source) ? 'remote' : 'cache', now),
     warnings: [],
+    cachePath,
   };
 }
 
 export async function refreshRulePackIfRequested(options: RulePackUpdateOptions & { autoUpdate?: boolean } = {}): Promise<LoadedRulePack> {
-  if (options.autoUpdate) {
+  if (options.autoUpdate && options.source?.trim()) {
     try {
       return await updateRuleCache(options);
     } catch {
@@ -111,11 +141,7 @@ export async function refreshRulePackIfRequested(options: RulePackUpdateOptions 
 
 async function loadRulePackFromSource(source: string, fetchImpl: typeof fetch = fetch): Promise<RulePackManifestType> {
   if (isHttpsUrl(source)) {
-    const response = await fetchImpl(source);
-    if (!response.ok) {
-      throw new Error(`Rule pack fetch failed with HTTP ${response.status}`);
-    }
-    return validateRulePackManifest(await response.json());
+    return fetchRulePackFromHttps(source, fetchImpl);
   }
 
   if (source.startsWith('http://')) {
@@ -126,8 +152,88 @@ async function loadRulePackFromSource(source: string, fetchImpl: typeof fetch = 
 }
 
 async function readRulePackFromFile(filePath: string): Promise<RulePackManifestType> {
+  const stat = await fs.stat(filePath);
+  if (stat.size > RULE_PACK_MAX_BYTES) {
+    throw new Error(`Rule pack source is too large (${stat.size} bytes, max ${RULE_PACK_MAX_BYTES})`);
+  }
   const raw = await fs.readFile(filePath, 'utf-8');
-  return validateRulePackManifest(JSON.parse(raw));
+  return parseRulePackJson(raw, filePath);
+}
+
+async function fetchRulePackFromHttps(source: string, fetchImpl: typeof fetch): Promise<RulePackManifestType> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), RULE_PACK_FETCH_TIMEOUT_MS);
+
+  try {
+    const response = await fetchImpl(source, { signal: controller.signal });
+    if (!response.ok) {
+      throw new Error(`Rule pack fetch failed with HTTP ${response.status}`);
+    }
+
+    const contentLength = response.headers.get('content-length');
+    if (contentLength && Number(contentLength) > RULE_PACK_MAX_BYTES) {
+      throw new Error(`Rule pack source is too large (${contentLength} bytes, max ${RULE_PACK_MAX_BYTES})`);
+    }
+
+    const raw = await readResponseTextWithLimit(response, RULE_PACK_MAX_BYTES);
+    return parseRulePackJson(raw, source);
+  } catch (error: any) {
+    if (error.name === 'AbortError') {
+      throw new Error(`Rule pack fetch timed out after ${RULE_PACK_FETCH_TIMEOUT_MS}ms`);
+    }
+    throw error;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+async function readResponseTextWithLimit(response: Response, maxBytes: number): Promise<string> {
+  const reader = response.body?.getReader();
+  if (!reader) {
+    const text = await response.text();
+    if (Buffer.byteLength(text, 'utf-8') > maxBytes) {
+      throw new Error(`Rule pack source is too large (max ${maxBytes} bytes)`);
+    }
+    return text;
+  }
+
+  const decoder = new TextDecoder();
+  let totalBytes = 0;
+  let text = '';
+
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) {
+        break;
+      }
+
+      totalBytes += value.byteLength;
+      if (totalBytes > maxBytes) {
+        await reader.cancel();
+        throw new Error(`Rule pack source is too large (max ${maxBytes} bytes)`);
+      }
+
+      text += decoder.decode(value, { stream: true });
+    }
+  } finally {
+    reader.releaseLock();
+  }
+
+  return text + decoder.decode();
+}
+
+function parseRulePackJson(raw: string, sourceLabel: string): RulePackManifestType {
+  try {
+    return validateRulePackManifest(JSON.parse(raw));
+  } catch (error: any) {
+    throw new Error(`Invalid rule pack manifest from ${sourceLabel}: ${error.message}`);
+  }
+}
+
+async function writeRulePackCache(cacheDir: string, cachePath: string, manifest: RulePackManifestType): Promise<void> {
+  await fs.mkdir(cacheDir, { recursive: true });
+  await fs.writeFile(cachePath, `${JSON.stringify(manifest, null, 2)}\n`, 'utf-8');
 }
 
 function validateRulePackManifest(raw: unknown): RulePackManifestType {
@@ -148,7 +254,6 @@ function buildRuleFreshness(
   manifest: RulePackManifestType,
   source: RulePackSource,
   now: Date,
-  cachePath?: string,
 ): RuleFreshnessType {
   const generatedTime = new Date(manifest.generated).getTime();
   const ageDays = Math.max(0, Math.floor((now.getTime() - generatedTime) / 86_400_000));
@@ -158,7 +263,6 @@ function buildRuleFreshness(
     generated: manifest.generated,
     loadedAt: now.toISOString(),
     source,
-    cachePath,
     ruleCount: manifest.rules.filter((rule) => rule.enabled !== false).length,
     ageDays,
     stale: ageDays > RULE_PACK_STALE_AFTER_DAYS,

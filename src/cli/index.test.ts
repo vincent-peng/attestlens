@@ -23,9 +23,21 @@ const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..'
 const tsxBin = path.join(repoRoot, 'node_modules', '.bin', 'tsx');
 const cliEntry = path.join(repoRoot, 'src', 'cli', 'index.ts');
 
-async function runCli(args: string[]): Promise<{ code: number; stdout: string; stderr: string }> {
+async function runCli(
+  args: string[],
+  envOverrides: Record<string, string | undefined> = {},
+): Promise<{ code: number; stdout: string; stderr: string }> {
+  const env = { ...process.env };
+  for (const [key, value] of Object.entries(envOverrides)) {
+    if (value === undefined) {
+      delete env[key];
+    } else {
+      env[key] = value;
+    }
+  }
+
   try {
-    const { stdout, stderr } = await execFileAsync(tsxBin, [cliEntry, ...args], { cwd: repoRoot });
+    const { stdout, stderr } = await execFileAsync(tsxBin, [cliEntry, ...args], { cwd: repoRoot, env });
     return { code: 0, stdout, stderr };
   } catch (error: any) {
     return {
@@ -158,8 +170,71 @@ describe('CLI rule update command', () => {
       expect(result.code).toBe(0);
       expect(`${result.stdout}\n${result.stderr}`).toContain('Rule pack 2026.04.25 cached');
       expect(result.stdout).toContain('Rules:');
+      expect(result.stdout).toContain(`Cache: ${cacheDir}`);
 
       const cached = JSON.parse(await fs.readFile(path.join(cacheDir, 'latest.json'), 'utf-8'));
+      expect(cached.version).toBe('2026.04.25');
+    } finally {
+      await fs.rm(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it('preserves an existing cache when update-rules has no source', async () => {
+    const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'attestlens-cli-rules-'));
+    const sourcePath = path.join(tempDir, 'rules.json');
+    const cacheDir = path.join(tempDir, 'cache');
+
+    try {
+      await fs.writeFile(sourcePath, JSON.stringify({
+        ...buildEmbeddedRulePack(),
+        version: '2026.04.25',
+        generated: '2026-04-25T00:00:00.000Z',
+      }, null, 2));
+
+      expect((await runCli(['update-rules', '--source', sourcePath, '--cache-dir', cacheDir])).code).toBe(0);
+
+      const result = await runCli(
+        ['update-rules', '--cache-dir', cacheDir],
+        { ATTESTLENS_RULE_SOURCE: undefined },
+      );
+      const cached = JSON.parse(await fs.readFile(path.join(cacheDir, 'latest.json'), 'utf-8'));
+      const output = `${result.stdout}\n${result.stderr}`;
+
+      expect(result.code).toBe(0);
+      expect(output).toContain('Rule pack 2026.04.25 cached');
+      expect(cached.version).toBe('2026.04.25');
+    } finally {
+      await fs.rm(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it('does not downgrade cached rules during scan --auto-update without a configured source', async () => {
+    const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'attestlens-cli-rules-'));
+    const sourcePath = path.join(tempDir, 'rules.json');
+    const cacheDir = path.join(tempDir, 'cache');
+    const projectDir = path.join(tempDir, 'project');
+
+    try {
+      await fs.mkdir(projectDir, { recursive: true });
+      await fs.writeFile(path.join(projectDir, 'README.md'), '# Example project\n');
+      await fs.writeFile(sourcePath, JSON.stringify({
+        ...buildEmbeddedRulePack(),
+        version: '2026.04.25',
+        generated: '2026-04-25T00:00:00.000Z',
+      }, null, 2));
+      expect((await runCli(['update-rules', '--source', sourcePath, '--cache-dir', cacheDir])).code).toBe(0);
+
+      const result = await runCli(
+        ['scan', projectDir, '--auto-update', '--no-guardvibe', '--no-mcp-scan', '--no-supply-chain'],
+        {
+          ATTESTLENS_RULE_CACHE_DIR: cacheDir,
+          ATTESTLENS_RULE_SOURCE: undefined,
+        },
+      );
+      const cached = JSON.parse(await fs.readFile(path.join(cacheDir, 'latest.json'), 'utf-8'));
+
+      expect(result.code).toBe(0);
+      expect(result.stdout).toContain('Rule auto-update skipped');
       expect(cached.version).toBe('2026.04.25');
     } finally {
       await fs.rm(tempDir, { recursive: true, force: true });

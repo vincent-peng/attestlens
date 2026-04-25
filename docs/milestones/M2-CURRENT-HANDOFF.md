@@ -35,8 +35,9 @@ The first M2.5 pickup slice has also started:
 - M2 was published to `origin/main` at `4e5cb31`
 - design-partner feedback now has one tracking file at `docs/validation/DESIGN-PARTNER-VALIDATION.md`
 - rule-pack manifest and freshness metadata exist
-- `attestlens update-rules` can refresh the local rule cache from embedded or local/HTTPS JSON sources
-- scan, audit, attest snapshots, MCP output, and reports can carry rule freshness metadata
+- `attestlens update-rules` can refresh the local rule cache from local/HTTPS JSON sources, and no-source runs preserve an existing cache or seed embedded rules when missing
+- `--auto-update` is opt-in and source-gated so scans do not overwrite a newer cache with embedded rules
+- scan, audit, attest snapshots, MCP output, and reports can carry rule freshness metadata without exposing local cache paths
 
 ---
 

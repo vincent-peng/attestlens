@@ -30,6 +30,7 @@ import {
 import type { ReportFormat, ReportOptions } from '../report/generator.js';
 import { ScannerOrchestrator } from '../scanner/orchestrator.js';
 import type { ScannerError, ScannerResult } from '../scanner/types.js';
+import { RuleFreshness as RuleFreshnessSchema } from '../schema/index.js';
 import type { AttestLensFinding } from '../schema/index.js';
 import { sanitizeTargetPathForOutput, sanitizeTargetUrlForOutput } from '../utils/target.js';
 
@@ -267,7 +268,7 @@ function buildScanSummary(result: Awaited<ReturnType<ScannerOrchestrator['scan']
     },
     errors: result.errors,
     durationMs: result.totalDurationMs,
-    ruleFreshness: result.ruleFreshness,
+    ruleFreshness: RuleFreshnessSchema.parse(result.ruleFreshness),
   };
 }
 

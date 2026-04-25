@@ -102,9 +102,9 @@ attestlens/
 
 **Update mechanism:**
 1. **npm package** ships with an embedded rule pack generated from current TypeScript rule definitions
-2. **`attestlens update-rules`** refreshes the local cache from embedded, local JSON, or HTTPS JSON sources
-3. **`--auto-update`** is available on scan/audit/attest scan flows and remains opt-in
-4. **Rule freshness metadata** is attached to scan summaries, MCP output, snapshots, JSON reports, Markdown, HTML, and PDF
+2. **`attestlens update-rules`** refreshes the local cache from local JSON or HTTPS JSON sources, or seeds the embedded pack only when no cache exists
+3. **`--auto-update`** is available on scan/audit/attest scan flows, remains opt-in, and only fetches when `ATTESTLENS_RULE_SOURCE` is configured
+4. **Rule freshness metadata** is attached to scan summaries, MCP output, snapshots, JSON reports, Markdown, HTML, and PDF without exposing local cache paths
 5. **Webhook/Poll** for Pro tier (future): push notifications when new rules available
 
 **Speed target:** New rule for a public CVE → published within **4 hours** of advisory.
@@ -239,6 +239,7 @@ Still remaining:
 - [x] Add `attestlens update-rules` CLI command
 - [x] Add opt-in `--auto-update` flag (refresh cache before scanning)
 - [x] Add rule freshness metadata to scan and report output
+- [x] Harden cache preservation, public metadata redaction, and bounded local/HTTPS manifest loading
 
 ### Phase 2: Behavioral Heuristics Expansion (Week 2)
 
@@ -290,7 +291,7 @@ When a new vulnerability drops (like Axios March 31, 2026):
 **Step 4: Publish (3-4 hours)**
 - Merge to main
 - Publish rule pack to GitHub Release
-- `--auto-update` picks it up
+- `--auto-update` picks it up when `ATTESTLENS_RULE_SOURCE` points at the published HTTPS manifest
 
 **Step 5: Announce (4-6 hours)**
 - Tweet/X post: "AttestLens now detects [CVE]. Rule added X hours after advisory."

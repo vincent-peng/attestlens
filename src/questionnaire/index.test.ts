@@ -22,6 +22,7 @@ import {
   SESSION_INTEGRITY_FAILURE,
   UPGRADE_ASSESSMENT_MODE_REQUIRED,
   aggregatePrincipleResults,
+  buildAttestationScanSnapshot,
   buildFindingsHash,
   buildFrozenSessionQuestions,
   buildQuestionSetHash,
@@ -228,6 +229,39 @@ describe('question bank coverage and flow', () => {
       'Q-APP2-001',
       'Q-APP2-003',
     ]);
+  });
+});
+
+describe('attestation scan snapshots', () => {
+  it('strips internal cache paths from rule freshness metadata', () => {
+    const snapshot = buildAttestationScanSnapshot({
+      target: {
+        kind: 'path',
+        name: 'Example App',
+        path: '/tmp/example-app',
+      },
+      findings: [],
+      ruleFreshness: {
+        version: '2026.04.24',
+        generated: '2026-04-24T00:00:00.000Z',
+        loadedAt: '2026-04-24T01:00:00.000Z',
+        source: 'cache',
+        cachePath: '/Users/alice/.attestlens/rules/latest.json',
+        ruleCount: 42,
+        ageDays: 0,
+        stale: false,
+      } as any,
+    });
+
+    expect(snapshot.ruleFreshness).toEqual({
+      version: '2026.04.24',
+      generated: '2026-04-24T00:00:00.000Z',
+      loadedAt: '2026-04-24T01:00:00.000Z',
+      source: 'cache',
+      ruleCount: 42,
+      ageDays: 0,
+      stale: false,
+    });
   });
 });
 

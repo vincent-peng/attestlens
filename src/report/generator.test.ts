@@ -154,6 +154,21 @@ describe('buildComplianceReport', () => {
     expect(report.metadata.ruleFreshness).toEqual(defaultRuleFreshness);
   });
 
+  it('strips internal cache paths from serialized rule freshness metadata', () => {
+    const report = buildComplianceReport([], {
+      ...defaultOptions,
+      ruleFreshness: {
+        ...defaultRuleFreshness,
+        cachePath: '/Users/alice/.attestlens/rules/latest.json',
+      } as any,
+    }, 1000);
+    const json = generateJSONReport(report);
+
+    expect(report.metadata.ruleFreshness).toEqual(defaultRuleFreshness);
+    expect(json).not.toContain('cachePath');
+    expect(json).not.toContain('/Users/alice');
+  });
+
   it('should include disclaimer', () => {
     const report = buildComplianceReport([], defaultOptions, 1000);
     expect(report.disclaimer).toContain('does not constitute legal advice');

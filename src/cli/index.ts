@@ -68,7 +68,7 @@ program
   .option('--no-guardvibe', 'Disable GuardVibe scanner')
   .option('--no-mcp-scan', 'Disable mcp-scan')
   .option('--no-supply-chain', 'Disable supply chain scanner')
-  .option('--auto-update', 'Refresh the cached rule pack before scanning')
+  .option('--auto-update', 'Refresh the cached rule pack from ATTESTLENS_RULE_SOURCE before scanning')
   .action(async (targetInput: string, options: any) => {
     console.log(chalk.bold.cyan('\n🔍 AttestLens — Privacy Act Compliance Scanner\n'));
 
@@ -128,7 +128,7 @@ program
   .option('--no-guardvibe', 'Disable GuardVibe scanner')
   .option('--no-mcp-scan', 'Disable mcp-scan')
   .option('--no-supply-chain', 'Disable supply chain scanner')
-  .option('--auto-update', 'Refresh the cached rule pack before scanning')
+  .option('--auto-update', 'Refresh the cached rule pack from ATTESTLENS_RULE_SOURCE before scanning')
   .action(async (targetInput: string, options: any) => {
     console.log(chalk.bold.cyan('\n🔍 AttestLens — Privacy Act Compliance Audit\n'));
 
@@ -233,7 +233,7 @@ program
   .option('--no-guardvibe', 'Disable GuardVibe scanner')
   .option('--no-mcp-scan', 'Disable mcp-scan')
   .option('--no-supply-chain', 'Disable supply chain scanner')
-  .option('--auto-update', 'Refresh the cached rule pack before scanning')
+  .option('--auto-update', 'Refresh the cached rule pack from ATTESTLENS_RULE_SOURCE before scanning')
   .action(async (targetInput: string | undefined, options: any) => {
     console.log(chalk.bold.cyan('\n📝 AttestLens — Privacy Act Attestation\n'));
 
@@ -290,7 +290,7 @@ program
 program
   .command('update-rules')
   .description('Refresh the local AttestLens rule pack cache')
-  .option('--source <url-or-path>', 'Rule pack JSON source. Defaults to embedded pack or ATTESTLENS_RULE_SOURCE')
+  .option('--source <url-or-path>', 'Rule pack JSON source. Defaults to ATTESTLENS_RULE_SOURCE; no source preserves or seeds the local cache')
   .option('--cache-dir <dir>', 'Rule pack cache directory')
   .action(async (options: any) => {
     const spinner = ora('Updating rule pack...').start();
@@ -304,8 +304,8 @@ program
       spinner.succeed(`Rule pack ${loaded.freshness.version} cached`);
       console.log(chalk.gray(`  Rules: ${loaded.freshness.ruleCount}`));
       console.log(chalk.gray(`  Source: ${loaded.freshness.source}`));
-      if (loaded.freshness.cachePath) {
-        console.log(chalk.gray(`  Cache: ${loaded.freshness.cachePath}`));
+      if (loaded.cachePath) {
+        console.log(chalk.gray(`  Cache: ${loaded.cachePath}`));
       }
     } catch (error: any) {
       spinner.fail('Rule update failed');
@@ -362,10 +362,16 @@ async function maybeAutoUpdateRules(options: any): Promise<void> {
     return;
   }
 
+  const source = process.env.ATTESTLENS_RULE_SOURCE;
+  if (!source) {
+    console.log(chalk.gray('Rule auto-update skipped: ATTESTLENS_RULE_SOURCE is not set. Using cached or embedded rules.'));
+    return;
+  }
+
   const spinner = ora('Refreshing rule pack...').start();
   try {
     const loaded = await updateRuleCache({
-      source: process.env.ATTESTLENS_RULE_SOURCE,
+      source,
     });
     spinner.succeed(`Rule pack ready: ${formatRuleFreshnessForCli(loaded.freshness)}`);
   } catch (error: any) {

@@ -65,9 +65,10 @@ In practice, that means:
   - typed rule-pack manifest and freshness metadata
   - embedded rule pack built from current shipped scanner rules
   - local cache loader with corrupt-cache fallback to embedded rules
-  - explicit `attestlens update-rules` cache refresh command
-  - opt-in `--auto-update` on scan, audit, and attest scan flows
-  - rule-pack freshness metadata in scan summaries, MCP output, saved snapshots, and reports
+  - explicit `attestlens update-rules` cache refresh command that preserves existing caches when no source is configured
+  - opt-in `--auto-update` on scan, audit, and attest scan flows that only fetches from configured rule sources
+  - bounded local/HTTPS manifest loading with timeout and size caps
+  - rule-pack freshness metadata in scan summaries, MCP output, saved snapshots, and reports without local cache paths
 
 ### In Progress
 

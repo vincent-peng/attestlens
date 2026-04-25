@@ -39,14 +39,17 @@ describe('Rule pack schemas', () => {
     expect(manifest.rules[0].enabled).toBe(true);
     expect(manifest.rules[0].tags).toEqual([]);
 
-    expect(RuleFreshness.parse({
+    const freshness = RuleFreshness.parse({
       version: '2026.04.24',
       generated: '2026-04-24T00:00:00.000Z',
       loadedAt: '2026-04-24T01:00:00.000Z',
       source: 'embedded',
+      cachePath: '/Users/alice/.attestlens/rules/latest.json',
       ruleCount: 1,
       ageDays: 0,
       stale: false,
-    }).source).toBe('embedded');
+    });
+    expect(freshness.source).toBe('embedded');
+    expect('cachePath' in freshness).toBe(false);
   });
 });

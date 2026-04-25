@@ -18,6 +18,7 @@ function makeRuleFreshness() {
     ruleCount: 42,
     ageDays: 0,
     stale: false,
+    cachePath: '/Users/alice/.attestlens/rules/latest.json',
   };
 }
 
@@ -130,6 +131,8 @@ describe('MCP Server', () => {
       expect(payload.targetUrl).toBe('https://example.com/path');
       expect(payload.summary.total).toBe(1);
       expect(payload.findings[0].sourceRule).toBe('AL-URL-001');
+      expect(payload.ruleFreshness.cachePath).toBeUndefined();
+      expect(JSON.stringify(payload)).not.toContain('/Users/alice');
       expect(scanSpy).toHaveBeenCalledWith('https://user:pass@example.com/path?token=abc#frag');
       expect(disableSpy).toHaveBeenCalledWith('guardvibe');
       expect(disableSpy).toHaveBeenCalledWith('mcp-scan');
@@ -192,6 +195,25 @@ describe('MCP Server', () => {
       expect(payload.encoding).toBe('base64');
       expect(typeof payload.content).toBe('string');
       expect(Buffer.from(payload.content, 'base64').subarray(0, 4).toString()).toBe('%PDF');
+    });
+
+    it('strips cache paths from JSON audit report metadata', async () => {
+      vi.spyOn(ScannerOrchestrator.prototype, 'scan').mockResolvedValue({
+        findings: [],
+        results: [],
+        errors: [],
+        totalDurationMs: 10,
+        ruleFreshness: makeRuleFreshness(),
+      });
+
+      const response = await handleToolCall('attestlens_audit', {
+        path: tempDir,
+        format: 'json',
+      });
+      const payload = JSON.parse(response.content[0].text);
+
+      expect(payload.metadata.ruleFreshness.cachePath).toBeUndefined();
+      expect(response.content[0].text).not.toContain('/Users/alice');
     });
   });
 });

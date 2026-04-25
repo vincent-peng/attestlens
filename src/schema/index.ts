@@ -366,7 +366,6 @@ export const RuleFreshness = z.object({
   generated: z.string().datetime(),
   loadedAt: z.string().datetime(),
   source: RulePackSource,
-  cachePath: z.string().optional(),
   ruleCount: z.number().int().nonnegative(),
   ageDays: z.number().int().nonnegative(),
   stale: z.boolean(),

@@ -1,6 +1,7 @@
 import crypto from 'node:crypto';
 
 import { mapAllFindings } from '../mapping/engine.js';
+import { RuleFreshness as RuleFreshnessSchema } from '../schema/index.js';
 import type {
   APPPrinciple,
   AssessmentMode,
@@ -90,7 +91,7 @@ export function buildAttestationScanSnapshot(params: {
     results: params.results || [],
     errors: params.errors || [],
     totalDurationMs: params.totalDurationMs ?? 0,
-    ruleFreshness: params.ruleFreshness,
+    ruleFreshness: params.ruleFreshness ? RuleFreshnessSchema.parse(params.ruleFreshness) : undefined,
   };
 }
 
