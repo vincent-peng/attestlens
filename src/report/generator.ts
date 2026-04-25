@@ -654,12 +654,15 @@ export function generateHTMLReport(
   const passGreen = '#2a9d8f';
   const incompleteSummary = getAssessmentIncompleteSummary(report.assessment);
 
+  const escapedTargetName = escapeHtml(report.target.name);
+  const escapedTargetVersion = report.target.version ? escapeHtml(report.target.version) : undefined;
+
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>AttestLens Compliance Report — ${report.target.name}</title>
+  <title>AttestLens Compliance Report — ${escapedTargetName}</title>
   <style>
     :root {
       --dark-navy: ${primary};
@@ -746,17 +749,17 @@ export function generateHTMLReport(
     <div class="cover-page">
       <div class="logo-placeholder">AL</div>
       <h1 class="cover-title">Privacy Act<br>Compliance Report</h1>
-      <p class="cover-subtitle">${report.target.name}</p>
+      <p class="cover-subtitle">${escapedTargetName}</p>
       <table class="meta-table">
-        <tr><th>Report ID</th><td>${report.id}</td></tr>
+        <tr><th>Report ID</th><td>${escapeHtml(report.id)}</td></tr>
         <tr><th>Date</th><td>${new Date(report.timestamp).toLocaleDateString('en-AU', { year: 'numeric', month: 'long', day: 'numeric' })}</td></tr>
-        <tr><th>Target</th><td>${report.target.name}${report.target.version ? ` v${report.target.version}` : ''}</td></tr>
+        <tr><th>Target</th><td>${escapedTargetName}${escapedTargetVersion ? ` v${escapedTargetVersion}` : ''}</td></tr>
         <tr><th>Framework</th><td>APP / NDB (Privacy Act 1988)</td></tr>
         <tr><th>Scanner</th><td>AttestLens v${ATTESTLENS_VERSION}</td></tr>
         ${report.metadata.ruleFreshness ? `<tr><th>Rule Pack</th><td>${escapeHtml(formatRuleFreshnessLine(report.metadata.ruleFreshness))}</td></tr>` : ''}
         ${questionnaireSession ? `<tr><th>Assessment Basis</th><td>${escapeHtml(getAssessmentModeLabel(questionnaireSession.assessmentMode))}</td></tr>` : ''}
-        ${report.target.url ? `<tr><th>URL</th><td>${report.target.url}</td></tr>` : ''}
-        ${report.target.path ? `<tr><th>Path</th><td>${report.target.path}</td></tr>` : ''}
+        ${report.target.url ? `<tr><th>URL</th><td>${escapeHtml(report.target.url)}</td></tr>` : ''}
+        ${report.target.path ? `<tr><th>Path</th><td>${escapeHtml(report.target.path)}</td></tr>` : ''}
       </table>
       <div class="confidential-badge">CONFIDENTIAL</div>
     </div>
@@ -834,18 +837,18 @@ export function generateHTMLReport(
         <div class="finding-header">
           <div>
             <span class="severity-badge severity-${f.severity}">${f.severity}</span>
-            <strong style="margin-left: 8px;">${f.title}</strong>
+            <strong style="margin-left: 8px;">${escapeHtml(f.title)}</strong>
           </div>
-          <span class="finding-id">${f.id}</span>
+          <span class="finding-id">${escapeHtml(f.id)}</span>
         </div>
-        <p>${f.description}</p>
-        ${f.file ? `<p style="font-size: 9pt; color: var(--text-light);">${f.file}${f.line ? `:${f.line}` : ''}</p>` : ''}
+        <p>${escapeHtml(f.description)}</p>
+        ${f.file ? `<p style="font-size: 9pt; color: var(--text-light);">${escapeHtml(f.file)}${f.line ? `:${f.line}` : ''}</p>` : ''}
         ${f.code ? `<div class="code-block">${escapeHtml(f.code)}</div>` : ''}
-        ${f.appMappings.map(m => `<span class="app-tag">${m.principle}</span>`).join('')}
+        ${f.appMappings.map(m => `<span class="app-tag">${escapeHtml(m.principle)}</span>`).join('')}
         ${f.fix ? `
           <div class="fix-box">
             <div class="fix-label">✓ Suggested Fix</div>
-            <p style="font-size: 10pt; margin-top: 4px;">${f.fix}</p>
+            <p style="font-size: 10pt; margin-top: 4px;">${escapeHtml(f.fix)}</p>
           </div>
         ` : ''}
       </div>
@@ -859,17 +862,17 @@ export function generateHTMLReport(
       <div class="remediation-item">
         <div class="remediation-header">
           <div>
-            <strong>${r.title}</strong>
+            <strong>${escapeHtml(r.title)}</strong>
             <span style="margin-left: 8px;" class="priority-${r.priority}">${r.priority.replace('_', ' ').toUpperCase()}</span>
           </div>
-          <span style="font-size: 10pt; color: var(--text-light);">${r.estimatedTime}</span>
+          <span style="font-size: 10pt; color: var(--text-light);">${escapeHtml(r.estimatedTime)}</span>
         </div>
-        <p style="margin-top: 8px;">${r.description}</p>
-        ${r.fix ? `<p style="margin-top: 4px; color: #15803d;"><strong>Fix:</strong> ${r.fix}</p>` : ''}
+        <p style="margin-top: 8px;">${escapeHtml(r.description)}</p>
+        ${r.fix ? `<p style="margin-top: 4px; color: #15803d;"><strong>Fix:</strong> ${escapeHtml(r.fix)}</p>` : ''}
         <div style="margin-top: 8px;">
-          ${r.appReferences.map(ref => `<span class="app-tag">${ref}</span>`).join('')}
+          ${r.appReferences.map(ref => `<span class="app-tag">${escapeHtml(ref)}</span>`).join('')}
         </div>
-        <p style="font-size: 9pt; color: var(--text-light); margin-top: 4px;"><strong>Impact:</strong> ${r.impact}</p>
+        <p style="font-size: 9pt; color: var(--text-light); margin-top: 4px;"><strong>Impact:</strong> ${escapeHtml(r.impact)}</p>
       </div>
     `).join('')}
     
@@ -1161,7 +1164,8 @@ function escapeHtml(text: string): string {
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;');
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
 }
 
 function formatRuleFreshnessLine(ruleFreshness: RuleFreshness): string {

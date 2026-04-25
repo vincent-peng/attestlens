@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { buildComplianceReport, generateJSONReport, generateMarkdownReport, generatePDFReport } from './generator.js';
+import { buildComplianceReport, generateHTMLReport, generateJSONReport, generateMarkdownReport, generatePDFReport } from './generator.js';
 import type { AttestLensFinding, QuestionnaireSession } from '../schema/index.js';
 import type { ReportOptions } from './generator.js';
 import {
@@ -27,6 +27,9 @@ function makeFinding(overrides: Partial<AttestLensFinding> = {}): AttestLensFind
       scannerVersion: '0.1.0',
       rawOutput: {},
     },
+    code: overrides.code,
+    fix: overrides.fix,
+    fixPrompt: overrides.fixPrompt,
   };
 }
 
@@ -341,6 +344,35 @@ describe('generateJSONReport', () => {
       mode: 'artifact_only',
       incomplete: true,
     }));
+  });
+});
+
+describe('generateHTMLReport', () => {
+  it('escapes finding and remediation text derived from rule-pack metadata', () => {
+    const findings = [
+      makeFinding({
+        id: 'F-<script>alert("id")</script>',
+        severity: 'critical',
+        sourceRule: 'VS-XSS',
+        title: '<img src=x onerror=alert("title")>',
+        description: '<script>alert("description")</script>',
+        file: 'src/<b>App</b>.tsx',
+        code: 'const html = "<p>safe as code</p>";',
+        fix: 'Remove <script>alert("fix")</script>',
+      }),
+    ];
+    const report = buildComplianceReport(findings, defaultOptions, 1000);
+    const html = generateHTMLReport(report, defaultOptions);
+
+    expect(html).not.toContain('<script>alert("id")</script>');
+    expect(html).not.toContain('<script>alert("description")</script>');
+    expect(html).not.toContain('<script>alert("fix")</script>');
+    expect(html).not.toContain('<img src=x onerror=alert("title")>');
+    expect(html).not.toContain('src/<b>App</b>.tsx');
+    expect(html).toContain('&lt;script&gt;alert(&quot;description&quot;)&lt;/script&gt;');
+    expect(html).toContain('&lt;img src=x onerror=alert(&quot;title&quot;)&gt;');
+    expect(html).toContain('src/&lt;b&gt;App&lt;/b&gt;.tsx');
+    expect(html).toContain('const html = &quot;&lt;p&gt;safe as code&lt;/p&gt;&quot;');
   });
 });
 

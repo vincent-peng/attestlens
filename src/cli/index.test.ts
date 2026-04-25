@@ -240,6 +240,49 @@ describe('CLI rule update command', () => {
       await fs.rm(tempDir, { recursive: true, force: true });
     }
   });
+
+  it('prints scanner warnings during scan before the no-findings return', async () => {
+    const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'attestlens-cli-rules-'));
+    const sourcePath = path.join(tempDir, 'rules.json');
+    const cacheDir = path.join(tempDir, 'cache');
+    const projectDir = path.join(tempDir, 'project');
+    const binDir = path.join(tempDir, 'bin');
+    const embedded = buildEmbeddedRulePack();
+
+    try {
+      await fs.mkdir(projectDir, { recursive: true });
+      await fs.mkdir(binDir, { recursive: true });
+      await fs.symlink(process.execPath, path.join(binDir, 'node'));
+      await fs.writeFile(path.join(projectDir, 'README.md'), '# Example project\n');
+      await fs.writeFile(sourcePath, JSON.stringify({
+        ...embedded,
+        version: '2026.04.25',
+        generated: '2026-04-25T00:00:00.000Z',
+        rules: embedded.rules.map((rule) => rule.id === 'VS-XSS'
+          ? { ...rule, pattern: String.raw`changed-active-pattern` }
+          : rule),
+      }, null, 2));
+      expect((await runCli(['update-rules', '--source', sourcePath, '--cache-dir', cacheDir])).code).toBe(0);
+
+      const result = await runCli(
+        ['scan', projectDir, '--no-mcp-scan', '--no-supply-chain'],
+        {
+          ATTESTLENS_RULE_CACHE_DIR: cacheDir,
+          ATTESTLENS_RULE_SOURCE: undefined,
+          PATH: binDir,
+        },
+      );
+      const output = `${result.stdout}\n${result.stderr}`;
+
+      expect(result.code).toBe(0);
+      expect(output).toContain('Scanner warnings');
+      expect(output).toContain('RULE_PACK_EXECUTION_FALLBACK');
+      expect(output).toContain('Rule pack execution fallback');
+      expect(output).toContain('No compliance findings detected');
+    } finally {
+      await fs.rm(tempDir, { recursive: true, force: true });
+    }
+  });
 });
 
 describe('CLI attest command', () => {

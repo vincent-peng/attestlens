@@ -11,7 +11,8 @@
 import crypto from 'node:crypto';
 import path from 'node:path';
 import type { AttestLensFinding, ScanSource } from '../schema/index.js';
-import type { ScannerAdapter, ScannerResult, ScannerError, GuardVibeFinding, GuardVibeAuditResult } from './types.js';
+import type { ScannerAdapter, ScannerContext, ScannerResult, ScannerError, GuardVibeFinding, GuardVibeAuditResult } from './types.js';
+import { getExecutableGuardVibeStaticRuleSet } from './rules/executable.js';
 import { scanRepoStackChecks } from './rules/repo-stack-checks.js';
 
 export class GuardVibeAdapter implements ScannerAdapter {
@@ -32,7 +33,7 @@ export class GuardVibeAdapter implements ScannerAdapter {
   async getVersion(): Promise<string> {
     try {
       const { execFileSync } = await import('node:child_process');
-      return execFileSync('npx', ['@guardvibe/cli', '--version'], {
+      return execFileSync(this.binaryPath, ['@guardvibe/cli', '--version'], {
         stdio: 'pipe',
         timeout: 10000,
       }).toString().trim();
@@ -41,7 +42,7 @@ export class GuardVibeAdapter implements ScannerAdapter {
     }
   }
 
-  async scan(targetPath: string): Promise<ScannerResult> {
+  async scan(targetPath: string, context?: ScannerContext): Promise<ScannerResult> {
     // Validate and normalize path to prevent traversal
     const resolvedPath = path.resolve(targetPath);
     const { stat } = await import('node:fs/promises');
@@ -72,7 +73,7 @@ export class GuardVibeAdapter implements ScannerAdapter {
       // Run GuardVibe full_audit tool via CLI
       // Use execFileSync to prevent command injection (args are not shell-interpolated)
       const result = execFileSync(
-        'npx',
+        this.binaryPath,
         ['@guardvibe/cli', 'full_audit', '--path', safePath, '--format', 'json'],
         { 
           stdio: 'pipe' as const, 
@@ -96,8 +97,9 @@ export class GuardVibeAdapter implements ScannerAdapter {
       });
 
       // Static fallback: scan for common patterns
-      const staticFindings = await this.staticFallback(safePath);
-      findings.push(...staticFindings);
+      const staticResult = await this.staticFallback(safePath, context);
+      findings.push(...staticResult.findings);
+      errors.push(...staticResult.errors);
     }
 
     return {
@@ -143,103 +145,25 @@ export class GuardVibeAdapter implements ScannerAdapter {
    * Static fallback: scan target directory for common security patterns.
    * Used when GuardVibe MCP is not available.
    */
-  private async staticFallback(targetPath: string): Promise<AttestLensFinding[]> {
+  private async staticFallback(
+    targetPath: string,
+    context?: ScannerContext,
+  ): Promise<{ findings: AttestLensFinding[]; errors: ScannerError[] }> {
     const findings: AttestLensFinding[] = [];
+    const errors: ScannerError[] = [];
     const fs = await import('node:fs/promises');
     const pathModule = await import('node:path');
+    const executableRules = getExecutableGuardVibeStaticRuleSet(context?.rulePack);
+    const patterns = executableRules.rules;
 
-    // Pattern definitions for static scanning
-    const patterns: Array<{
-      rule: string;
-      regex: RegExp;
-      severity: 'critical' | 'high' | 'medium' | 'low';
-      category: string;
-      title: string;
-      description: string;
-      fix: string;
-    }> = [
-      {
-        rule: 'VG-SEC-001',
-        regex: /(?:SUPABASE_URL|SUPABASE_ANON_KEY|NEXT_PUBLIC_SUPABASE_URL)\s*=\s*['"][^'"]+['"]/gi,
-        severity: 'critical',
-        category: 'Security',
-        title: 'Exposed Supabase credentials',
-        description: 'Supabase URL or keys found in source code. Anon keys in client code are expected but should be validated; service role keys must never be exposed.',
-        fix: 'Move service role keys to server-only environment variables. Use NEXT_PUBLIC_ prefix only for anon keys.',
-      },
-      {
-        rule: 'VG-SEC-002',
-        regex: /(?:supabase_admin|service_role|supabase_service_role_key)\s*=\s*['"][^'"]+['"]/gi,
-        severity: 'critical',
-        category: 'Security',
-        title: 'Service role key in client code',
-        description: 'Supabase service role key found in client-accessible code. This bypasses all Row Level Security.',
-        fix: 'Remove service role keys from client code. Use server-side API routes for admin operations.',
-      },
-      {
-        rule: 'VS-HARDKEY',
-        regex: /(?:api[_-]?key|secret[_-]?key|private[_-]?key|access[_-]?token)\s*[:=]\s*['"]?[A-Za-z0-9+/=_-]{16,}['"]?/gi,
-        severity: 'critical',
-        category: 'Security',
-        title: 'Hardcoded secret key',
-        description: 'A hardcoded secret key was found in source code. Secrets should never be committed.',
-        fix: 'Move secrets to environment variables (.env.local, not committed). Add to .gitignore.',
-      },
-      {
-        rule: 'VS-SQLI',
-        regex: /(?:\.from\(|\.raw\(|sql`|\.query\().*(?:\$\{|`|\+\s*(?:req\.|params|query))/gi,
-        severity: 'high',
-        category: 'Security',
-        title: 'Potential SQL injection vector',
-        description: 'Dynamic query construction detected that may allow SQL injection through user input.',
-        fix: 'Use parameterized queries. Supabase client .from().select() is parameterized; avoid raw SQL with string interpolation.',
-      },
-      {
-        rule: 'VS-RLS',
-        regex: /(?:enable_rls|ALTER\s+TABLE.*ENABLE\s+ROW\s+LEVEL\s+SECURITY)/gi,
-        severity: 'high',
-        category: 'Security',
-        title: 'RLS policy check',
-        description: 'Row Level Security check — ensuring tables handling personal data have RLS enabled.',
-        fix: 'Enable RLS on all tables with personal data: ALTER TABLE tablename ENABLE ROW LEVEL SECURITY;',
-      },
-      {
-        rule: 'VS-XSS',
-        regex: /dangerouslySetInnerHTML|v-html|innerHTML\s*=/gi,
-        severity: 'medium',
-        category: 'Security',
-        title: 'Potential XSS vector',
-        description: 'Direct HTML injection detected. This can allow cross-site scripting attacks.',
-        fix: 'Sanitize HTML before rendering. Use DOMPurify or similar libraries. Avoid dangerouslySetInnerHTML.',
-      },
-      {
-        rule: 'VS-DEBUG',
-        regex: /console\.(log|debug|trace|info)\(.*(?:password|token|secret|key|credential)/gi,
-        severity: 'medium',
-        category: 'Security',
-        title: 'Debug logging of sensitive data',
-        description: 'Sensitive data may be logged in debug output. This is an APP 11 data handling violation.',
-        fix: 'Remove debug logging of sensitive fields. Use redaction in production logging.',
-      },
-      {
-        rule: 'VS-ENV',
-        regex: /(?:NEXT_PUBLIC_(?:SECRET|PRIVATE|KEY|TOKEN|PASSWORD)|supabase_service_role_key)\s*=\s*['"]?[^'"\s\n]+['"]?/gi,
-        severity: 'critical',
-        category: 'Security',
-        title: 'Sensitive env var exposed to client',
-        description: 'A sensitive environment variable with NEXT_PUBLIC_ prefix was found, making it accessible in client-side code.',
-        fix: 'Remove NEXT_PUBLIC_ prefix from secrets. Only expose anon-level keys to the client.',
-      },
-      {
-        rule: 'VS-CORS',
-        regex: /Access-Control-Allow-Origin\s*:\s*['"]\*['"]/gi,
-        severity: 'high',
-        category: 'Security',
-        title: 'Overly permissive CORS',
-        description: 'Wildcard CORS origin detected. This allows any domain to access your API.',
-        fix: 'Restrict CORS to specific allowed origins. Never use * in production.',
-      },
-    ];
+    for (const warning of executableRules.warnings) {
+      errors.push({
+        source: this.name,
+        message: `Rule pack execution fallback: ${warning} Using embedded GuardVibe static rules.`,
+        code: 'RULE_PACK_EXECUTION_FALLBACK',
+        recoverable: true,
+      });
+    }
 
     try {
       // Recursively find relevant files
@@ -294,7 +218,10 @@ export class GuardVibeAdapter implements ScannerAdapter {
       // Stack-specific checks are best-effort only.
     }
 
-    return this.pruneGenericDuplicates(findings);
+    return {
+      findings: this.pruneGenericDuplicates(findings),
+      errors,
+    };
   }
 
   /**

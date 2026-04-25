@@ -229,7 +229,7 @@ Foundation shipped:
 
 Still remaining:
 
-- execute selected scanner paths directly from the rule pack instead of only mirroring existing definitions
+- migrate the next scanner family after allowlisted GuardVibe fallback static regex execution
 - finalize remote publishing and trust policy
 - add advisory monitors and generated-rule publishing
 
@@ -240,6 +240,7 @@ Still remaining:
 - [x] Add opt-in `--auto-update` flag (refresh cache before scanning)
 - [x] Add rule freshness metadata to scan and report output
 - [x] Harden cache preservation, public metadata redaction, and bounded local/HTTPS manifest loading
+- [x] Execute allowlisted GuardVibe fallback static regex rules from the active rule pack with metadata overrides, explicit disables, and visible fallback warnings
 
 ### Phase 2: Behavioral Heuristics Expansion (Week 2)
 

@@ -1,6 +1,6 @@
 # AttestLens — Status
 
-**Last Updated:** 2026-04-24  
+**Last Updated:** 2026-04-25
 **Purpose:** Near-term source of truth for product status, current milestone, and next actions.
 
 ---
@@ -69,11 +69,13 @@ In practice, that means:
   - opt-in `--auto-update` on scan, audit, and attest scan flows that only fetches from configured rule sources
   - bounded local/HTTPS manifest loading with timeout and size caps
   - rule-pack freshness metadata in scan summaries, MCP output, saved snapshots, and reports without local cache paths
+  - first executable rule-pack slice for allowlisted GuardVibe fallback static regex rules, limited to metadata overrides and explicit disables
 
 ### In Progress
 
 - Design-partner validation and consultant/MSP outreach
 - Design-partner feedback tracking in `docs/validation/DESIGN-PARTNER-VALIDATION.md`
+- External validation remains required; the 2026-04-25 local gate found no local P0/P1 report-shape issue but does not replace design-partner feedback
 - Validation-driven rule cleanup for remaining live-site false positives and CDN/bot-blocked targets
 
 ### Not Shipped
@@ -184,7 +186,7 @@ These are the default operating rules for the project.
 1. Start design-partner outreach with the refreshed M2 sample report.
 2. Collect consultant feedback on breach-readiness scoring, narrative usefulness, and remediation ordering.
 3. Keep `npm test`, `npm run lint`, and `npm run build` green while feedback-driven tuning happens.
-4. Expand M2.5 from rule-pack foundation to migrated executable rules only after report-shape feedback does not expose M2 blockers.
+4. Keep executable rule-pack migration narrow until design-partner feedback does not expose M2 blockers.
 
 ### Explicitly Not Now
 

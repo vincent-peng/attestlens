@@ -38,6 +38,7 @@ The first M2.5 pickup slice has also started:
 - `attestlens update-rules` can refresh the local rule cache from local/HTTPS JSON sources, and no-source runs preserve an existing cache or seed embedded rules when missing
 - `--auto-update` is opt-in and source-gated so scans do not overwrite a newer cache with embedded rules
 - scan, audit, attest snapshots, MCP output, and reports can carry rule freshness metadata without exposing local cache paths
+- Allowlisted GuardVibe fallback static regex rules are the first executable rule-pack family; active packs can override metadata or disable those rules, but active regex changes fall back visibly to embedded rules. URL/header/key/JS and repo-stack entries remain metadata-only until their runtime semantics are explicitly migrated
 
 ---
 
@@ -98,4 +99,4 @@ Project tracking:
 1. Run `npm test`, `npm run lint`, and `npm run build`.
 2. Review refreshed Juice Shop sample report output.
 3. Log external feedback in `docs/validation/DESIGN-PARTNER-VALIDATION.md`.
-4. Continue M2.5 by making the rule-pack entries executable in scanner paths once report-shape feedback is clean.
+4. Continue M2.5 by deciding the next executable rule family only after report-shape feedback is clean.

@@ -5,7 +5,7 @@
  * Each scanner adapter normalizes its output into AttestLensFinding format.
  */
 
-import type { AttestLensFinding, Severity, ScanSource, RuleFreshness } from '../schema/index.js';
+import type { AttestLensFinding, Severity, ScanSource, RuleFreshness, RulePackManifest } from '../schema/index.js';
 
 // ─── Scanner Result ──────────────────────────────────────────────────────────
 
@@ -33,6 +33,10 @@ export interface OrchestratedScanResult {
   ruleFreshness: RuleFreshness;
 }
 
+export interface ScannerContext {
+  rulePack: RulePackManifest;
+}
+
 // ─── Scanner Adapter Interface ───────────────────────────────────────────────
 
 export interface ScannerAdapter {
@@ -43,7 +47,7 @@ export interface ScannerAdapter {
   isAvailable(): Promise<boolean>;
   
   /** Run the scanner and return normalized findings */
-  scan(targetPath: string): Promise<ScannerResult>;
+  scan(targetPath: string, context?: ScannerContext): Promise<ScannerResult>;
   
   /** Get the raw scanner version string */
   getVersion(): Promise<string>;

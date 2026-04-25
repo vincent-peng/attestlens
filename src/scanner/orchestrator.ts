@@ -69,7 +69,7 @@ export class ScannerOrchestrator {
       }
 
       try {
-        const result = await entry.adapter.scan(targetPath);
+        const result = await entry.adapter.scan(targetPath, { rulePack: rulePack.manifest });
         entry.lastRun = new Date().toISOString();
         entry.lastResult = result;
         return result;

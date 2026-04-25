@@ -1,6 +1,6 @@
 # M2 Design-Partner Validation
 
-**Last Updated:** 2026-04-24
+**Last Updated:** 2026-04-25
 **Purpose:** Single working log for M2 report feedback before broader M2.5 and SaaS work.
 
 ---
@@ -45,6 +45,7 @@ Pause M2.5 and fix M2 if:
 | Date | Reviewer | Segment | Artifact | Decision | Notes | Follow-up |
 |---|---|---|---|---|---|---|
 | 2026-04-24 | Internal | M2 closeout | Juice Shop sample MD/PDF | Ready for external review | M2 sample includes breach readiness and deterministic consultant narrative. | Begin design-partner review. |
+| 2026-04-25 | Internal | Local validation gate | Juice Shop sample MD/PDF + report metadata tests | No local P0/P1 found; external review still required | Local review confirmed the sample leads with consultant narrative and breach readiness, and the hardening tests cover public metadata redaction. This is not a substitute for qualified design-partner review. | Recruit and log 3 qualified external reviewers before broad M2.5 or SaaS work. Narrow executable rule-pack migration may proceed because it does not change the report contract. |
 
 ---
 

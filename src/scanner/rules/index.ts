@@ -4,6 +4,10 @@ export {
   buildEmbeddedRulePack,
 } from './embedded.js';
 export {
+  getExecutableGuardVibeStaticRuleSet,
+  getExecutableGuardVibeStaticRules,
+} from './executable.js';
+export {
   RULE_PACK_CACHE_FILENAME,
   RULE_PACK_FETCH_TIMEOUT_MS,
   RULE_PACK_MAX_BYTES,

@@ -88,6 +88,7 @@ program
       const duration = Date.now() - startTime;
       spinner.succeed(`${target.kind === 'url' ? 'URL scan' : 'Scan'} complete in ${(duration / 1000).toFixed(1)}s`);
       displayRuleFreshness(result.ruleFreshness);
+      displayScannerWarnings(result.errors);
 
       const findings = result.findings;
       if (findings.length === 0) {
@@ -191,13 +192,7 @@ program
         console.log(chalk.green(`  📄 ${output.label}: ${output.path}`));
       }
 
-      // Show errors if any
-      if (scanResult.errors.length > 0) {
-        console.log(chalk.yellow('\n⚠ Scanner warnings:'));
-        for (const error of scanResult.errors) {
-          console.log(chalk.yellow(`  ${error.source}: ${error.message}`));
-        }
-      }
+      displayScannerWarnings(scanResult.errors);
 
       console.log(chalk.gray(`\n  ${report.disclaimer}`));
 
@@ -390,6 +385,18 @@ function extractRuleFreshness(scanData: Record<string, any>): RuleFreshnessMetad
 
 function displayRuleFreshness(ruleFreshness: RuleFreshnessMetadata): void {
   console.log(chalk.gray(`Rules: ${formatRuleFreshnessForCli(ruleFreshness)}`));
+}
+
+function displayScannerWarnings(errors: ScannerError[]): void {
+  if (errors.length === 0) {
+    return;
+  }
+
+  console.log(chalk.yellow('\n⚠ Scanner warnings:'));
+  for (const error of errors) {
+    const code = error.code ? ` [${error.code}]` : '';
+    console.log(chalk.yellow(`  ${error.source}${code}: ${error.message}`));
+  }
 }
 
 function formatRuleFreshnessForCli(ruleFreshness: RuleFreshnessMetadata): string {

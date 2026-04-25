@@ -128,12 +128,12 @@ Phase 4   — Launch & Growth
 |-----|------|---------|
 | D1-2 | **Rule schema** | Done: typed manifest with id, pattern, severity, APP mapping, fixPrompt, CVE, addedIn |
 | D3 | **Rule loader** | Done: embedded pack, cache overlay, corrupt-cache fallback, cache-preserving `attestlens update-rules`, source-gated opt-in `--auto-update`, bounded source loading |
-| D4 | **Migrate existing rules** | Started: embedded manifest is generated from current GuardVibe, URL, JS, key, infra, repo-stack, and supply-chain rule definitions |
-| D5 | **Test** | Started: loader, CLI update, schema, report metadata, MCP metadata, snapshot redaction, and embedded-coverage tests exist |
+| D4 | **Migrate existing rules** | Started: embedded manifest is generated from current GuardVibe, URL, JS, key, infra, repo-stack, and supply-chain rule definitions; allowlisted GuardVibe fallback static regex rules now execute from the active rule pack without accepting active regex overrides |
+| D5 | **Test** | Started: loader, CLI update, schema, report metadata, MCP metadata, snapshot redaction, embedded-coverage, and executable-rule fallback tests exist |
 
 Remaining Week 5 work:
 
-- make selected rule-pack entries executable in scanner paths instead of metadata-only
+- decide the next executable rule family after GuardVibe fallback static regex rules
 - define remote publish/source policy before enabling default remote fetches
 - decide whether rule freshness should appear in `attestlens --version`
 
