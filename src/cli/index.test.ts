@@ -258,7 +258,7 @@ describe('CLI external enrichment option', () => {
       }, makePromptRunner({ saveAfter: 0 }));
 
       expect(result.status).toBe('saved');
-      expect(calls).toContain('https://registry.npmjs.org/external-only');
+      expect(calls).toContain('https://registry.npmjs.org/external-only/1.0.0');
       expect(calls).toContain(OSV_QUERY_BATCH_URL);
     } finally {
       vi.unstubAllGlobals();

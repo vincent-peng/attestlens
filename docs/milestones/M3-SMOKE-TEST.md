@@ -3,6 +3,8 @@
 **Commit:** `47a7054` (M3.1/M3.2: add supply-chain OSV and provenance signals)
 **Tests:** 254 passing, TypeScript compiles clean, lint clean
 
+**Follow-up:** Smoke-test issues were fixed after this run by tightening registry metadata lookup and typosquat heuristics. The scanner now prefers exact version metadata (`/<version>`) when a lockfile or exact manifest version is available, falling back to `/latest` only when no exact version is known. Scoped packages, very short names, and known legitimate ecosystem packages are no longer compared against the unscoped top-package typosquat list.
+
 ## Test Matrix
 
 | Repo | Findings | Critical | High | Medium | Low | OSV CVEs | Scan Time |
@@ -60,7 +62,7 @@
 
 - Does not fire false positives — only triggers when a real package on npm lacks `repository`/`homepage` fields
 - NPM 404 (package doesn't exist) produces a recoverable `NPM_METADATA_ERROR`, not a false finding
-- **Bug found:** npm metadata lookup fails for packages >1MB (e.g., `typescript` at 15MB). Should use `/latest` endpoint instead of full package document. See action items below.
+- **Follow-up fixed:** npm metadata lookup no longer fetches the full package document for registry fallback. It uses exact version metadata when available and `/latest` as the lightweight fallback.
 
 ## VS-SC-004 (Typosquat) — False Positive Problem ⚠️
 
@@ -102,62 +104,67 @@
 
 Real typosquatting is extremely rare in popular repositories. The rule is over-sensitive.
 
-## Action Items for Next Codex Pass
+## Action Items From Smoke Test
 
-### P0: Fix npm metadata endpoint for large packages
+### P0: Fix npm metadata endpoint for large packages ✅ Fixed
 
 **File:** `src/scanner/supply-chain.ts` (line ~650)
 
 **Problem:** The npm registry lookup uses `https://registry.npmjs.org/${packageName}` which returns the full package document. For popular packages like `typescript`, this is 15MB and exceeds the 1MB response limit, producing `NPM_METADATA_ERROR`.
 
-**Fix:** Use the abbreviated endpoint `https://registry.npmjs.org/${packageName}/latest` which returns only the latest version metadata (~4KB for `typescript`). This contains `repository` and `homepage` fields needed for VS-SC-009.
+**Fix landed:** Use `https://registry.npmjs.org/${packageName}/${version}` when an exact dependency version is known, with `https://registry.npmjs.org/${packageName}/latest` as the lightweight fallback. This keeps the response small and preserves version-specific provenance when a lockfile is present.
 
 ```typescript
 // Current (breaks for large packages):
 `https://registry.npmjs.org/${encodeURIComponent(depName)}`
 
-// Fixed (uses /latest for smaller response):
+// Fixed (uses version-specific metadata when available):
+`https://registry.npmjs.org/${encodeURIComponent(depName)}/${encodeURIComponent(version)}`
+
+// Fallback when no exact version is known:
 `https://registry.npmjs.org/${encodeURIComponent(depName)}/latest`
 ```
 
-This is a one-line change that eliminates the `NPM_METADATA_ERROR` for popular packages in the Remix scan output.
+Follow-up smoke verified `typescript@5.8.3` uses `https://registry.npmjs.org/typescript/5.8.3` and emits no `NPM_METADATA_ERROR`.
 
-### P0: Fix typosquat false positives
+### P0: Fix typosquat false positives ✅ Fixed
 
 **File:** `src/scanner/supply-chain.ts`
 
-**Three changes needed:**
+**Three changes landed:**
 
 1. **Skip scoped packages entirely.** Packages with `@org/` prefix should not be compared against the top-100 unscoped names. Typosquatting via org scopes is a different attack vector (namespace confusion) and should be a separate, lower-severity rule.
 
 ```typescript
 // In typosquat detection loop:
-if (depName.startsWith('@')) continue; // Skip scoped packages
+if (depName.startsWith('@')) return null; // Skip scoped packages
 ```
 
 2. **Increase minimum name length to 4 characters.** Short names (2-3 chars) produce too many Levenshtein distance ≤ 2 matches. Real typosquats almost always use longer names (e.g., `lodash-es` vs `lodash`, `express-mock` vs `express`).
 
 ```typescript
 // In typosquat detection:
-if (depName.length < 4) continue; // Skip very short names
+if (depName.length < 4) return null; // Skip very short names
 ```
 
 3. **Expand the allowlist.** Add known legitimate packages that commonly trigger false positives:
 
 ```typescript
 // Add to TYPOSQUAT_ALLOWLIST:
-'TSX',      // TypeScript executor (vs ws)
-'VITEST',   // Vite test runner (vs vite)
-'GULP',     // Build tool (vs yup)
-'CHAI',     // Test framework (vs chalk)
-'CYPRESS',  // E2E framework (vs express)
-'QS',       // Query string parser (vs ws)
-'KY',       // HTTP client (vs ws)
-'SWR',      // Vercel data fetching (vs ws)
-'HBS',      // Express handlebars (vs ws)
-'ALEX',     // Accessibility linter (vs knex)
-'OXLINT',   // Linter (vs eslint)
+'tsx',      // TypeScript executor (vs ws)
+'vitest',   // Vite test runner (vs vite)
+'gulp',     // Build tool (vs yup)
+'chai',     // Test framework (vs chalk)
+'cypress',  // E2E framework (vs express)
+'qs',       // Query string parser (vs ws)
+'ky',       // HTTP client (vs ws)
+'swr',      // Vercel data fetching (vs ws)
+'hbs',      // Express handlebars (vs ws)
+'alex',     // Accessibility linter (vs knex)
+'oxlint',   // Linter (vs eslint)
 ```
+
+Follow-up local-only supply-chain smoke scans across `attestlens`, `bgm-cafe`, `strands`, `paperclip`, and `multica` produced zero `VS-SC-004` findings after these structural fixes.
 
 ### P1: Dynamic confidence for typosquat (M3.3)
 
@@ -174,8 +181,8 @@ Already planned in M3.3 spec. When implemented, this will:
 | OSV.dev integration | ✅ Working | 13/13 real CVEs, 0 false positives |
 | APP/NDB mapping | ✅ Working | All mappings verified correct |
 | VS-SC-009 (no-source-repo) | ✅ Working | No false positives, correct behavior |
-| npm registry metadata | ⚠️ Bug | Fails for packages >1MB, needs `/latest` endpoint |
-| VS-SC-004 (typosquat) | ⚠️ High FP rate | 15 FPs across 8 repos, 0 true positives |
+| npm registry metadata | ✅ Fixed | Uses exact version endpoint or lightweight `/latest` fallback |
+| VS-SC-004 (typosquat) | ✅ Improved | Scoped/short/known ecosystem false positives removed; broader validation should continue |
 | Install scripts (VS-SC-001) | ✅ Working | Correctly detected `postinstall` and `prepare` |
 | Unused deps (VS-SC-002) | ✅ Working | Correctly flagged unused production deps |
 | Missing lockfile (VS-SC-005) | ✅ Working | Correctly detected |
@@ -184,5 +191,5 @@ Already planned in M3.3 spec. When implemented, this will:
 | Error recovery | ✅ Working | GuardVibe/MCP-scan absent → graceful fallback |
 
 **M3.1 (OSV.dev): Production ready.**
-**M3.2 (No-source-repo): Production ready, pending npm `/latest` endpoint fix.**
-**Typosquat: Needs structural FP fixes before considering production-ready.**
+**M3.2 (No-source-repo): Production ready after exact-version registry metadata fix.**
+**Typosquat: Structural FP fixes landed; continue monitoring on broader real-repo validation.**

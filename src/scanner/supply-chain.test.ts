@@ -108,6 +108,31 @@ describe('SupplyChainAdapter', { timeout: 20000 }, () => {
     await fs.rm(allowDir, { recursive: true }).catch(() => {});
   });
 
+  it('should not flag common short, scoped, or same-ecosystem packages as typosquats', async () => {
+    const allowDir = await fs.mkdtemp(path.join(os.tmpdir(), 'attestlens-typo-fp-'));
+    const pkgJson = {
+      name: 'test-project',
+      version: '1.0.0',
+      dependencies: {
+        qs: '^6.0.0',
+        ky: '^1.0.0',
+        swr: '^2.0.0',
+        chai: '^5.0.0',
+        cypress: '^13.0.0',
+        vitest: '^3.0.0',
+        '@eslint/eslintrc': '^3.0.0',
+        '@actions/core': '^1.0.0',
+      },
+    };
+    await fs.writeFile(path.join(allowDir, 'package.json'), JSON.stringify(pkgJson, null, 2));
+    await fs.writeFile(path.join(allowDir, 'package-lock.json'), '{}');
+
+    const result = await adapter.scan(allowDir);
+    expect(result.findings.filter(f => f.sourceRule === 'VS-SC-004')).toHaveLength(0);
+
+    await fs.rm(allowDir, { recursive: true }).catch(() => {});
+  });
+
   it('should not flag popular packages as typosquats of other popular packages', async () => {
     const popularDir = await fs.mkdtemp(path.join(os.tmpdir(), 'attestlens-popular-'));
     
@@ -253,13 +278,17 @@ describe('SupplyChainAdapter', { timeout: 20000 }, () => {
       dependencyPackageJson: null,
       installDependency: false,
     });
-    const fetchImpl: FetchLike = async () => new Response(JSON.stringify({
+    const calls: string[] = [];
+    const fetchImpl: FetchLike = async (input) => {
+      calls.push(String(input));
+      return new Response(JSON.stringify({
       name: 'remote-no-repo',
       version: '1.0.0',
     }), {
       status: 200,
       headers: { 'content-type': 'application/json' },
-    });
+      });
+    };
 
     const localAdapter = new SupplyChainAdapter({
       osv: { enabled: false },
@@ -274,6 +303,40 @@ describe('SupplyChainAdapter', { timeout: 20000 }, () => {
       packageName: 'remote-no-repo',
       metadataSource: 'registry',
     });
+    expect(calls).toEqual(['https://registry.npmjs.org/remote-no-repo/1.0.0']);
+
+    await fs.rm(provenanceDir, { recursive: true }).catch(() => {});
+  });
+
+  it('should use lightweight latest registry metadata when no exact dependency version is known', async () => {
+    const provenanceDir = await fs.mkdtemp(path.join(os.tmpdir(), 'attestlens-sc-registry-latest-'));
+    await fs.writeFile(path.join(provenanceDir, 'package.json'), JSON.stringify({
+      name: 'test-project',
+      version: '1.0.0',
+      dependencies: { 'range-only-package': '^1.0.0' },
+    }, null, 2));
+    const calls: string[] = [];
+    const fetchImpl: FetchLike = async (input) => {
+      calls.push(String(input));
+      return new Response(JSON.stringify({
+        name: 'range-only-package',
+        version: '1.2.3',
+        repository: { type: 'git', url: 'https://github.com/example/range-only-package.git' },
+      }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      });
+    };
+
+    const localAdapter = new SupplyChainAdapter({
+      osv: { enabled: false },
+      registry: { enabled: true, fetchImpl },
+      audit: { enabled: false },
+    });
+    const result = await localAdapter.scan(provenanceDir);
+
+    expect(calls).toEqual(['https://registry.npmjs.org/range-only-package/latest']);
+    expect(result.findings.some(f => f.sourceRule === 'VS-SC-009')).toBe(false);
 
     await fs.rm(provenanceDir, { recursive: true }).catch(() => {});
   });

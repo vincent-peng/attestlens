@@ -270,7 +270,7 @@ describe('MCP Server', () => {
 
       expect(payload.targetType).toBe('path');
       expect(fetchMock).toHaveBeenCalledWith(
-        'https://registry.npmjs.org/external-only',
+        'https://registry.npmjs.org/external-only/1.0.0',
         expect.objectContaining({ method: 'GET' }),
       );
       expect(fetchMock).toHaveBeenCalledWith(
@@ -308,7 +308,7 @@ describe('MCP Server', () => {
 
       expect(() => JSON.parse(response.content[0].text)).not.toThrow();
       expect(fetchMock).toHaveBeenCalledWith(
-        'https://registry.npmjs.org/external-audit',
+        'https://registry.npmjs.org/external-audit/1.0.0',
         expect.objectContaining({ method: 'GET' }),
       );
       expect(fetchMock).toHaveBeenCalledWith(

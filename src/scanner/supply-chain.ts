@@ -56,23 +56,34 @@ const TOP_NPM_PACKAGES = new Set([
 
 // Known legitimate packages that are NOT typosquats
 const TYPOSQUAT_ALLOWLIST = new Set([
+  'alex',    // Legitimate accessibility linter, not a typosquat of 'knex'
   'ora',     // Not a typosquat of 'cors' — it's a legitimate terminal spinner
+  'chai',    // Legitimate test assertion library, not a typosquat of 'chalk'
+  'cypress', // Legitimate end-to-end test framework, not a typosquat of 'express'
   'zod',     // Legitimate validation library
   'got',     // Legitimate HTTP client, not a typosquat
   'ws',      // Legitimate WebSocket library
+  'qs',      // Legitimate query string parser, not a typosquat of 'ws'
+  'ky',      // Legitimate HTTP client, not a typosquat of 'ws'
+  'swr',     // Legitimate data fetching library, not a typosquat of 'ws'
+  'hbs',     // Legitimate handlebars view engine, not a typosquat of 'ws'
   'ejs',     // Legitimate template engine
   'pug',     // Legitimate template engine
   'ajv',     // Legitimate JSON schema validator
   'joi',     // Legitimate validation library
   'yup',     // Legitimate validation library (not a typosquat of 'vue')
+  'gulp',    // Legitimate build tool, not a typosquat of 'yup'
   'glob',    // Legitimate file globbing library (not a typosquat of 'got')
   'sass',    // Legitimate CSS preprocessor
+  'tsx',     // Legitimate TypeScript runtime, not a typosquat of 'ws'
+  'vitest',  // Vite test runner, not a typosquat of 'vite'
   'nps',     // Legitimate npm-publish shortcut (not a typosquat of 'ws')
   'stylis',  // Legitimate CSS preprocessor used by emotion
   'cors',    // Legitimate Express middleware (not unused — used in server setup)
   'pg',      // Legitimate PostgreSQL client (not a typosquat of 'ws')
   'tslint',  // Legitimate (deprecated) linter, not a typosquat of 'eslint'
   'ncp',      // Legitimate file copy utility, not a typosquat of 'yup'
+  'oxlint',   // Legitimate linter, not a typosquat of 'eslint'
 ]);
 
 // Typosquatting distance threshold (Levenshtein distance)
@@ -99,23 +110,20 @@ function levenshteinDistance(a: string, b: string): number {
 }
 
 function isTyposquat(depName: string): string | null {
+  // Scoped-package namespace confusion is a separate signal; comparing
+  // @org/package names to top unscoped packages created noisy false positives.
+  if (depName.startsWith('@')) {
+    return null;
+  }
+
   // Check allowlist first
   const name = depName.startsWith('@') ? depName.split('/')[1] : depName;
   if (TYPOSQUAT_ALLOWLIST.has(name) || TYPOSQUAT_ALLOWLIST.has(depName)) {
     return null;
   }
-  
-  // Scoped packages from well-known orgs are not typosquats
-  if (depName.startsWith('@')) {
-    const scope = depName.split('/')[0].slice(1); // Remove @
-    const wellKnownScopes = new Set([
-      'supabase', 'clerk', 'stripe', 'paypal', 'sendgrid', 'prisma',
-      'playwright', 'types', 'emotion', 'next', 'react', 'vue',
-      'angular', 'svelte', 'tailwindcss', 'babel', 'typescript-eslint',
-      'nestjs', 'trpc', 'tanstack', 'dnd-kit', 'radix', 'headlessui',
-      'chakra-ui', 'mantine', 'shadcn',
-    ]);
-    if (wellKnownScopes.has(scope)) return null;
+
+  if (name.length < 4) {
+    return null;
   }
   
   // If the dependency IS a popular package, it's not a typosquat
@@ -324,6 +332,12 @@ function resolveDependencyVersion(
 
 function isExactNpmVersion(version: string): boolean {
   return /^\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?$/.test(version);
+}
+
+function buildNpmRegistryMetadataUrl(depName: string, version: string | null): string {
+  const encodedName = encodeURIComponent(depName);
+  const encodedVersion = version ? encodeURIComponent(version) : 'latest';
+  return `https://registry.npmjs.org/${encodedName}/${encodedVersion}`;
 }
 
 export class SupplyChainAdapter implements ScannerAdapter {
@@ -580,8 +594,8 @@ export class SupplyChainAdapter implements ScannerAdapter {
     const productionDeps = pkgJson.dependencies || {};
     const metadataCache = new Map<string, PackageMetadata | null>();
 
-    for (const depName of Object.keys(productionDeps)) {
-      const metadataResult = await this.getDependencyMetadata(depName, lockPackages, safePath, metadataCache);
+    for (const [depName, requestedVersion] of Object.entries(productionDeps)) {
+      const metadataResult = await this.getDependencyMetadata(depName, requestedVersion, lockPackages, safePath, metadataCache);
 
       if (metadataResult.error) {
         errors.push(metadataResult.error);
@@ -614,12 +628,15 @@ export class SupplyChainAdapter implements ScannerAdapter {
 
   private async getDependencyMetadata(
     depName: string,
+    requestedVersion: string | undefined,
     lockPackages: Record<string, LockfileEntry>,
     safePath: string,
     metadataCache: Map<string, PackageMetadata | null>,
   ): Promise<{ metadata: PackageMetadata | null; source?: 'local' | 'registry'; error?: ScannerError }> {
-    if (metadataCache.has(depName)) {
-      return { metadata: metadataCache.get(depName) ?? null };
+    const resolvedVersion = resolveDependencyVersion(depName, requestedVersion, lockPackages);
+    const metadataCacheKey = `${depName}@${resolvedVersion ?? 'latest'}`;
+    if (metadataCache.has(metadataCacheKey)) {
+      return { metadata: metadataCache.get(metadataCacheKey) ?? null };
     }
 
     const localPath = path.join(safePath, 'node_modules', depName, 'package.json');
@@ -628,34 +645,34 @@ export class SupplyChainAdapter implements ScannerAdapter {
       .catch(() => null);
 
     if (localMetadata) {
-      metadataCache.set(depName, localMetadata.metadata);
+      metadataCache.set(metadataCacheKey, localMetadata.metadata);
       return localMetadata;
     }
 
     const registryFallbackEnabled = this.options.registry?.enabled === true;
     if (!registryFallbackEnabled) {
-      metadataCache.set(depName, null);
+      metadataCache.set(metadataCacheKey, null);
       return { metadata: null };
     }
 
     const fetchImpl = this.options.registry?.fetchImpl ?? globalThis.fetch?.bind(globalThis);
     if (!fetchImpl) {
-      metadataCache.set(depName, null);
+      metadataCache.set(metadataCacheKey, null);
       return { metadata: null };
     }
 
     try {
       const metadata = await fetchJsonWithLimit<PackageMetadata>(
         fetchImpl,
-        `https://registry.npmjs.org/${encodeURIComponent(depName)}`,
+        buildNpmRegistryMetadataUrl(depName, resolvedVersion),
         { method: 'GET' },
         this.options.registry?.timeoutMs ?? NPM_REGISTRY_TIMEOUT_MS,
         this.options.registry?.maxBytes ?? NPM_REGISTRY_MAX_RESPONSE_BYTES,
       );
-      metadataCache.set(depName, metadata);
+      metadataCache.set(metadataCacheKey, metadata);
       return { metadata, source: 'registry' };
     } catch (error) {
-      metadataCache.set(depName, null);
+      metadataCache.set(metadataCacheKey, null);
       return {
         metadata: null,
         error: {
