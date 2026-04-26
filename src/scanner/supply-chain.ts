@@ -76,6 +76,7 @@ const TYPOSQUAT_ALLOWLIST = new Set([
   'glob',    // Legitimate file globbing library (not a typosquat of 'got')
   'sass',    // Legitimate CSS preprocessor
   'tsx',     // Legitimate TypeScript runtime, not a typosquat of 'ws'
+  'tsup',    // Legitimate TypeScript bundler, not a typosquat of 'yup'
   'vitest',  // Vite test runner, not a typosquat of 'vite'
   'nps',     // Legitimate npm-publish shortcut (not a typosquat of 'ws')
   'stylis',  // Legitimate CSS preprocessor used by emotion
@@ -191,6 +192,13 @@ export interface SupplyChainAdapterOptions {
 
 const NPM_REGISTRY_TIMEOUT_MS = 10_000;
 const NPM_REGISTRY_MAX_RESPONSE_BYTES = 1_000_000;
+const ALTERNATE_LOCKFILES = [
+  'npm-shrinkwrap.json',
+  'pnpm-lock.yaml',
+  'yarn.lock',
+  'bun.lock',
+  'bun.lockb',
+];
 const TEXT_ADVISORY_ID_PATTERN = /\b(?:GHSA-[A-Z0-9]{4}-[A-Z0-9]{4}-[A-Z0-9]{4}|CVE-\d{4}-\d{4,}|OSV-[A-Z0-9._-]+|PYSEC-\d{4}-\d+|RUSTSEC-\d{4}-\d+|GO-\d{4}-\d+)\b/gi;
 const STRUCTURED_ADVISORY_ID_PATTERN = /^[A-Z0-9][A-Z0-9._-]{1,127}$/;
 const SEVERITY_RANK: Record<Severity, number> = {
@@ -340,6 +348,16 @@ function buildNpmRegistryMetadataUrl(depName: string, version: string | null): s
   return `https://registry.npmjs.org/${encodedName}/${encodedVersion}`;
 }
 
+async function hasAlternateLockfile(safePath: string): Promise<boolean> {
+  for (const filename of ALTERNATE_LOCKFILES) {
+    const exists = await fs.access(path.join(safePath, filename))
+      .then(() => true)
+      .catch(() => false);
+    if (exists) return true;
+  }
+  return false;
+}
+
 export class SupplyChainAdapter implements ScannerAdapter {
   readonly name: ScanSource = 'supply-chain';
   readonly version = '0.2.0';
@@ -419,16 +437,24 @@ export class SupplyChainAdapter implements ScannerAdapter {
     try {
       const lockContent = await fs.readFile(path.join(safePath, 'package-lock.json'), 'utf-8');
       lockfile = JSON.parse(lockContent);
-    } catch {
-      findings.push(this.makeFinding(
-        'VS-SC-005',
-        'critical',
-        'Security',
-        'Missing or invalid lockfile',
-        'No package-lock.json found. Without a lockfile, dependency resolution is non-deterministic, increasing supply chain risk. npm ci cannot be used for reproducible builds.',
-        'Run npm install to generate package-lock.json. Commit it to version control. Use npm ci in CI/CD.',
-        safePath,
-      ));
+    } catch (error) {
+      const isMissingPackageLock = (error as NodeJS.ErrnoException).code === 'ENOENT';
+      const alternateLockfileExists = isMissingPackageLock ? await hasAlternateLockfile(safePath) : false;
+      if (!alternateLockfileExists) {
+        findings.push(this.makeFinding(
+          'VS-SC-005',
+          'critical',
+          'Security',
+          'Missing or invalid lockfile',
+          isMissingPackageLock
+            ? 'No npm, pnpm, Yarn, or Bun lockfile found. Without a lockfile, dependency resolution is non-deterministic, increasing supply chain risk.'
+            : 'package-lock.json exists but could not be parsed. Invalid lockfiles make dependency resolution unreliable and can break reproducible builds.',
+          isMissingPackageLock
+            ? 'Generate and commit the lockfile for the package manager used by this project. Use npm ci, pnpm install --frozen-lockfile, yarn --immutable, or the equivalent in CI/CD.'
+            : 'Regenerate package-lock.json and commit the corrected lockfile. Use npm ci in CI/CD.',
+          safePath,
+        ));
+      }
     }
 
     // ─── 4. Analyze each dependency ──────────────────────────────────────
@@ -826,8 +852,8 @@ export class SupplyChainAdapter implements ScannerAdapter {
     for (const file of sourceFiles) {
       try {
         const content = await fs.readFile(file, 'utf-8');
-        // Match import/require patterns
-        const importRegex = /(?:import\s+.*from\s+['"]([^'"]+)['"]|require\s*\(\s*['"]([^'"]+)['"]\s*\))/g;
+        // Match static imports, including multiline named imports, and require calls.
+        const importRegex = /(?:import\s+(?:[\s\S]*?\s+from\s+)?['"]([^'"]+)['"]|require\s*\(\s*['"]([^'"]+)['"]\s*\))/g;
         let match;
         while ((match = importRegex.exec(content)) !== null) {
           const pkg = (match[1] || match[2] || '').split('/')[0];

@@ -119,6 +119,7 @@ describe('SupplyChainAdapter', { timeout: 20000 }, () => {
         swr: '^2.0.0',
         chai: '^5.0.0',
         cypress: '^13.0.0',
+        tsup: '^8.0.0',
         vitest: '^3.0.0',
         '@eslint/eslintrc': '^3.0.0',
         '@actions/core': '^1.0.0',
@@ -131,6 +132,23 @@ describe('SupplyChainAdapter', { timeout: 20000 }, () => {
     expect(result.findings.filter(f => f.sourceRule === 'VS-SC-004')).toHaveLength(0);
 
     await fs.rm(allowDir, { recursive: true }).catch(() => {});
+  });
+
+  it('should accept non-npm lockfiles as deterministic lock evidence', async () => {
+    const pnpmDir = await fs.mkdtemp(path.join(os.tmpdir(), 'attestlens-pnpm-lock-'));
+    const pkgJson = {
+      name: 'pnpm-project',
+      version: '1.0.0',
+      dependencies: { express: '^4.18.0' },
+    };
+    await fs.writeFile(path.join(pnpmDir, 'package.json'), JSON.stringify(pkgJson, null, 2));
+    await fs.writeFile(path.join(pnpmDir, 'pnpm-lock.yaml'), 'lockfileVersion: 9.0\n');
+    await fs.writeFile(path.join(pnpmDir, 'index.js'), "import express from 'express';\n");
+
+    const result = await adapter.scan(pnpmDir);
+    expect(result.findings.some(f => f.sourceRule === 'VS-SC-005')).toBe(false);
+
+    await fs.rm(pnpmDir, { recursive: true }).catch(() => {});
   });
 
   it('should not flag popular packages as typosquats of other popular packages', async () => {
@@ -172,6 +190,44 @@ describe('SupplyChainAdapter', { timeout: 20000 }, () => {
     expect(scriptFindings[0].title).toContain('postinstall');
 
     await fs.rm(scriptDir, { recursive: true }).catch(() => {});
+  });
+
+  it('should not flag multiline named imports as unused dependencies', async () => {
+    const importDir = await fs.mkdtemp(path.join(os.tmpdir(), 'attestlens-multiline-import-'));
+    const pkgJson = {
+      name: 'test-project',
+      version: '1.0.0',
+      dependencies: { recharts: '^2.12.7' },
+    };
+    await fs.writeFile(path.join(importDir, 'package.json'), JSON.stringify(pkgJson, null, 2));
+    await fs.writeFile(path.join(importDir, 'package-lock.json'), JSON.stringify({
+      lockfileVersion: 3,
+      packages: {
+        '': {
+          name: 'test-project',
+          version: '1.0.0',
+          dependencies: { recharts: '^2.12.7' },
+        },
+        'node_modules/recharts': {
+          version: '2.12.7',
+          resolved: 'https://registry.npmjs.org/recharts/-/recharts-2.12.7.tgz',
+          integrity: 'sha512-test',
+        },
+      },
+    }, null, 2));
+    await fs.writeFile(path.join(importDir, 'chart.tsx'), [
+      "import {",
+      "  ResponsiveContainer,",
+      "  LineChart",
+      "} from 'recharts';",
+      '',
+      'export const Chart = LineChart;',
+    ].join('\n'));
+
+    const result = await adapter.scan(importDir);
+    expect(result.findings.some(f => f.sourceRule === 'VS-SC-002')).toBe(false);
+
+    await fs.rm(importDir, { recursive: true }).catch(() => {});
   });
 
   it('should return empty findings for non-npm project', async () => {

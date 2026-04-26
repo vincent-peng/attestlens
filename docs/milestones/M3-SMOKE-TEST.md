@@ -5,6 +5,8 @@
 
 **Follow-up:** Smoke-test issues were fixed after this run by tightening registry metadata lookup and typosquat heuristics. The scanner now prefers exact version metadata (`/<version>`) when a lockfile or exact manifest version is available, falling back to `/latest` only when no exact version is known. Scoped packages, very short names, and known legitimate ecosystem packages are no longer compared against the unscoped top-package typosquat list.
 
+**Additional local pass:** A second local-only supply-chain smoke pass ran against 13 nearby JavaScript/TypeScript repos. That pass found three more accuracy issues and all were fixed before finalizing this note: `tsup` was still a typosquat false positive, pnpm projects were incorrectly reported as missing lockfiles, and multiline named imports such as `import { ... } from 'recharts'` were missed by unused-dependency detection.
+
 ## Test Matrix
 
 | Repo | Findings | Critical | High | Medium | Low | OSV CVEs | Scan Time |
@@ -165,6 +167,18 @@ if (depName.length < 4) return null; // Skip very short names
 ```
 
 Follow-up local-only supply-chain smoke scans across `attestlens`, `bgm-cafe`, `strands`, `paperclip`, and `multica` produced zero `VS-SC-004` findings after these structural fixes.
+
+### P0: Fix residual local smoke false positives ✅ Fixed
+
+**Repos rechecked:** `MiroFish`, `argue`, `career-ops`, `cursor-talk-to-figma-mcp`, `google-indexing-script`, `lifekline`, `multica`, `opencli`, `paperclip`, `tradingview-mcp`, `attestlens`, `bgm-cafe`, and `strands`.
+
+**Fixes landed:**
+
+- Added `tsup` to the typosquat allowlist after it reproduced as `tsup` → `yup` in two repos.
+- Treat `pnpm-lock.yaml`, `yarn.lock`, `npm-shrinkwrap.json`, `bun.lock`, and `bun.lockb` as deterministic lockfile evidence for `VS-SC-005`.
+- Updated import detection to handle multiline named imports so valid imports such as `recharts` are not flagged as unused production dependencies.
+
+**Rerun result:** zero `VS-SC-004` findings, zero pnpm-lock `VS-SC-005` false positives, and zero `VS-SC-002` findings across the 13-repo local-only pass. Remaining findings were factual install-script/missing-lockfile signals, but install-script severity still needs product tuning in M3.3/M3.5 because legitimate packages such as `esbuild` use install scripts.
 
 ### P1: Dynamic confidence for typosquat (M3.3)
 
