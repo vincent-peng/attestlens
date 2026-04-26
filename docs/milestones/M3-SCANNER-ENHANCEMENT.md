@@ -161,7 +161,7 @@ for (const [depName] of Object.entries(allDeps)) {
 }
 ```
 
-**Rule:** `VS-SC-007` — No source repository
+**Rule:** `VS-SC-009` — No source repository
 - **Severity:** `medium`
 - **APP Mapping:** APP_11 (Security — no audit trail), APP_6 (Use & Disclosure — no accountability)
 - **Confidence:** 0.80
@@ -169,7 +169,7 @@ for (const [depName] of Object.entries(allDeps)) {
 
 **Exit criteria:**
 
-- [ ] VS-SC-007 finding generated for deps with no repository field
+- [ ] VS-SC-009 finding generated for deps with no repository field
 - [ ] Test covers both npm metadata lookup and caching behavior
 - [ ] APP_11 + APP_6 mappings verified in finding output
 - [ ] `npm test`, `npm run lint`, `npm run build` all green
@@ -834,13 +834,13 @@ function calculateMaturityRisk(maturity: PackageMaturity): number {
 
 - VS-SC-003 (new/unknown packages): add `maturity` field to finding `evidence`
 - VS-SC-004 (typosquat): boost confidence if target package has high maturity
-- New finding VS-SC-008 (low-maturity dependency): risk > 0.5 triggers a finding
+- New finding VS-SC-010 (low-maturity dependency): risk > 0.5 triggers a finding
 
 **Exit criteria:**
 
 - [ ] npm registry API integration with rate limiting (10 req/s max)
 - [ ] Maturity data cached for 1 hour (avoid repeated lookups)
-- [ ] VS-SC-008 finding generated for high-risk packages
+- [ ] VS-SC-010 finding generated for high-risk packages
 - [ ] Existing findings enriched with maturity data
 - [ ] Graceful degradation when npm registry unavailable
 - [ ] `npm test`, `npm run lint`, `npm run build` all green
