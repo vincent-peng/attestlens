@@ -1,6 +1,6 @@
 # AttestLens — Master Development Roadmap
 
-**Last Updated:** 2026-04-24
+**Last Updated:** 2026-04-26
 **Status:** Living document — update as we ship
 
 ---
@@ -34,20 +34,27 @@
 **What's NOT built yet:**
 - ❌ Advisory-monitoring rule update pipeline
 - ❌ Executable remote rule migration for all scanner checks
-- ❌ Web dashboard
+- ❌ OSV.dev vulnerability integration (M3.1)
+- ❌ Behavioral supply-chain analysis (M3.5)
+- ❌ Git history secret scanning (M3.6)
+- ❌ SAST lite compliance patterns (M3.7)
+- ❌ IaC misconfiguration detection (M3.8)
+- ❌ Web dashboard (M4 — not until M3 + design-partner validation)
 
-**Current focus:** Run design-partner review from `docs/validation/DESIGN-PARTNER-VALIDATION.md` while keeping the M2.5 rule-pack foundation compatibility-first.
+**Current focus:** M3 scanner enhancement (spec at `docs/milestones/M3-SCANNER-ENHANCEMENT.md`). Design-partner review continues in parallel. Dashboard is explicitly deferred to M4 — we need validated scanner output and consultant feedback before investing in UI.
 
 ---
 
 ## Roadmap Overview
 
 ```
-Phase 1.5 — Scanner Credibility Release    ← NOW
-Phase 2   — Compliance Differentiation
-Phase 2.5 — Rule Update Pipeline
-Phase 3   — Platform & AI Integration
-Phase 4   — Launch & Growth
+Phase 1.5 — Scanner Credibility Release    ✅
+Phase 2   — Compliance Differentiation      ✅
+Phase 2.5 — Rule Update Pipeline (foundation) ✅
+Phase 3   — Scanner Enhancement              ← NOW
+Phase 3.5 — Rule Update Pipeline (full)
+Phase 4   — Platform, Dashboard & AI Integration
+Phase 5   — Launch & Growth
 ```
 
 ---
@@ -78,9 +85,11 @@ Phase 4   — Launch & Growth
 
 ---
 
-## Phase 2 — Compliance Differentiation
+## Phase 2 — Compliance Differentiation ✅
 
 **Goal:** Build the moat — questionnaire-backed APP/NDB assessment and consultant-grade outputs that generic scanners do not offer.
+
+**Status:** Shipped. Breach-readiness scoring, consultant narratives, attestation validation, and assessment-basis modes all live. Design-partner review in progress.
 
 ### Shipped Foundation
 
@@ -118,67 +127,132 @@ Phase 4   — Launch & Growth
 
 ---
 
-## Phase 2.5 — Rule Update Pipeline (Weeks 5-7, overlaps with Phase 2)
+## Phase 2.5 — Rule Update Pipeline ✅ (foundation shipped)
 
 **Goal:** Ensure AttestLens detects new vulnerabilities faster than competitors.
 
-### Week 5: Rule Pack System
+**Shipped:**
+- ✅ Rule schema (typed manifest with id, pattern, severity, APP mapping, fixPrompt, CVE, addedIn)
+- ✅ Rule loader (embedded pack, cache overlay, corrupt-cache fallback, update command, opt-in auto-update)
+- ✅ Rule freshness metadata in scan summaries, MCP output, reports
 
-| Day | Task | Details |
-|-----|------|---------|
-| D1-2 | **Rule schema** | Done: typed manifest with id, pattern, severity, APP mapping, fixPrompt, CVE, addedIn |
-| D3 | **Rule loader** | Done: embedded pack, cache overlay, corrupt-cache fallback, cache-preserving `attestlens update-rules`, source-gated opt-in `--auto-update`, bounded source loading |
-| D4 | **Migrate existing rules** | Started: embedded manifest is generated from current GuardVibe, URL, JS, key, infra, repo-stack, and supply-chain rule definitions; allowlisted GuardVibe fallback static regex rules now execute from the active rule pack without accepting active regex overrides |
-| D5 | **Test** | Started: loader, CLI update, schema, report metadata, MCP metadata, snapshot redaction, embedded-coverage, and executable-rule fallback tests exist |
+**Remaining → Phase 3.5:**
+- Behavioral heuristics expansion (HEU-001→007)
+- Advisory monitoring pipeline
+- Rule generator + CI pipeline
+- Trust signals (freshness badge, CVE tracking)
 
-Remaining Week 5 work:
-
-- decide the next executable rule family after GuardVibe fallback static regex rules
-- define remote publish/source policy before enabling default remote fetches
-- decide whether rule freshness should appear in `attestlens --version`
-
-### Week 6: Behavioral Heuristics Expansion
-
-| Day | Task | Details |
-|-----|------|---------|
-| D1-3 | **7 new heuristic rules** | HEU-001 through HEU-007 |
-| | | - Pre-staged packages (new dep <24h before suspicious activity) |
-| | | - Self-destructing code (file deletion in postinstall) |
-| | | - Obfuscated install scripts (base64/hex in postinstall) |
-| | | - Rapid version bumps (>3 versions in 24h) |
-| | | - New maintainer + immediate publish (account age <7 days) |
-| | | - Dependency count anomaly (sudden many deps) |
-| | | - DNS/exfil patterns (hardcoded IPs, fetch to unknown domains) |
-| D4 | **Test against known attacks** | Axios (Mar 2026), ua-parser-js, event-stream, colors.js |
-| D5 | **Validate** | Run against 3+ real OSS projects, verify no false positives |
-
-### Week 7: Intelligence Pipeline + Trust Signals
-
-| Day | Task | Details |
-|-----|------|---------|
-| D1-2 | **Advisory monitor** | `scripts/check-advisories.mjs` |
-| | | - npm security advisories (GitHub API) |
-| | | - Snyk public DB |
-| | | - CVE NVD API |
-| D3 | **Rule generator** | `scripts/generate-rules.mjs` |
-| | | - Template-based rule generation from advisory |
-| | | - Auto-map to APP/NDB where applicable |
-| D4 | **CI pipeline** | GitHub Actions: check → generate → test → publish |
-| | | - Cron: every 4 hours |
-| | | - Manual trigger for 0-day response |
-| | | - Publish rule pack as GitHub Release |
-| D5 | **Trust signals** | - `CHANGELOG-RULES.md` with dates + sources |
-| | | - Rules freshness badge in scan output |
-| | | - Rule count in `--version` |
-| | | - CVE coverage tracking |
-
-**Exit criteria:** Rule pack system live, 7 new heuristics, advisory monitoring cron, <4h response target.
+See M3 spec (`docs/milestones/M3-SCANNER-ENHANCEMENT.md`) for how behavioral analysis integrates.
 
 ---
 
-## Phase 3 — Platform & AI Integration (Weeks 8-14)
+## Phase 3 — Scanner Enhancement ← NOW
+
+**Goal:** Close competitive gaps and differentiate on compliance-relevant detection.
+
+Full spec: `docs/milestones/M3-SCANNER-ENHANCEMENT.md`
+
+### M3.1 — OSV.dev Vulnerability Integration (2 days)
+- Replace sole reliance on `npm audit` with OSV.dev API as primary CVE source
+- Batch query by package@version, deduplicate against npm audit
+- Every CVE maps to APP_11 + conditional NDB
+- Graceful fallback when OSV API unavailable
+
+### M3.2 — No-Source-Repository Dependency Detection (2 hrs)
+- Flag deps with no repository/homepage in npm metadata
+- Maps to APP_11 (no audit trail) + APP_6 (no accountability)
+
+### M3.3 — Dynamic Confidence Scoring (1 day)
+- Replace hardcoded confidence with context-aware calculation
+- Typosquat distance, auth endpoints, multi-source confirmation, file type
+- Makes reports defensible for consultant use
+
+### M3.4 — Per-Adapter Timeout & Progress Reporting (2 days)
+- AbortSignal per adapter, configurable timeouts
+- Progress callbacks for CLI feedback
+- Partial results on timeout, not hard failure
+
+### M3.5 — Behavioral Supply-Chain Analysis (1 week)
+- 6 signals: eval/Function, network access, shell access, env access, obfuscation, high-entropy strings
+- No compliance tool does this — highest differentiation opportunity
+- Maps to APP_11 + APP_8 + NDB
+
+### M3.6 — Git History Secret Scanning (3 days)
+- Gitleaks integration as opt-in adapter (like mcp-scan)
+- 150+ secret detectors covering git history
+- Maps to APP_11 + NDB — the #1 gap consultants flag
+
+### M3.7 — SAST Lite: Compliance-Critical Patterns (1 week)
+- 20 patterns: hardcoded creds, SQL injection, SSRF, CORS wildcard, prototype pollution, path traversal, etc.
+- Regex-based, no AST parsing needed
+- Direct APP/NDB mappings for each pattern
+
+### M3.8 — IaC Misconfiguration: Dockerfile + Terraform (1 week)
+- 15 Dockerfile checks + 10 Terraform checks
+- All map to APP_11 + conditional NDB
+- Pure TypeScript, no Go runtime needed
+
+### M3.9 — Cross-Scanner Finding Deduplication (1 day)
+- Canonical key generation across scanners
+- Multi-source findings get confidence boost
+- No triple-counting in reports
+
+### M3.10 — Package Maturity Scoring (1 day)
+- Weekly downloads, maintainer count, README/tests presence
+- Enriches supply-chain findings, strengthens confidence
+
+### Implementation Timeline
+
+```
+Week 1-2:  M3.1 + M3.2 + M3.3 + M3.4  (quick wins + production hardening)
+Week 3-4:  M3.5 + M3.6                  (differentiation + consultant value)
+Week 5-6:  M3.7 + M3.8                  (extended coverage)
+Week 7:    M3.9 + M3.10                 (quality + enrichment)
+```
+
+**Exit criteria:**
+- All 10 enhancements shipped and tested
+- 223+ existing tests still green
+- Total detection surface > 250 compliance-relevant rules
+- OSV.dev + npm audit dual-source for CVEs
+- Behavioral analysis producing findings with APP_11 mappings
+- Gitleaks integration working as opt-in adapter
+- Reports show deduplicated findings with dynamic confidence scores
+
+**Competitive gap analysis:** See `docs/milestones/M3-SCANNER-ENHANCEMENT.md` for detailed comparison against Semgrep, Socket.dev, Trivy, Snyk, and gitleaks.
+
+---
+
+## Phase 3.5 — Rule Update Pipeline (full)
+
+**Goal:** Complete the rule freshness system started in M2.5.
+
+### Behavioral Heuristics Expansion
+- HEU-001 through HEU-007 (pre-staged packages, self-destructing code, obfuscated scripts, rapid bumps, new maintainer, dep count anomaly, DNS/exfil)
+- Test against known attacks (Axios Mar 2026, ua-parser-js, event-stream, colors.js)
+
+### Advisory Monitoring + Rule Generator
+- `scripts/check-advisories.mjs` — npm, Snyk, CVE NVD
+- `scripts/generate-rules.mjs` — template-based rule generation
+- GitHub Actions CI: check → generate → test → publish (every 4h)
+
+### Trust Signals
+- `CHANGELOG-RULES.md` with dates + sources
+- Rules freshness badge in scan output
+- Rule count in `--version`
+- CVE coverage tracking
+
+**Exit criteria:** 7 new heuristics, advisory monitoring cron, <4h response target.
+
+---
+
+## Phase 4 — Platform, Dashboard & AI Integration (after M3 + design-partner validation)
 
 **Goal:** SaaS-grade product with AI-powered features.
+
+**Prerequisite:** M3 scanner enhancements shipped + 3+ design-partner confirmations that report shape is useful.
+
+**Why dashboard is deferred:** CLI + PDF is sufficient for design-partner validation. Dashboard is a UI wrapper around validated scanner output. Building it before consultants confirm the compliance mapping holds up would be premature. The moat is compliance mapping, not UI.
 
 ### Weeks 8-10: Web Dashboard
 
@@ -225,9 +299,9 @@ Remaining Week 5 work:
 
 ---
 
-## Phase 4 — Launch & Growth (Weeks 12-16)
+## Phase 5 — Launch & Growth (after M4)
 
-### Week 12-13: Beta Launch
+### Beta Launch
 
 | Task | Details |
 |------|---------|
@@ -238,7 +312,7 @@ Remaining Week 5 work:
 | **X/Twitter** | Thread: "I built a scanner that maps security findings to Australian Privacy Act obligations" |
 | **Consultant outreach** | 5-10 AU compliance consultants, free scan + PDF report for feedback |
 
-### Week 14-15: Community & Content
+### Community & Content
 
 | Task | Details |
 |------|---------|
@@ -248,7 +322,7 @@ Remaining Week 5 work:
 | **CVE coverage page** | attestlens.dev/cves — public, searchable |
 | **"First to Detect" stories** | Document response times for real vulnerabilities |
 
-### Week 16+: Growth
+### Growth
 
 | Task | Details |
 |------|---------|
@@ -272,20 +346,26 @@ Remaining Week 5 work:
 
 Free = current CLI + Phase 1.5. Pro = SaaS wrapper. Consultant = our moat.
 
+**International pricing note:** When expanding beyond AU (GDPR, SOC 2), pricing should accommodate EUR and USD. Consultant tier may need regional adjustment — EU GDPR consultants operate at different price points than AU APP consultants.
+
 ---
 
 ## Success Metrics
 
 | Metric | Phase 1.5 | Phase 2 | Phase 3 | Phase 4 |
 |--------|-----------|---------|---------|---------|
-| Security checks | 68+ | 68+ | 68+ | 75+ |
+| Security checks | 68+ | 68+ | 250+ | 300+ |
 | Compliance questions | 0 | 50-70 | 50-70 | 70+ |
 | Report formats | MD/JSON/HTML | +PDF | +PDF | +PDF |
 | URL scanning | ✅ | ✅ | ✅ | ✅ |
 | AI fix prompts | ✅ | ✅ | ✅ | ✅ |
 | Breach readiness score | ❌ | ✅ | ✅ | ✅ |
 | Rule pack system | ❌ | ❌ | ✅ | ✅ |
-| Behavioral heuristics | 8 rules | 8 rules | 15 rules | 15+ |
+| Behavioral heuristics | 8 rules | 8 rules | 15+ rules | 15+ |
+| CVE sources | npm audit | npm audit | npm audit + OSV.dev | npm audit + OSV.dev |
+| Git history secrets | ❌ | ❌ | ✅ (gitleaks) | ✅ |
+| SAST patterns | 8 JS | 8 JS | 28+ (JS + source) | 28+ |
+| IaC checks | ❌ | ❌ | 25 (Docker + TF) | 25+ |
 | Advisory response time | N/A | N/A | <4h | <2h |
 | Paying customers | 0 | 0 | 5 | 20+ |
 | MRR | $0 | $0 | $0 | $500+ |
@@ -302,6 +382,10 @@ Free = current CLI + Phase 1.5. Pro = SaaS wrapper. Consultant = our moat.
 | Rule maintenance burden | Medium | Medium | Rule pack system + community contributions + advisory automation |
 | PDF generator complexity | Low | Low | Keep PDFKit output deterministic and data-driven; HTML remains fallback |
 | Solo dev bandwidth | High | High | Prioritize ruthlessly; Phase 1.5 first, validate before Phase 2 |
+| Dashboard premature build | Medium | High | Deferred to M4; CLI + PDF is sufficient for validation |
+| SAST false positives | High | Medium | Conservative patterns, severity thresholds, fix prompts |
+| Gitleaks not installed | High | Low | Opt-in adapter pattern (like mcp-scan); graceful skip |
+| OSV.dev API downtime | Medium | Low | Timeout + fallback to npm audit |
 
 ---
 
@@ -316,6 +400,9 @@ Free = current CLI + Phase 1.5. Pro = SaaS wrapper. Consultant = our moat.
 | 2026-04-18 | Rule packs independent of npm | Update rules without npm version bump; `attestlens update-rules` |
 | 2026-04-18 | Behavioral heuristics over signatures | Socket.dev proved this catches novel attacks; we have the same approach |
 | 2026-04-19 | Combined roadmap from all research | Competitive gap + rule pipeline + Phase 2 plan into single document |
+| 2026-04-26 | Dashboard deferred to M4 | CLI + PDF sufficient for design-partner validation; moat is compliance mapping, not UI |
+| 2026-04-26 | Scanner enhancement before SaaS | Competitive gaps (OSV.dev, behavioral, gitleaks) must close before wrapping in UI |
+| 2026-04-26 | M3 milestone formalized | Deep research identified 10 prioritized enhancements; spec at `docs/milestones/M3-SCANNER-ENHANCEMENT.md` |
 
 ---
 
@@ -324,10 +411,11 @@ Free = current CLI + Phase 1.5. Pro = SaaS wrapper. Consultant = our moat.
 - Mobile app
 - Desktop app
 - Real-time monitoring (needs infra)
-- Multi-region compliance (NZ/GDPR — future packs)
+- Multi-region compliance (NZ/GDPR — future packs after M3 validation)
 - Team management / org accounts
 - Custom rule builder UI
 - API marketplace
 - Partner integrations (Xero, MYOB)
+- **Web dashboard** (deferred to M4 — needs validated scanner output first)
 
-These are all Phase 4+ or never, depending on traction.
+These are all Phase 4+ or never, depending on traction. Dashboard is explicitly blocked on M3 completion + design-partner validation.

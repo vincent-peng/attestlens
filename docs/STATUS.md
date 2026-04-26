@@ -1,7 +1,9 @@
 # AttestLens — Status
 
-**Last Updated:** 2026-04-25
+**Last Updated:** 2026-04-26
 **Purpose:** Near-term source of truth for product status, current milestone, and next actions.
+
+**Current focus:** M3 scanner enhancement spec complete (`docs/milestones/M3-SCANNER-ENHANCEMENT.md`). Design-partner review continues in parallel. Next implementation: M3.1 (OSV.dev) → M3.2 (no-source-repo) → M3.3 (dynamic confidence) → M3.4 (timeouts).
 
 ---
 
@@ -138,26 +140,44 @@ In practice, that means:
 
 ## Next Milestones
 
-## M2 — Compliance Moat
+## M2 — Compliance Moat ✅
 
 **Goal:** Turn the scanner into a real assessment workflow.
 
-- questionnaire flow engine
-- answer evaluation and confidence scoring
-- merge scan evidence with questionnaire outcomes
-- breach-readiness score
-- consultant-grade report structure
+- ✅ questionnaire flow engine
+- ✅ answer evaluation and confidence scoring
+- ✅ merge scan evidence with questionnaire outcomes
+- ✅ breach-readiness score
+- ✅ consultant-grade report structure
 
-## M2.5 — Rule Freshness
+## M2.5 — Rule Freshness (foundation shipped)
 
 **Goal:** Make AttestLens respond to new attack patterns faster than static competitors.
 
-- rule pack format
-- loader and update command
-- new heuristics for modern supply-chain / exfil patterns
-- advisory monitoring pipeline
+- ✅ rule pack format
+- ✅ loader and update command
+- ✅ embedded fallback + cache system
+- ⏳ new heuristics for modern supply-chain / exfil patterns
+- ⏳ advisory monitoring pipeline
 
-## M3 — SaaS Wrapper
+## M3 — Scanner Enhancement
+
+**Goal:** Close competitive gaps and differentiate on compliance-relevant detection.
+
+Full spec: `docs/milestones/M3-SCANNER-ENHANCEMENT.md`
+
+- M3.1 — OSV.dev vulnerability integration (2 days)
+- M3.2 — No-source-repo dependency detection (2 hrs)
+- M3.3 — Dynamic confidence scoring (1 day)
+- M3.4 — Per-adapter timeout + progress reporting (2 days)
+- M3.5 — Behavioral supply-chain analysis (1 week)
+- M3.6 — Git history secret scanning via gitleaks (3 days)
+- M3.7 — SAST lite: compliance-critical patterns (1 week)
+- M3.8 — IaC misconfiguration: Dockerfile + Terraform (1 week)
+- M3.9 — Cross-scanner finding deduplication (1 day)
+- M3.10 — Package maturity scoring (1 day)
+
+## M4 — SaaS Wrapper
 
 **Goal:** Add product surfaces only after the local product is validated.
 
@@ -183,10 +203,10 @@ These are the default operating rules for the project.
 
 ### Next 2 Weeks
 
-1. Start design-partner outreach with the refreshed M2 sample report.
-2. Collect consultant feedback on breach-readiness scoring, narrative usefulness, and remediation ordering.
-3. Keep `npm test`, `npm run lint`, and `npm run build` green while feedback-driven tuning happens.
-4. Keep executable rule-pack migration narrow until design-partner feedback does not expose M2 blockers.
+1. Begin M3.1 (OSV.dev integration) and M3.2 (no-source-repo deps) — quick wins.
+2. M3.3 (dynamic confidence) and M3.4 (per-adapter timeouts) — production hardening.
+3. Continue design-partner outreach with M2 sample reports.
+4. Keep `npm test`, `npm run lint`, and `npm run build` green.
 
 ### Explicitly Not Now
 
@@ -194,6 +214,8 @@ These are the default operating rules for the project.
 - billing
 - broad growth automation
 - additional compliance frameworks beyond APP/NDB
+- SaaS dashboard before M3 scanner enhancements ship
+- behavioral analysis before OSV.dev + no-source-repo quick wins
 
 ---
 
