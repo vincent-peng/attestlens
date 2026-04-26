@@ -76,16 +76,17 @@ Supply chain detection is a **critical gap** in APP 11 (Security) compliance. Un
 | `VS-SC-004` | Typosquat of top-100 npm package (Levenshtein ≤2) | Critical | APP_11 | ✅ Shipped |
 | `VS-SC-005` | Missing or invalid lockfile | Critical | APP_11 | ✅ Shipped |
 | `VS-SC-006` | Known CVE in dependency (npm audit) | High | APP_11 | ✅ Shipped |
-| `VS-SC-007` | Dependency with no repository field | Medium | APP_11 | ✅ Shipped |
+| `VS-OSV-*` | Known vulnerability from opt-in OSV.dev enrichment | Variable | APP_11 + conditional NDB/APP_8 | ✅ Shipped |
+| `VS-SC-007` | Lockfile entry with no resolved URL | Medium | APP_11 | ✅ Shipped |
 | `VS-SC-008` | Install scripts + no source repo (critical combo) | Critical | APP_11 | ✅ Shipped |
+| `VS-SC-009` | Direct production dependency with no repository or homepage | Medium | APP_11 + APP_6 | ✅ Shipped |
 
 #### Planned Rules (Phase 2+)
 
 | Rule ID | Pattern | Severity | Maps To | Status |
 |---------|---------|----------|---------|--------|
 | `VS-SC-003` | Package with <30 days publishing history | High | APP_11 | 🔜 Phase 2 (requires npm registry API) |
-| `VS-SC-009` | Outdated major version (>2 behind latest) | Medium | APP_11 | 🔜 Phase 2 |
-| `VS-SC-010` | Next.js/React dependency mismatch | Low | APP_11 | 🔜 Phase 2 |
+| `VS-SC-010` | Low-maturity dependency package | Medium | APP_11 | 🔜 M3.10 |
 
 #### Axios Attack Detection Matrix
 
@@ -95,7 +96,7 @@ Supply chain detection is a **critical gap** in APP 11 (Security) compliance. Un
 | `postinstall` script in `plain-crypto-js` | VS-SC-001 | ✅ Yes — install-time script |
 | `plain-crypto-js` published <24 hours before adoption | VS-SC-003 | ✅ Yes — new package |
 | Typosquat of `crypto-js` | VS-SC-004 | ✅ Yes — typosquat detection |
-| No source repository for `plain-crypto-js` | VS-SC-007 | ✅ Yes — no repo field |
+| No source repository for `plain-crypto-js` | VS-SC-009 | ✅ Yes — no repository/homepage metadata |
 | Install scripts + no source repo | VS-SC-008 | ✅ Yes — critical combo |
 | Lockfile shasum mismatch | VS-SC-005 | ✅ Yes — integrity check |
 
@@ -103,9 +104,10 @@ Supply chain detection is a **critical gap** in APP 11 (Security) compliance. Un
 
 ### Implementation Priority
 
-1. **Phase 1.5** ✅ (shipped): Static supply chain scanner — parse `package.json`/`package-lock.json`, detect install scripts, flag unused deps, typosquatting, missing lockfile, npm audit, no-repo, install-scripts+no-repo combo
-2. **Phase 2** (next): Package age detection (npm registry API), manifest diff detection, Socket.dev/OSV API integration for real-time vulnerability data
-3. **Phase 3**: Lockfile integrity verification, continuous monitoring, drift detection
+1. **Phase 1.5** ✅ (shipped): Static supply chain scanner — parse `package.json`/`package-lock.json`, detect install scripts, flag unused deps, typosquatting, missing lockfile, npm audit, no-resolved-url, no-repo, install-scripts+no-repo combo
+2. **M3.1/M3.2** ✅ (shipped): opt-in OSV.dev vulnerability enrichment and dependency provenance metadata checks
+3. **Phase 2** (next): Package age detection (npm registry API), manifest diff detection, and deeper behavioral supply-chain signals
+4. **Phase 3**: Lockfile integrity verification, continuous monitoring, drift detection
 
 ### Staying Current
 
@@ -113,9 +115,9 @@ The Axios attack shows that **static rules aren't enough** — supply chain thre
 
 1. **Rule versioning**: Each rule has a version and last-updated date
 2. **Remote rule updates**: Pull updated detection rules from a central repo (like how GuardVibe's 335 rules stay current)
-3. **npm audit integration**: Always run `npm audit` as part of the scan — it's the baseline
+3. **npm audit + OSV integration**: Run npm audit as a baseline and enrich exact dependency versions with OSV.dev data when `--external-enrichment` is enabled. This sends package names and exact versions to OSV.dev.
 4. **Lockfile pinning**: Encourage `npm ci` over `npm install` (uses exact lockfile hashes)
-5. **Socket.dev / OSV integration**: Real-time supply chain intelligence API
+5. **Behavioral package analysis**: Add runtime-behavior signals for suspicious package code after timeout/progress hardening
 
 ### APP 11 Mapping Rationale
 

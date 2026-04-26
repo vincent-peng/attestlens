@@ -5,7 +5,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import {
   buildFindingsHash,
@@ -15,8 +15,9 @@ import {
   loadScanSnapshot,
   type AttestationPromptRunner,
 } from '../questionnaire/index.js';
+import { OSV_QUERY_BATCH_URL } from '../scanner/osv.js';
 import { buildEmbeddedRulePack } from '../scanner/rules/index.js';
-import { executeAttestCommand } from './index.js';
+import { buildScannerOrchestratorOptions, executeAttestCommand } from './index.js';
 
 const execFileAsync = promisify(execFile);
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
@@ -98,6 +99,18 @@ function makePromptRunner(options: {
   };
 }
 
+async function createCliPackageProject(dependencyName: string): Promise<string> {
+  const projectDir = await fs.mkdtemp(path.join(os.tmpdir(), 'attestlens-cli-project-'));
+  await fs.writeFile(path.join(projectDir, 'package.json'), JSON.stringify({
+    name: 'cli-enrichment-test',
+    version: '1.0.0',
+    dependencies: {
+      [dependencyName]: '1.0.0',
+    },
+  }, null, 2));
+  return projectDir;
+}
+
 describe('CLI URL handling', () => {
   it('fails URL scans when the target is blocked or unreachable', async () => {
     const result = await runCli(['scan', 'http://localhost:3000']);
@@ -149,6 +162,108 @@ describe('CLI URL handling', () => {
       expect(markdown).toContain('# Privacy Act Compliance Report — example.com');
     } finally {
       await fs.rm(tempDir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('CLI external enrichment option', () => {
+  it('exposes explicit external enrichment on scan, audit, and attest flows', async () => {
+    const scanHelp = await runCli(['scan', '--help']);
+    const auditHelp = await runCli(['audit', '--help']);
+    const attestHelp = await runCli(['attest', '--help']);
+
+    expect(scanHelp.code).toBe(0);
+    expect(auditHelp.code).toBe(0);
+    expect(attestHelp.code).toBe(0);
+    expect(scanHelp.stdout).toContain('--external-enrichment');
+    expect(auditHelp.stdout).toContain('--external-enrichment');
+    expect(attestHelp.stdout).toContain('--external-enrichment');
+  });
+
+  it('keeps external enrichment disabled by default in shared scanner options', () => {
+    for (const options of [{}, { externalEnrichment: false }]) {
+      expect(buildScannerOrchestratorOptions(options)).toEqual({
+        supplyChain: {
+          osv: { enabled: false },
+          registry: { enabled: false },
+        },
+      });
+    }
+  });
+
+  it('enables OSV and registry enrichment only when explicitly requested', () => {
+    expect(buildScannerOrchestratorOptions({ externalEnrichment: true })).toEqual({
+      supplyChain: {
+        osv: { enabled: true },
+        registry: { enabled: true },
+      },
+    });
+  });
+
+  it('does not call OSV or npm registry during default attest scans', async () => {
+    const projectDir = await createCliPackageProject('external-only');
+    const outputDir = await fs.mkdtemp(path.join(os.tmpdir(), 'attestlens-cli-enrichment-'));
+    const fetchMock = vi.fn(async () => {
+      throw new Error('external enrichment should be disabled');
+    });
+
+    try {
+      vi.stubGlobal('fetch', fetchMock);
+
+      const result = await executeAttestCommand(projectDir, {
+        output: outputDir,
+        format: 'json',
+        strict: false,
+      }, makePromptRunner({ saveAfter: 0 }));
+
+      expect(result.status).toBe('saved');
+      expect(fetchMock).not.toHaveBeenCalled();
+    } finally {
+      vi.unstubAllGlobals();
+      await fs.rm(projectDir, { recursive: true, force: true });
+      await fs.rm(outputDir, { recursive: true, force: true });
+    }
+  });
+
+  it('passes explicit external enrichment into attest scans', async () => {
+    const projectDir = await createCliPackageProject('external-only');
+    const outputDir = await fs.mkdtemp(path.join(os.tmpdir(), 'attestlens-cli-enrichment-'));
+    const calls: string[] = [];
+    const fetchMock = vi.fn(async (input: string | URL) => {
+      const url = String(input);
+      calls.push(url);
+      if (url === 'https://registry.npmjs.org/external-only') {
+        return new Response(JSON.stringify({ name: 'external-only', version: '1.0.0' }), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        });
+      }
+      if (url === OSV_QUERY_BATCH_URL) {
+        return new Response(JSON.stringify({ results: [{}] }), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        });
+      }
+      return new Response('{}', { status: 404 });
+    });
+
+    try {
+      vi.stubGlobal('fetch', fetchMock);
+
+      const result = await executeAttestCommand(projectDir, {
+        output: outputDir,
+        format: 'json',
+        strict: false,
+        externalEnrichment: true,
+      }, makePromptRunner({ saveAfter: 0 }));
+
+      expect(result.status).toBe('saved');
+      expect(calls).toContain('https://registry.npmjs.org/external-only');
+      expect(calls).toContain(OSV_QUERY_BATCH_URL);
+    } finally {
+      vi.unstubAllGlobals();
+      await fs.rm(projectDir, { recursive: true, force: true });
+      await fs.rm(outputDir, { recursive: true, force: true });
     }
   });
 });
@@ -285,7 +400,7 @@ describe('CLI rule update command', () => {
   });
 });
 
-describe('CLI attest command', () => {
+describe('CLI attest command', { timeout: 20000 }, () => {
   it('creates session.json and scan-results.json when starting from a local path target', async () => {
     const projectDir = await fs.mkdtemp(path.join(os.tmpdir(), 'attestlens-attest-project-'));
     const outputDir = await fs.mkdtemp(path.join(os.tmpdir(), 'attestlens-attest-output-'));

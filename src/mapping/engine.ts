@@ -268,6 +268,19 @@ const APP_6_RULES: MappingRule[] = [
     rationale: 'Data exfiltration risks indicate personal information may be disclosed to unauthorised external parties, violating APP 6.1.',
     oaicReference: 'APP Guidelines Chapter 6.3',
   },
+  {
+    id: 'MAP-034',
+    name: 'Dependency Without Source Provenance → APP 6',
+    sourcePatterns: {
+      ruleId: /^VS-SC-009$/,
+      category: /^Security$/i,
+    },
+    appPrinciple: 'APP_6',
+    status: 'unknown',
+    confidence: 0.60,
+    rationale: 'A direct production dependency without source repository or homepage metadata may make downstream disclosure and incident-impact assessment harder. Manual review is required to determine whether the dependency processes or discloses personal information.',
+    oaicReference: 'APP Guidelines Chapter 6.1',
+  },
 ];
 
 // ─── APP 1: Open & Transparent Management ────────────────────────────────────
@@ -347,6 +360,21 @@ const APP_8_RULES: MappingRule[] = [
     confidence: 0.55,
     rationale: 'Analytics and tracking SDKs may transmit personal information to overseas servers. Requires questionnaire to determine if data flows cross borders and whether APP 8.1 obligations are met.',
     oaicReference: 'APP Guidelines Chapter 8.1',
+  },
+  {
+    id: 'MAP-035',
+    name: 'OSV Network Disclosure Vulnerability → APP 8',
+    sourcePatterns: {
+      ruleId: /^VS-OSV-/,
+      category: /^Security$/i,
+      title: /(ssrf|server.?side request forgery|exfiltrat|external request|open redirect)/i,
+      severity: ['critical', 'high', 'medium'],
+    },
+    appPrinciple: 'APP_8',
+    status: 'unknown',
+    confidence: 0.58,
+    rationale: 'The vulnerable dependency class may enable external requests or data exfiltration. Manual review is required to determine whether personal information could be disclosed to overseas recipients under APP 8.',
+    oaicReference: 'APP Guidelines Chapter 8.3',
   },
 ];
 
@@ -487,6 +515,34 @@ const NDB_RULES: MappingRule[] = [
     oaicReference: 'APP Guidelines Chapter 11.4',
   },
   {
+    id: 'MAP-032',
+    name: 'OSV Vulnerability in Dependency → APP 11.1',
+    sourcePatterns: {
+      ruleId: /^VS-OSV-/,
+      category: /^Security$/i,
+      severity: ['critical', 'high', 'medium', 'low'],
+    },
+    appPrinciple: 'APP_11',
+    status: 'fail',
+    confidence: 0.90,
+    rationale: 'OSV.dev reports a known vulnerability in a project dependency. Keeping dependencies patched is part of taking reasonable steps to protect personal information under APP 11.1.',
+    oaicReference: 'APP Guidelines Chapter 11.4',
+  },
+  {
+    id: 'MAP-033',
+    name: 'Dependency Without Source Provenance → APP 11.1',
+    sourcePatterns: {
+      ruleId: /^VS-SC-009$/,
+      category: /^Security$/i,
+      severity: ['medium', 'high', 'critical'],
+    },
+    appPrinciple: 'APP_11',
+    status: 'fail',
+    confidence: 0.82,
+    rationale: 'Direct production dependencies without source repository or homepage metadata weaken package provenance review and incident response, increasing supply-chain risk under APP 11.1.',
+    oaicReference: 'APP Guidelines Chapter 11.1',
+  },
+  {
     id: 'MAP-025',
     name: 'Missing Lockfile → APP 11.1',
     sourcePatterns: {
@@ -500,6 +556,20 @@ const NDB_RULES: MappingRule[] = [
     confidence: 0.85,
     rationale: 'Missing or invalid lockfiles make dependency resolution non-deterministic, increasing supply chain risk. Under APP 11.1, entities must ensure reproducible builds to maintain the security of personal information.',
     oaicReference: 'APP Guidelines Chapter 11.6',
+  },
+  {
+    id: 'MAP-036',
+    name: 'OSV Breach-Relevant Vulnerability → NDB',
+    sourcePatterns: {
+      ruleId: /^VS-OSV-/,
+      title: /(remote code execution|rce|authentication bypass|information disclosure|sensitive data|exfiltrat|sql injection|cross.?site scripting|xss)/i,
+      severity: ['critical', 'high'],
+    },
+    appPrinciple: 'NDB',
+    status: 'unknown',
+    confidence: 0.70,
+    rationale: 'The dependency vulnerability class may create a realistic data-breach pathway. NDB impact depends on exploitability, exposed systems, and whether personal information is affected.',
+    oaicReference: 'NDB Guidelines s26WE',
   },
 
   // ── URL Scan Findings ──────────────────────────────────────────────────────
@@ -655,10 +725,13 @@ function matchRule(finding: AttestLensFinding, rule: MappingRule): boolean {
   const severityOk = !sourcePatterns.severity || sourcePatterns.severity.includes(finding.severity);
 
   // Evaluate each defined pattern field
-  const ruleIdMatch = !sourcePatterns.ruleId || sourcePatterns.ruleId.test(finding.sourceRule);
-  const categoryMatch = !sourcePatterns.category || sourcePatterns.category.test(finding.category);
-  const titleMatch = !sourcePatterns.title || sourcePatterns.title.test(finding.title);
-  const descriptionMatch = !sourcePatterns.description || sourcePatterns.description.test(finding.description);
+  const ruleIds = getRuleIdsForMatching(finding);
+  const title = getTitleForMatching(finding);
+  const description = getDescriptionForMatching(finding);
+  const ruleIdMatch = !sourcePatterns.ruleId || ruleIds.some((ruleId) => patternMatches(sourcePatterns.ruleId!, ruleId));
+  const categoryMatch = !sourcePatterns.category || patternMatches(sourcePatterns.category, finding.category);
+  const titleMatch = !sourcePatterns.title || patternMatches(sourcePatterns.title, title);
+  const descriptionMatch = !sourcePatterns.description || patternMatches(sourcePatterns.description, description);
 
   // 'or' mode (legacy): any defined field matches
   // 'and' mode (default for new rules): all defined fields must match
@@ -675,6 +748,42 @@ function matchRule(finding: AttestLensFinding, rule: MappingRule): boolean {
 
   // AND (default): all defined fields must match
   return ruleIdMatch && categoryMatch && titleMatch && descriptionMatch && severityOk;
+}
+
+function getRawOutputObject(finding: AttestLensFinding): Record<string, unknown> {
+  return typeof finding.evidence.rawOutput === 'object' && finding.evidence.rawOutput !== null
+    ? finding.evidence.rawOutput as Record<string, unknown>
+    : {};
+}
+
+function getRuleIdsForMatching(finding: AttestLensFinding): string[] {
+  const rawOutput = getRawOutputObject(finding);
+  const ruleIds = [finding.sourceRule];
+  if (typeof rawOutput.osvSourceRule === 'string' && rawOutput.osvSourceRule.length > 0) {
+    ruleIds.push(rawOutput.osvSourceRule);
+  }
+  return ruleIds;
+}
+
+function getTitleForMatching(finding: AttestLensFinding): string {
+  const rawOutput = getRawOutputObject(finding);
+  return [
+    finding.title,
+    typeof rawOutput.osvFindingTitle === 'string' ? rawOutput.osvFindingTitle : undefined,
+  ].filter(Boolean).join(' ');
+}
+
+function getDescriptionForMatching(finding: AttestLensFinding): string {
+  const rawOutput = getRawOutputObject(finding);
+  return [
+    finding.description,
+    typeof rawOutput.osvFindingDescription === 'string' ? rawOutput.osvFindingDescription : undefined,
+  ].filter(Boolean).join(' ');
+}
+
+function patternMatches(pattern: RegExp, value: string): boolean {
+  pattern.lastIndex = 0;
+  return pattern.test(value);
 }
 
 /**

@@ -7,7 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { McpError } from '@modelcontextprotocol/sdk/types.js';
 
 import { ScannerOrchestrator } from '../scanner/orchestrator.js';
-import { handleToolCall, validatePath, validateUrl } from './index.js';
+import { MCP_TOOLS, handleToolCall, validatePath, validateUrl } from './index.js';
 
 function makeRuleFreshness() {
   return {
@@ -32,6 +32,7 @@ describe('MCP Server', () => {
 
   afterEach(async () => {
     vi.restoreAllMocks();
+    vi.unstubAllGlobals();
     delete process.env.ATTESTLENS_ALLOWED_ROOTS;
     await fs.rm(tempDir, { recursive: true, force: true });
   });
@@ -68,6 +69,16 @@ describe('MCP Server', () => {
   });
 
   describe('handleToolCall', () => {
+    it('exposes external enrichment only for MCP path scan and audit tools', () => {
+      const scanTool = MCP_TOOLS.find((tool) => tool.name === 'attestlens_scan');
+      const auditTool = MCP_TOOLS.find((tool) => tool.name === 'attestlens_audit');
+      const urlTool = MCP_TOOLS.find((tool) => tool.name === 'attestlens_scan_url');
+
+      expect(scanTool?.inputSchema.properties).toHaveProperty('externalEnrichment');
+      expect(auditTool?.inputSchema.properties).toHaveProperty('externalEnrichment');
+      expect(urlTool?.inputSchema.properties).not.toHaveProperty('externalEnrichment');
+    });
+
     it('returns URL scan output keyed by targetUrl', async () => {
       const scanSpy = vi.spyOn(ScannerOrchestrator.prototype, 'scan').mockResolvedValue({
         findings: [
@@ -215,5 +226,103 @@ describe('MCP Server', () => {
       expect(payload.metadata.ruleFreshness.cachePath).toBeUndefined();
       expect(response.content[0].text).not.toContain('/Users/alice');
     });
+
+    it('keeps MCP scan external enrichment disabled by default', async () => {
+      await writeMcpPackageProject(tempDir, 'external-only');
+      const fetchMock = vi.fn(async () => {
+        throw new Error('external enrichment should be disabled');
+      });
+      vi.stubGlobal('fetch', fetchMock);
+
+      const response = await handleToolCall('attestlens_scan', { path: tempDir });
+      const payload = JSON.parse(response.content[0].text);
+
+      expect(payload.targetType).toBe('path');
+      expect(fetchMock).not.toHaveBeenCalled();
+    });
+
+    it('enables MCP scan external enrichment only when explicitly requested', async () => {
+      await writeMcpPackageProject(tempDir, 'external-only');
+      const fetchMock = vi.fn(async (input: string | URL) => {
+        const url = String(input);
+        if (url === 'https://registry.npmjs.org/external-only') {
+          return new Response(JSON.stringify({
+            name: 'external-only',
+            version: '1.0.0',
+            repository: { type: 'git', url: 'https://github.com/example/external-only.git' },
+          }), { status: 200, headers: { 'content-type': 'application/json' } });
+        }
+        if (url === 'https://api.osv.dev/v1/querybatch') {
+          return new Response(JSON.stringify({ results: [{}] }), {
+            status: 200,
+            headers: { 'content-type': 'application/json' },
+          });
+        }
+        return new Response('{}', { status: 404 });
+      });
+      vi.stubGlobal('fetch', fetchMock);
+
+      const response = await handleToolCall('attestlens_scan', {
+        path: tempDir,
+        externalEnrichment: true,
+      });
+      const payload = JSON.parse(response.content[0].text);
+
+      expect(payload.targetType).toBe('path');
+      expect(fetchMock).toHaveBeenCalledWith(
+        'https://registry.npmjs.org/external-only',
+        expect.objectContaining({ method: 'GET' }),
+      );
+      expect(fetchMock).toHaveBeenCalledWith(
+        'https://api.osv.dev/v1/querybatch',
+        expect.objectContaining({ method: 'POST' }),
+      );
+    });
+
+    it('enables MCP audit external enrichment only when explicitly requested', async () => {
+      await writeMcpPackageProject(tempDir, 'external-audit');
+      const fetchMock = vi.fn(async (input: string | URL) => {
+        const url = String(input);
+        if (url === 'https://registry.npmjs.org/external-audit') {
+          return new Response(JSON.stringify({
+            name: 'external-audit',
+            version: '1.0.0',
+            repository: { type: 'git', url: 'https://github.com/example/external-audit.git' },
+          }), { status: 200, headers: { 'content-type': 'application/json' } });
+        }
+        if (url === 'https://api.osv.dev/v1/querybatch') {
+          return new Response(JSON.stringify({ results: [{}] }), {
+            status: 200,
+            headers: { 'content-type': 'application/json' },
+          });
+        }
+        return new Response('{}', { status: 404 });
+      });
+      vi.stubGlobal('fetch', fetchMock);
+
+      const response = await handleToolCall('attestlens_audit', {
+        path: tempDir,
+        format: 'json',
+        externalEnrichment: true,
+      });
+
+      expect(() => JSON.parse(response.content[0].text)).not.toThrow();
+      expect(fetchMock).toHaveBeenCalledWith(
+        'https://registry.npmjs.org/external-audit',
+        expect.objectContaining({ method: 'GET' }),
+      );
+      expect(fetchMock).toHaveBeenCalledWith(
+        'https://api.osv.dev/v1/querybatch',
+        expect.objectContaining({ method: 'POST' }),
+      );
+    });
   });
 });
+
+async function writeMcpPackageProject(projectDir: string, dependencyName: string): Promise<void> {
+  await fs.writeFile(path.join(projectDir, 'package.json'), JSON.stringify({
+    name: 'mcp-project',
+    version: '1.0.0',
+    dependencies: { [dependencyName]: '1.0.0' },
+  }, null, 2));
+}

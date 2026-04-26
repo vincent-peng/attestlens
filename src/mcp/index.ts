@@ -28,7 +28,7 @@ import {
   generatePDFReport,
 } from '../report/generator.js';
 import type { ReportFormat, ReportOptions } from '../report/generator.js';
-import { ScannerOrchestrator } from '../scanner/orchestrator.js';
+import { ScannerOrchestrator, type ScannerOrchestratorOptions } from '../scanner/orchestrator.js';
 import type { ScannerError, ScannerResult } from '../scanner/types.js';
 import { RuleFreshness as RuleFreshnessSchema } from '../schema/index.js';
 import type { AttestLensFinding } from '../schema/index.js';
@@ -47,6 +47,11 @@ export const MCP_TOOLS = [
       properties: {
         path: { type: 'string', description: 'Path to the project directory to scan' },
         strict: { type: 'boolean', description: 'Treat UNKNOWN controls as FAIL', default: false },
+        externalEnrichment: {
+          type: 'boolean',
+          description: 'Enable external OSV.dev and npm registry dependency enrichment',
+          default: false,
+        },
       },
       required: ['path'],
     },
@@ -73,6 +78,11 @@ export const MCP_TOOLS = [
         name: { type: 'string', description: 'Project name for the report' },
         format: { type: 'string', enum: ['json', 'html', 'markdown', 'pdf'], description: 'Output format', default: 'json' },
         strict: { type: 'boolean', description: 'Treat UNKNOWN controls as FAIL', default: false },
+        externalEnrichment: {
+          type: 'boolean',
+          description: 'Enable external OSV.dev and npm registry dependency enrichment',
+          default: false,
+        },
       },
       required: ['path'],
     },
@@ -168,8 +178,18 @@ export function validateUrl(targetUrl: string): string {
   return parsed.toString();
 }
 
-function createOrchestrator(targetKind: 'path' | 'url'): ScannerOrchestrator {
-  const orchestrator = new ScannerOrchestrator();
+function createOrchestrator(
+  targetKind: 'path' | 'url',
+  options: { externalEnrichment?: boolean } = {},
+): ScannerOrchestrator {
+  const externalEnrichment = targetKind === 'path' && options.externalEnrichment === true;
+  const orchestratorOptions: ScannerOrchestratorOptions = {
+    supplyChain: {
+      osv: { enabled: externalEnrichment },
+      registry: { enabled: externalEnrichment },
+    },
+  };
+  const orchestrator = new ScannerOrchestrator(orchestratorOptions);
   if (targetKind === 'url') {
     orchestrator.disable('guardvibe');
     orchestrator.disable('mcp-scan');
@@ -315,8 +335,9 @@ export async function handleToolCall(name: string, args: Record<string, unknown>
     case 'attestlens_scan': {
       const targetPath = await validatePath(args?.path as string);
       const strict = args?.strict === true;
+      const externalEnrichment = args?.externalEnrichment === true;
 
-      const orchestrator = createOrchestrator('path');
+      const orchestrator = createOrchestrator('path', { externalEnrichment });
       const result = await orchestrator.scan(targetPath);
 
       return {
@@ -359,8 +380,9 @@ export async function handleToolCall(name: string, args: Record<string, unknown>
       const projectName = (args?.name as string) || path.basename(targetPath) || 'project';
       const format = parseReportFormat(args?.format);
       const strict = args?.strict === true;
+      const externalEnrichment = args?.externalEnrichment === true;
 
-      const orchestrator = createOrchestrator('path');
+      const orchestrator = createOrchestrator('path', { externalEnrichment });
       const startTime = Date.now();
       const scanResult = await orchestrator.scan(targetPath);
       const duration = Date.now() - startTime;

@@ -17,8 +17,16 @@
 import crypto from 'node:crypto';
 import path from 'node:path';
 import fs from 'node:fs/promises';
-import type { AttestLensFinding, ScanSource } from '../schema/index.js';
+import type { AttestLensFinding, ScanSource, Severity } from '../schema/index.js';
 import type { ScannerAdapter, ScannerResult, ScannerError } from './types.js';
+import {
+  fetchJsonWithLimit,
+  scanOsvVulnerabilities,
+  OSV_FETCH_TIMEOUT_MS,
+  OSV_MAX_RESPONSE_BYTES,
+  type FetchLike,
+  type OsvPackageQuery,
+} from './osv.js';
 
 // Top 100 npm packages (by download count) — typosquatting targets
 const TOP_NPM_PACKAGES = new Set([
@@ -145,9 +153,187 @@ interface LockfileV2 {
   dependencies?: Record<string, { version: string; resolved?: string; integrity?: string }>;
 }
 
+interface PackageMetadata {
+  name?: string;
+  version?: string;
+  repository?: unknown;
+  homepage?: unknown;
+}
+
+type NpmAuditRunner = (safePath: string) => Promise<string | Record<string, any>>;
+
+export interface SupplyChainAdapterOptions {
+  osv?: {
+    enabled?: boolean;
+    fetchImpl?: FetchLike;
+    timeoutMs?: number;
+    maxBytes?: number;
+  };
+  registry?: {
+    enabled?: boolean;
+    fetchImpl?: FetchLike;
+    timeoutMs?: number;
+    maxBytes?: number;
+  };
+  audit?: {
+    enabled?: boolean;
+    run?: NpmAuditRunner;
+  };
+}
+
+const NPM_REGISTRY_TIMEOUT_MS = 10_000;
+const NPM_REGISTRY_MAX_RESPONSE_BYTES = 1_000_000;
+const TEXT_ADVISORY_ID_PATTERN = /\b(?:GHSA-[A-Z0-9]{4}-[A-Z0-9]{4}-[A-Z0-9]{4}|CVE-\d{4}-\d{4,}|OSV-[A-Z0-9._-]+|PYSEC-\d{4}-\d+|RUSTSEC-\d{4}-\d+|GO-\d{4}-\d+)\b/gi;
+const STRUCTURED_ADVISORY_ID_PATTERN = /^[A-Z0-9][A-Z0-9._-]{1,127}$/;
+const SEVERITY_RANK: Record<Severity, number> = {
+  critical: 5,
+  high: 4,
+  medium: 3,
+  low: 2,
+  info: 1,
+};
+
+async function readJsonFileWithLimit<T>(filePath: string, maxBytes: number): Promise<T> {
+  const stat = await fs.stat(filePath);
+  if (stat.size > maxBytes) {
+    throw new Error(`file exceeds ${maxBytes} bytes`);
+  }
+
+  const content = await fs.readFile(filePath, 'utf-8');
+  if (Buffer.byteLength(content, 'utf8') > maxBytes) {
+    throw new Error(`file exceeds ${maxBytes} bytes`);
+  }
+  return JSON.parse(content) as T;
+}
+
+function parseNpmAuditPayload(payload: string | Record<string, any>): Record<string, any> {
+  return typeof payload === 'string' ? JSON.parse(payload) : payload;
+}
+
+function parseNpmAuditStdoutFromError(error: unknown): Record<string, any> | null {
+  const stdout = (error as { stdout?: unknown })?.stdout;
+  const payload = Buffer.isBuffer(stdout) ? stdout.toString('utf-8') : stdout;
+  if (typeof payload !== 'string' || payload.trim().length === 0) {
+    return null;
+  }
+
+  try {
+    return JSON.parse(payload);
+  } catch {
+    return null;
+  }
+}
+
+function normalizeStructuredAdvisoryId(value: unknown): string | null {
+  if (typeof value !== 'string' && typeof value !== 'number') {
+    return null;
+  }
+  const normalized = String(value).trim().toUpperCase();
+  return STRUCTURED_ADVISORY_ID_PATTERN.test(normalized) ? normalized : null;
+}
+
+function extractTextAdvisoryIds(value: unknown): string[] {
+  if (typeof value !== 'string' && typeof value !== 'number') {
+    return [];
+  }
+
+  const text = String(value).toUpperCase();
+  const ids = new Set<string>();
+  for (const match of text.matchAll(TEXT_ADVISORY_ID_PATTERN)) {
+    const id = normalizeStructuredAdvisoryId(match[0]);
+    if (id) ids.add(id);
+  }
+  return Array.from(ids);
+}
+
+function collectAdvisoryIds(values: unknown[], includeStructured = true): string[] {
+  const ids = new Set<string>();
+  for (const value of values) {
+    if (Array.isArray(value)) {
+      for (const nested of collectAdvisoryIds(value, includeStructured)) {
+        ids.add(nested);
+      }
+      continue;
+    }
+
+    if (includeStructured) {
+      const structured = normalizeStructuredAdvisoryId(value);
+      if (structured) ids.add(structured);
+    }
+
+    for (const textId of extractTextAdvisoryIds(value)) {
+      ids.add(textId);
+    }
+  }
+  return Array.from(ids);
+}
+
+function getNpmAuditAdvisoryIds(vulnerability: Record<string, any>): string[] {
+  const structuredValues: unknown[] = [vulnerability.source];
+  const textValues: unknown[] = [
+    vulnerability.url,
+    vulnerability.name,
+    vulnerability.title,
+  ];
+
+  for (const via of Array.isArray(vulnerability.via) ? vulnerability.via : []) {
+    if (typeof via === 'string' || typeof via === 'number') {
+      structuredValues.push(via);
+      continue;
+    }
+
+    if (via && typeof via === 'object') {
+      const advisory = via as Record<string, unknown>;
+      structuredValues.push(advisory.source);
+      textValues.push(advisory.url, advisory.name, advisory.title);
+    }
+  }
+
+  return Array.from(new Set([
+    ...collectAdvisoryIds(structuredValues),
+    ...collectAdvisoryIds(textValues, false),
+  ]));
+}
+
+function hasRepository(metadata: PackageMetadata): boolean {
+  if (typeof metadata.repository === 'string') {
+    return metadata.repository.trim().length > 0;
+  }
+  if (metadata.repository && typeof metadata.repository === 'object') {
+    const repository = metadata.repository as { url?: unknown };
+    return typeof repository.url === 'string' && repository.url.trim().length > 0;
+  }
+  return false;
+}
+
+function hasHomepage(metadata: PackageMetadata): boolean {
+  return typeof metadata.homepage === 'string' && metadata.homepage.trim().length > 0;
+}
+
+function resolveDependencyVersion(
+  depName: string,
+  requestedVersion: string | undefined,
+  lockPackages: Record<string, LockfileEntry>,
+): string | null {
+  const lockEntry = lockPackages[`node_modules/${depName}`];
+  if (lockEntry?.version) return lockEntry.version;
+
+  if (!requestedVersion) return null;
+  return isExactNpmVersion(requestedVersion) ? requestedVersion : null;
+}
+
+function isExactNpmVersion(version: string): boolean {
+  return /^\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?$/.test(version);
+}
+
 export class SupplyChainAdapter implements ScannerAdapter {
   readonly name: ScanSource = 'supply-chain';
   readonly version = '0.2.0';
+  private readonly options: SupplyChainAdapterOptions;
+
+  constructor(options: SupplyChainAdapterOptions = {}) {
+    this.options = options;
+  }
 
   async isAvailable(): Promise<boolean> {
     return true;
@@ -276,6 +462,9 @@ export class SupplyChainAdapter implements ScannerAdapter {
       }
     }
 
+    // ─── 4b. Check direct production dependency provenance ────────────────
+    await this.checkDependencyProvenance(pkg, lockPackages, safePath, findings, errors);
+
     // ─── 5. Check for manifest-only changes ─────────────────────────────
     // Compare package.json dependencies against actual imports in source code
     await this.checkUnusedDependencies(pkg, safePath, findings);
@@ -301,6 +490,9 @@ export class SupplyChainAdapter implements ScannerAdapter {
 
     // ─── 7. Run npm audit ────────────────────────────────────────────────
     await this.runNpmAudit(safePath, findings, errors);
+
+    // ─── 7b. Enrich known vulnerabilities with OSV.dev ───────────────────
+    await this.runOsvScan(pkg, lockPackages, safePath, findings, errors);
 
     // ─── 8. Check lockfile integrity ─────────────────────────────────────
     // (Already handled by VS-SC-005 above for missing lockfile)
@@ -373,6 +565,206 @@ export class SupplyChainAdapter implements ScannerAdapter {
         ));
       }
     }
+  }
+
+  /**
+   * Check direct production dependencies for missing source provenance.
+   */
+  private async checkDependencyProvenance(
+    pkgJson: PackageJson,
+    lockPackages: Record<string, LockfileEntry>,
+    safePath: string,
+    findings: AttestLensFinding[],
+    errors: ScannerError[],
+  ): Promise<void> {
+    const productionDeps = pkgJson.dependencies || {};
+    const metadataCache = new Map<string, PackageMetadata | null>();
+
+    for (const depName of Object.keys(productionDeps)) {
+      const metadataResult = await this.getDependencyMetadata(depName, lockPackages, safePath, metadataCache);
+
+      if (metadataResult.error) {
+        errors.push(metadataResult.error);
+        continue;
+      }
+
+      const metadata = metadataResult.metadata;
+      if (!metadata) continue;
+
+      if (!hasRepository(metadata) && !hasHomepage(metadata)) {
+        findings.push(this.makeFinding(
+          'VS-SC-009',
+          'medium',
+          'Security',
+          `Dependency "${depName}" has no source repository or homepage`,
+          `Direct production dependency "${depName}" does not publish repository or homepage metadata. Missing source provenance makes independent review and incident response harder when the package handles application data or build-time code execution.`,
+          `Verify the provenance of "${depName}". Prefer dependencies with public source repositories or documented project homepages.`,
+          path.join(safePath, 'package.json'),
+          {
+            packageName: depName,
+            version: metadata.version ?? resolveDependencyVersion(depName, productionDeps[depName], lockPackages),
+            metadataSource: metadataResult.source,
+            hasRepository: false,
+            hasHomepage: false,
+          },
+        ));
+      }
+    }
+  }
+
+  private async getDependencyMetadata(
+    depName: string,
+    lockPackages: Record<string, LockfileEntry>,
+    safePath: string,
+    metadataCache: Map<string, PackageMetadata | null>,
+  ): Promise<{ metadata: PackageMetadata | null; source?: 'local' | 'registry'; error?: ScannerError }> {
+    if (metadataCache.has(depName)) {
+      return { metadata: metadataCache.get(depName) ?? null };
+    }
+
+    const localPath = path.join(safePath, 'node_modules', depName, 'package.json');
+    const localMetadata = await readJsonFileWithLimit<PackageMetadata>(localPath, NPM_REGISTRY_MAX_RESPONSE_BYTES)
+      .then((metadata) => ({ metadata, source: 'local' as const }))
+      .catch(() => null);
+
+    if (localMetadata) {
+      metadataCache.set(depName, localMetadata.metadata);
+      return localMetadata;
+    }
+
+    const registryFallbackEnabled = this.options.registry?.enabled === true;
+    if (!registryFallbackEnabled) {
+      metadataCache.set(depName, null);
+      return { metadata: null };
+    }
+
+    const fetchImpl = this.options.registry?.fetchImpl ?? globalThis.fetch?.bind(globalThis);
+    if (!fetchImpl) {
+      metadataCache.set(depName, null);
+      return { metadata: null };
+    }
+
+    try {
+      const metadata = await fetchJsonWithLimit<PackageMetadata>(
+        fetchImpl,
+        `https://registry.npmjs.org/${encodeURIComponent(depName)}`,
+        { method: 'GET' },
+        this.options.registry?.timeoutMs ?? NPM_REGISTRY_TIMEOUT_MS,
+        this.options.registry?.maxBytes ?? NPM_REGISTRY_MAX_RESPONSE_BYTES,
+      );
+      metadataCache.set(depName, metadata);
+      return { metadata, source: 'registry' };
+    } catch (error) {
+      metadataCache.set(depName, null);
+      return {
+        metadata: null,
+        error: {
+          source: this.name,
+          code: 'NPM_METADATA_ERROR',
+          message: `npm registry metadata lookup failed for "${depName}": ${error instanceof Error ? error.message : String(error)}`,
+          recoverable: true,
+        },
+      };
+    }
+  }
+
+  private async runOsvScan(
+    pkgJson: PackageJson,
+    lockPackages: Record<string, LockfileEntry>,
+    safePath: string,
+    findings: AttestLensFinding[],
+    errors: ScannerError[],
+  ): Promise<void> {
+    const osvEnabled = this.options.osv?.enabled === true;
+    if (!osvEnabled) return;
+
+    const queries = this.buildOsvQueries(pkgJson, lockPackages);
+    if (queries.length === 0) return;
+
+    const result = await scanOsvVulnerabilities(
+      queries,
+      safePath,
+      this.version,
+      {
+        fetchImpl: this.options.osv?.fetchImpl,
+        timeoutMs: this.options.osv?.timeoutMs ?? OSV_FETCH_TIMEOUT_MS,
+        maxBytes: this.options.osv?.maxBytes ?? OSV_MAX_RESPONSE_BYTES,
+      },
+    );
+
+    errors.push(...result.errors);
+    for (const finding of result.findings) {
+      if (!this.mergeDuplicateOsvFinding(finding, findings)) {
+        findings.push(finding);
+      }
+    }
+  }
+
+  private buildOsvQueries(
+    pkgJson: PackageJson,
+    lockPackages: Record<string, LockfileEntry>,
+  ): OsvPackageQuery[] {
+    const deps = { ...pkgJson.dependencies, ...pkgJson.devDependencies };
+    const queries: OsvPackageQuery[] = [];
+
+    for (const [depName, requestedVersion] of Object.entries(deps)) {
+      const version = resolveDependencyVersion(depName, requestedVersion, lockPackages);
+      if (!version) continue;
+      queries.push({ name: depName, version, ecosystem: 'npm' });
+    }
+
+    return queries;
+  }
+
+  private mergeDuplicateOsvFinding(osvFinding: AttestLensFinding, findings: AttestLensFinding[]): boolean {
+    const raw = osvFinding.evidence.rawOutput as {
+      packageName?: string;
+      vulnerabilityId?: string;
+      aliases?: string[];
+    };
+    if (!raw.packageName) return false;
+
+    const advisoryIds = collectAdvisoryIds([raw.vulnerabilityId, ...(raw.aliases ?? [])]);
+    if (advisoryIds.length === 0) return false;
+    const osvAdvisoryIds = new Set(advisoryIds);
+
+    const duplicate = findings.find((finding) => {
+      if (finding.sourceRule !== 'VS-SC-006') return false;
+      const auditRaw = finding.evidence.rawOutput as {
+        packageName?: string;
+        url?: string;
+        advisoryId?: string | number;
+        advisoryIds?: string[];
+      };
+      if (auditRaw.packageName !== raw.packageName) return false;
+
+      const auditAdvisoryIds = [
+        ...collectAdvisoryIds([auditRaw.advisoryIds, auditRaw.advisoryId]),
+        ...collectAdvisoryIds([auditRaw.url, finding.title, finding.description], false),
+      ];
+      return auditAdvisoryIds.some((id) => osvAdvisoryIds.has(id));
+    });
+
+    if (!duplicate) return false;
+
+    if (SEVERITY_RANK[osvFinding.severity] > SEVERITY_RANK[duplicate.severity]) {
+      duplicate.severity = osvFinding.severity;
+    }
+
+    const existingRaw = typeof duplicate.evidence.rawOutput === 'object' && duplicate.evidence.rawOutput !== null
+      ? duplicate.evidence.rawOutput as Record<string, unknown>
+      : {};
+    duplicate.evidence = {
+      ...duplicate.evidence,
+      rawOutput: {
+        ...existingRaw,
+        osv: osvFinding.evidence.rawOutput,
+        osvSourceRule: osvFinding.sourceRule,
+        osvFindingTitle: osvFinding.title,
+        osvFindingDescription: osvFinding.description,
+      },
+    };
+    return true;
   }
 
   /**
@@ -466,6 +858,10 @@ export class SupplyChainAdapter implements ScannerAdapter {
     findings: AttestLensFinding[],
     errors: ScannerError[],
   ): Promise<void> {
+    if (this.options.audit?.enabled === false) {
+      return;
+    }
+
     // npm audit works with just a lockfile — only skip if there's no lockfile either
     const hasLockfile = await fs.access(path.join(safePath, 'package-lock.json'))
       .then(() => true)
@@ -479,31 +875,17 @@ export class SupplyChainAdapter implements ScannerAdapter {
     }
 
     try {
-      const { execFile: execFileCb } = await import('node:child_process');
-      const { promisify } = await import('node:util');
-      const execFileAsync = promisify(execFileCb);
-      const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 30000);
-
-      let result: string;
-      try {
-        const { stdout } = await execFileAsync('npm', ['audit', '--json'], {
-          cwd: safePath,
-          signal: controller.signal,
-          maxBuffer: 10 * 1024 * 1024, // 10MB buffer for large projects
-        });
-        result = stdout;
-      } finally {
-        clearTimeout(timeout);
-      }
-
-      const audit = JSON.parse(result);
+      const audit = await this.readNpmAudit(safePath);
       
       // Process vulnerabilities
       const vulns = audit.vulnerabilities || {};
       for (const [pkgName, vuln] of Object.entries(vulns)) {
         const v = vuln as any;
         const severity = this.mapAuditSeverity(v.severity);
+        const advisoryIds = getNpmAuditAdvisoryIds(v);
+        const advisoryId = typeof v.via?.[0]?.source === 'string'
+          ? v.via[0].source
+          : advisoryIds[0];
         findings.push(this.makeFinding(
           'VS-SC-006',
           severity,
@@ -512,7 +894,13 @@ export class SupplyChainAdapter implements ScannerAdapter {
           `npm audit found a ${v.severity} severity vulnerability in "${pkgName}" (${v.range || 'affected versions'}). ${v.title || ''}`,
           `Update "${pkgName}" to a patched version. Run: npm audit fix`,
           safePath,
-          { packageName: pkgName, severity: v.severity, url: v.url },
+          {
+            packageName: pkgName,
+            severity: v.severity,
+            url: v.url,
+            advisoryId,
+            advisoryIds,
+          },
         ));
       }
     } catch (error: any) {
@@ -526,6 +914,40 @@ export class SupplyChainAdapter implements ScannerAdapter {
           recoverable: true,
         });
       }
+    }
+  }
+
+  private async readNpmAudit(safePath: string): Promise<Record<string, any>> {
+    if (this.options.audit?.run) {
+      try {
+        const result = await this.options.audit.run(safePath);
+        return parseNpmAuditPayload(result);
+      } catch (error) {
+        const parsed = parseNpmAuditStdoutFromError(error);
+        if (parsed) return parsed;
+        throw error;
+      }
+    }
+
+    const { execFile: execFileCb } = await import('node:child_process');
+    const { promisify } = await import('node:util');
+    const execFileAsync = promisify(execFileCb);
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 30000);
+
+    try {
+      const { stdout } = await execFileAsync('npm', ['audit', '--json'], {
+        cwd: safePath,
+        signal: controller.signal,
+        maxBuffer: 10 * 1024 * 1024, // 10MB buffer for large projects
+      });
+      return parseNpmAuditPayload(stdout);
+    } catch (error) {
+      const parsed = parseNpmAuditStdoutFromError(error);
+      if (parsed) return parsed;
+      throw error;
+    } finally {
+      clearTimeout(timeout);
     }
   }
 
@@ -578,7 +1000,7 @@ export class SupplyChainAdapter implements ScannerAdapter {
     extra?: Record<string, any>,
   ): AttestLensFinding {
     return {
-      id: this.generateId(rule, file),
+      id: this.generateId(rule, file, extra),
       source: this.name,
       sourceRule: rule,
       severity,
@@ -599,8 +1021,21 @@ export class SupplyChainAdapter implements ScannerAdapter {
     };
   }
 
-  private generateId(rule: string, file: string): string {
-    const payload = `supply-chain:${rule}:${file}`;
+  private generateId(rule: string, file: string, extra?: Record<string, any>): string {
+    const identityParts = [
+      extra?.packageName,
+      extra?.vulnerabilityId,
+      extra?.advisoryId,
+      Array.isArray(extra?.advisoryIds) ? extra.advisoryIds.join(',') : undefined,
+      extra?.url,
+      extra?.scriptName,
+      Array.isArray(extra?.scriptNames) ? extra.scriptNames.join(',') : undefined,
+      extra?.typosquatTarget,
+    ].filter((value): value is string => typeof value === 'string' && value.length > 0);
+    const basePayload = `supply-chain:${rule}:${file}`;
+    const payload = identityParts.length > 0
+      ? `${basePayload}:${identityParts.join(':')}`
+      : basePayload;
     return crypto.createHash('sha256').update(payload).digest('hex').substring(0, 12);
   }
 }

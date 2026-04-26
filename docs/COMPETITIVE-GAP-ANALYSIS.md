@@ -318,7 +318,7 @@ ScannerOrchestrator
   │   ├── Tries: npx @guardvibe/cli full_audit → 335 rules
   │   └── Fallback: 9 static regex patterns → limited but functional
   ├── McpScanAdapter (independent)
-  └── SupplyChainAdapter (independent, 8 rules)
+  └── SupplyChainAdapter (independent, 9 static rules + dynamic OSV findings)
 ```
 
 **The problem:** Without GuardVibe CLI installed, we only have 9 regex patterns. CheckVibe has 100+. That's a huge gap.
@@ -328,7 +328,7 @@ ScannerOrchestrator
 **After Phase 1.5:** We'll have:
 - 30+ static code patterns (expanded guardvibe.ts)
 - 30+ URL/header checks (url-scan.ts)
-- 8 supply chain rules (supply-chain.ts)
+- 9 supply chain rules plus OSV.dev vulnerability enrichment (supply-chain.ts)
 - **= 68+ checks, zero external dependencies**
 
 ---

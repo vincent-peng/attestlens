@@ -3,7 +3,7 @@
 **Last Updated:** 2026-04-26
 **Purpose:** Near-term source of truth for product status, current milestone, and next actions.
 
-**Current focus:** M3 scanner enhancement spec complete (`docs/milestones/M3-SCANNER-ENHANCEMENT.md`). Design-partner review continues in parallel. Next implementation: M3.1 (OSV.dev) → M3.2 (no-source-repo) → M3.3 (dynamic confidence) → M3.4 (timeouts).
+**Current focus:** M3 scanner enhancement is underway. M3.1 (OSV.dev) and M3.2 (dependency provenance) are implemented; next implementation is M3.3 (dynamic confidence) → M3.4 (adapter timeouts/progress).
 
 ---
 
@@ -72,6 +72,12 @@ In practice, that means:
   - bounded local/HTTPS manifest loading with timeout and size caps
   - rule-pack freshness metadata in scan summaries, MCP output, saved snapshots, and reports without local cache paths
   - first executable rule-pack slice for allowlisted GuardVibe fallback static regex rules, limited to metadata overrides and explicit disables
+- M3 scanner enhancement:
+  - opt-in OSV.dev vulnerability enrichment inside the supply-chain adapter using `querybatch` plus per-vulnerability detail fetches
+  - recoverable `OSV_API_ERROR` / `OSV_DETAIL_ERROR` handling with timeout and response-size guards
+  - OSV findings emitted as `supply-chain` findings with dynamic `VS-OSV-<OSV_ID>` rule IDs
+  - direct production dependency provenance finding `VS-SC-009` for packages without repository or homepage metadata
+  - local `node_modules` provenance checks by default, with opt-in npm registry metadata fallback via `--external-enrichment`
 
 ### In Progress
 
@@ -166,8 +172,8 @@ In practice, that means:
 
 Full spec: `docs/milestones/M3-SCANNER-ENHANCEMENT.md`
 
-- M3.1 — OSV.dev vulnerability integration (2 days)
-- M3.2 — No-source-repo dependency detection (2 hrs)
+- ✅ M3.1 — OSV.dev vulnerability integration (`--external-enrichment`)
+- ✅ M3.2 — Dependency provenance detection (`VS-SC-009`; registry fallback is opt-in)
 - M3.3 — Dynamic confidence scoring (1 day)
 - M3.4 — Per-adapter timeout + progress reporting (2 days)
 - M3.5 — Behavioral supply-chain analysis (1 week)
@@ -203,8 +209,8 @@ These are the default operating rules for the project.
 
 ### Next 2 Weeks
 
-1. Begin M3.1 (OSV.dev integration) and M3.2 (no-source-repo deps) — quick wins.
-2. M3.3 (dynamic confidence) and M3.4 (per-adapter timeouts) — production hardening.
+1. Implement M3.3 (dynamic confidence) and M3.4 (per-adapter timeouts) — production hardening.
+2. Keep M3.1/M3.2 regression coverage green while scanning real design-partner projects.
 3. Continue design-partner outreach with M2 sample reports.
 4. Keep `npm test`, `npm run lint`, and `npm run build` green.
 
@@ -215,7 +221,7 @@ These are the default operating rules for the project.
 - broad growth automation
 - additional compliance frameworks beyond APP/NDB
 - SaaS dashboard before M3 scanner enhancements ship
-- behavioral analysis before OSV.dev + no-source-repo quick wins
+- behavioral analysis before M3.3 dynamic confidence and M3.4 adapter timeouts
 
 ---
 

@@ -10,7 +10,7 @@
 **What's built:**
 - ✅ Core scanner schema + mapping engine
 - ✅ GuardVibe adapter (9 static regex + MCP fallback)
-- ✅ Supply chain scanner (8 rules: VS-SC-001→008)
+- ✅ Supply chain scanner (9 static rules: VS-SC-001→009, plus dynamic OSV findings)
 - ✅ URL scanner with headers, JS, infra, cookies, and source-map checks
 - ✅ Scanner orchestrator (parallel, dedup, disable flags)
 - ✅ CLI: `scan`, `audit`, `report` commands
@@ -34,14 +34,14 @@
 **What's NOT built yet:**
 - ❌ Advisory-monitoring rule update pipeline
 - ❌ Executable remote rule migration for all scanner checks
-- ❌ OSV.dev vulnerability integration (M3.1)
+- ✅ OSV.dev vulnerability integration inside supply-chain scanner (M3.1)
 - ❌ Behavioral supply-chain analysis (M3.5)
 - ❌ Git history secret scanning (M3.6)
 - ❌ SAST lite compliance patterns (M3.7)
 - ❌ IaC misconfiguration detection (M3.8)
 - ❌ Web dashboard (M4 — not until M3 + design-partner validation)
 
-**Current focus:** M3 scanner enhancement (spec at `docs/milestones/M3-SCANNER-ENHANCEMENT.md`). Design-partner review continues in parallel. Dashboard is explicitly deferred to M4 — we need validated scanner output and consultant feedback before investing in UI.
+**Current focus:** M3 scanner enhancement (spec at `docs/milestones/M3-SCANNER-ENHANCEMENT.md`). M3.1/M3.2 are implemented; next up are M3.3 dynamic confidence and M3.4 adapter timeout/progress. Design-partner review continues in parallel. Dashboard is explicitly deferred to M4 — we need validated scanner output and consultant feedback before investing in UI.
 
 ---
 
@@ -152,15 +152,17 @@ See M3 spec (`docs/milestones/M3-SCANNER-ENHANCEMENT.md`) for how behavioral ana
 
 Full spec: `docs/milestones/M3-SCANNER-ENHANCEMENT.md`
 
-### M3.1 — OSV.dev Vulnerability Integration (2 days)
-- Replace sole reliance on `npm audit` with OSV.dev API as primary CVE source
-- Batch query by package@version, deduplicate against npm audit
-- Every CVE maps to APP_11 + conditional NDB
-- Graceful fallback when OSV API unavailable
+### M3.1 — OSV.dev Vulnerability Integration ✅
+- OSV.dev enrichment runs inside the existing `supply-chain` scanner when `--external-enrichment` is enabled, not as a new public scan source
+- Batch query by package@version, then fetch unique vulnerability details by OSV ID
+- OSV findings emit dynamic `VS-OSV-<OSV_ID>` rule IDs and map to APP_11 plus conditional NDB/APP_8 where vulnerability class supports it
+- Graceful fallback when OSV API unavailable via recoverable scanner warnings
 
-### M3.2 — No-Source-Repository Dependency Detection (2 hrs)
-- Flag deps with no repository/homepage in npm metadata
-- Maps to APP_11 (no audit trail) + APP_6 (no accountability)
+### M3.2 — Dependency Provenance Detection ✅
+- `VS-SC-009` flags direct production dependencies with no repository and no homepage metadata
+- Existing `VS-SC-007` and `VS-SC-008` meanings are preserved
+- Local `node_modules/<dep>/package.json` metadata is used by default; npm registry fallback is opt-in via `--external-enrichment` and has recoverable warnings
+- Maps to APP_11 and APP_6
 
 ### M3.3 — Dynamic Confidence Scoring (1 day)
 - Replace hardcoded confidence with context-aware calculation
@@ -204,7 +206,7 @@ Full spec: `docs/milestones/M3-SCANNER-ENHANCEMENT.md`
 ### Implementation Timeline
 
 ```
-Week 1-2:  M3.1 + M3.2 + M3.3 + M3.4  (quick wins + production hardening)
+Week 1-2:  M3.1 ✅ + M3.2 ✅ + M3.3 + M3.4  (quick wins + production hardening)
 Week 3-4:  M3.5 + M3.6                  (differentiation + consultant value)
 Week 5-6:  M3.7 + M3.8                  (extended coverage)
 Week 7:    M3.9 + M3.10                 (quality + enrichment)
@@ -214,7 +216,7 @@ Week 7:    M3.9 + M3.10                 (quality + enrichment)
 - All 10 enhancements shipped and tested
 - 223+ existing tests still green
 - Total detection surface > 250 compliance-relevant rules
-- OSV.dev + npm audit dual-source for CVEs
+- npm audit plus opt-in OSV.dev dual-source CVE coverage
 - Behavioral analysis producing findings with APP_11 mappings
 - Gitleaks integration working as opt-in adapter
 - Reports show deduplicated findings with dynamic confidence scores
@@ -362,7 +364,7 @@ Free = current CLI + Phase 1.5. Pro = SaaS wrapper. Consultant = our moat.
 | Breach readiness score | ❌ | ✅ | ✅ | ✅ |
 | Rule pack system | ❌ | ❌ | ✅ | ✅ |
 | Behavioral heuristics | 8 rules | 8 rules | 15+ rules | 15+ |
-| CVE sources | npm audit | npm audit | npm audit + OSV.dev | npm audit + OSV.dev |
+| CVE sources | npm audit | npm audit | npm audit + opt-in OSV.dev | npm audit + OSV.dev |
 | Git history secrets | ❌ | ❌ | ✅ (gitleaks) | ✅ |
 | SAST patterns | 8 JS | 8 JS | 28+ (JS + source) | 28+ |
 | IaC checks | ❌ | ❌ | 25 (Docker + TF) | 25+ |
@@ -385,7 +387,7 @@ Free = current CLI + Phase 1.5. Pro = SaaS wrapper. Consultant = our moat.
 | Dashboard premature build | Medium | High | Deferred to M4; CLI + PDF is sufficient for validation |
 | SAST false positives | High | Medium | Conservative patterns, severity thresholds, fix prompts |
 | Gitleaks not installed | High | Low | Opt-in adapter pattern (like mcp-scan); graceful skip |
-| OSV.dev API downtime | Medium | Low | Timeout + fallback to npm audit |
+| OSV.dev API downtime | Medium | Low | Timeout + fallback to npm audit; only used with `--external-enrichment` |
 
 ---
 

@@ -55,6 +55,7 @@ attestlens scan https://example.com
 attestlens scan ./my-project --auto-update      # Refresh from ATTESTLENS_RULE_SOURCE when configured
 attestlens scan ./my-project --no-guardvibe   # Skip GuardVibe scanner
 attestlens scan ./my-project --no-mcp-scan     # Skip MCP config scanner
+attestlens scan ./my-project --external-enrichment
 ```
 
 Output: List of findings with severity, rule ID, file location, and affected APP principles.
@@ -77,6 +78,7 @@ attestlens audit ./my-project -n "MyApp" -o ./reports --strict
 | `-o, --output <dir>` | Output directory | `./attestlens-reports` |
 | `--strict` | Treat UNKNOWN controls as FAIL | `false` |
 | `--auto-update` | Refresh from `ATTESTLENS_RULE_SOURCE` before scanning when configured | `false` |
+| `--external-enrichment` | Enable OSV.dev vulnerability lookup and npm registry metadata fallback. Sends package names and exact versions to external services. | `false` |
 | `--no-guardvibe` | Disable GuardVibe scanner | — |
 | `--no-mcp-scan` | Disable MCP config scanner | — |
 | `--no-supply-chain` | Disable supply chain scanner | — |
@@ -206,8 +208,12 @@ Detects supply chain risks in npm projects — designed to catch attacks like th
 | `VS-SC-004` | Critical | Typosquatting against top npm packages |
 | `VS-SC-005` | Critical | Missing or invalid lockfile |
 | `VS-SC-006` | High | Known vulnerabilities via `npm audit` |
-| `VS-SC-007` | Medium | Dependencies with no repository URL |
+| `VS-OSV-*` | Variable | Known vulnerabilities via opt-in OSV.dev enrichment |
+| `VS-SC-007` | Medium | Lockfile entries with no resolved URL |
 | `VS-SC-008` | Critical | Install scripts + no source repo (critical combo) |
+| `VS-SC-009` | Medium | Direct production deps with no repository or homepage metadata |
+
+Local `node_modules/<dep>/package.json` provenance checks run by default. OSV.dev vulnerability enrichment and npm registry metadata fallback require `--external-enrichment`; enabling it discloses dependency names and exact resolved versions to OSV.dev and npmjs.org.
 
 The Axios attack would have been caught on **5-7 of 7 indicators** (manifest-only dependency, install scripts, pre-staged package, typosquatting, no repo, and the critical combo). See [`docs/SUPPLY-CHAIN-DETECTION.md`](docs/SUPPLY-CHAIN-DETECTION.md) for full analysis.
 
