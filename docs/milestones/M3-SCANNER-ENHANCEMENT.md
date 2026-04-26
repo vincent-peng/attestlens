@@ -1,7 +1,7 @@
 # M3 — Scanner Enhancement: Deep Research & Implementation Plan
 
 **Created:** 2026-04-26
-**Status:** Planning — ready for Codex implementation
+**Status:** In progress — M3.1/M3.2 implemented; M3.3 next
 **Predecessor:** M2 (Compliance Moat) — closed; M2.5 (Rule Freshness) — foundation shipped
 **Goal:** Systematically enhance the core scanner layer to close competitive gaps and differentiate on compliance-relevant detection
 
@@ -18,7 +18,7 @@ The scanner layer is functional but has real gaps vs. the competitive landscape.
 | Scanner | Rules/Checks | Key Capabilities | Key Gaps |
 |---------|-------------|-----------------|----------|
 | **guardvibe** | 9 static regex + 335 MCP rules | XSS, secrets, debug logging, env exposure, Supabase/RLS, Firebase, Stripe, Clerk | Requires external binary; static fallback limited to 9 rules |
-| **supply-chain** | 8 rules (VS-SC-001→008) | Install scripts, typosquat, lockfile, manifest-only deps, new/unknown, npm audit, outdated majors | No behavioral analysis, no OSV.dev, no package maturity, no git-dep detection |
+| **supply-chain** | 9 static rules (VS-SC-001→009) + opt-in dynamic OSV findings | Install scripts, typosquat, lockfile, manifest-only deps, new/unknown, npm audit, OSV.dev enrichment, provenance metadata | No behavioral analysis, no package maturity, no git-dep detection |
 | **url-scan** | 12 headers + 8 infra + 8 JS + ~80 key patterns + SSL/TLS + CORS + source maps | SSRF-protected fetch, JS analysis, exposed secrets, infra probes | No SAST for source, no IaC, confidence scores are static |
 | **mcp-scan** | External binary | MCP server config security | Requires npx; limited when absent |
 
@@ -32,7 +32,7 @@ The scanner layer is functional but has real gaps vs. the competitive landscape.
 
 | Capability | Semgrep | Socket.dev | Trivy | Snyk | AttestLens |
 |-----------|---------|-----------|-------|------|-----------|
-| Known CVE scanning | ✅ (OSS rules) | ✅ (npm audit+) | ✅ (OSV.dev) | ✅ | ⚠️ (npm audit only) |
+| Known CVE scanning | ✅ (OSS rules) | ✅ (npm audit+) | ✅ (OSV.dev) | ✅ | ✅ (npm audit + opt-in OSV.dev) |
 | Behavioral supply-chain analysis | ❌ | ✅ (25+ signals) | ❌ | ⚠️ (partial) | ❌ |
 | SAST/pattern analysis | ✅ (1000+ rules) | ❌ | ❌ | ✅ (Code) | ⚠️ (8 JS patterns) |
 | Secret scanning (current files) | ✅ | ✅ | ✅ | ✅ | ✅ (key patterns + repo checks) |
@@ -56,7 +56,7 @@ The scanner layer is functional but has real gaps vs. the competitive landscape.
 
 ## M3 Enhancements (Prioritized)
 
-### M3.1 — OSV.dev Vulnerability Integration
+### M3.1 — OSV.dev Vulnerability Integration ✅
 
 **Priority:** P0 — highest ROI, expected by every scanner competitor
 **Effort:** 2 days
@@ -64,7 +64,7 @@ The scanner layer is functional but has real gaps vs. the competitive landscape.
 
 #### What
 
-Replace sole reliance on `npm audit` with OSV.dev API as the primary vulnerability source. OSV.dev aggregates from 16+ databases (GitHub, npm, PyPI, etc.), has no rate limits, and supports batch queries.
+Enrich the existing supply-chain scanner with OSV.dev vulnerability data while preserving the public `supply-chain` source. This is opt-in through `--external-enrichment` because it sends package names and exact versions to OSV.dev. OSV.dev supports batch queries and returns vulnerability IDs in input order; AttestLens then fetches vulnerability detail records for summaries, aliases, severity, references, and fixed versions.
 
 #### Why
 
@@ -93,14 +93,13 @@ async function queryOsvBatch(packages: Array<{name: string; version: string}>): 
 
 **Implementation details:**
 
-1. After parsing `package.json` deps, batch-query `POST https://api.osv.dev/v1/querybatch` with all deps
+1. When `--external-enrichment` is enabled, batch-query exact package versions from the lockfile via `POST https://api.osv.dev/v1/querybatch`
 2. Map OSV severity → AttestLens severity: `CRITICAL→critical`, `HIGH→high`, `MEDIUM→medium`, `LOW→low`
-3. Deduplicate against `npm audit` findings by CVE ID — same CVE from both sources = `confidence: 0.95`
-4. Source-only OSV findings get `confidence: 0.85`
-5. Add `CVE-` prefix to `sourceRule` for cross-referencing (e.g., `VS-OSV-GHSA-xxxx`)
-6. All vulnerability findings map to APP_11 (Security) with rationale referencing specific data exposure risk
-7. Vulnerabilities involving cross-border data transfer map additionally to APP_8 (Cross-Border Disclosure)
-8. Add `osv` to `ScanSource` enum in schema
+3. Fetch unique vulnerability detail records by OSV ID
+4. Deduplicate against `npm audit` only when package plus advisory alias, URL, or title matches confidently
+5. Emit `source: "supply-chain"` and `sourceRule: "VS-OSV-<OSV_ID>"`
+6. All OSV vulnerability findings map to APP_11 (Security) with conditional NDB/APP_8 mappings when the vulnerability class supports it
+7. Keep broad cross-source deduplication and `corroboratedBy` fields deferred to M3.9
 
 **Compliance mapping rules:**
 
@@ -114,22 +113,24 @@ async function queryOsvBatch(packages: Array<{name: string; version: string}>): 
 
 **Error handling:**
 
-- OSV API timeout (default 10s) → log warning, continue with npm audit only
+- OSV API timeout (default 10s) → recoverable warning, continue with npm audit and other supply-chain checks
 - OSV API error → log error with `code: 'OSV_API_ERROR'`, `recoverable: true`
-- No network access → skip OSV entirely, rely on npm audit
+- Vulnerability detail fetch failure → emit fallback OSV finding and recoverable `OSV_DETAIL_ERROR`
+- Oversized response → reject before `JSON.parse`
 
 **Exit criteria:**
 
-- [ ] OSV.dev batch query integration passes tests with mocked responses
-- [ ] Deduplication with npm audit findings verified
-- [ ] All OSV findings have APP_11 + conditional NDB mappings
-- [ ] Graceful degradation when OSV API is unavailable
-- [ ] Supply-chain adapter still works without OSV (npm audit fallback)
+- [x] OSV.dev batch query integration passes tests with mocked responses
+- [x] Vulnerability detail fetch, timeout, and oversized-response handling are covered
+- [x] All OSV findings have APP_11 + conditional NDB/APP_8 mappings
+- [x] Graceful degradation when OSV API is unavailable
+- [x] Supply-chain adapter still works without OSV (default local scan + npm audit fallback)
+- [x] OSV.dev enrichment is explicit via `--external-enrichment`
 - [ ] `npm test`, `npm run lint`, `npm run build` all green
 
 ---
 
-### M3.2 — No-Source-Repository Dependency Detection
+### M3.2 — Dependency Provenance Detection ✅
 
 **Priority:** P0 — 2-hour quick win
 **Effort:** 2 hours
@@ -137,7 +138,7 @@ async function queryOsvBatch(packages: Array<{name: string; version: string}>): 
 
 #### What
 
-Flag dependencies that have no `repository` or `homepage` field in their npm metadata — these cannot be audited, have no public issue tracker, and represent unaccountable supply chain risk.
+Flag direct production dependencies that have no `repository` and no `homepage` field in local or npm registry metadata. Existing `VS-SC-007` and `VS-SC-008` meanings are preserved; the new provenance signal uses `VS-SC-009`.
 
 #### Why
 
@@ -147,21 +148,20 @@ Flag dependencies that have no `repository` or `homepage` field in their npm met
 
 #### Specification
 
-Add after the lockfile integrity check in `supply-chain.ts`:
+Add after dependency parsing in `supply-chain.ts`:
 
 ```typescript
-// ─── 7. Check for packages with no source repository ──────────────────
-for (const [depName] of Object.entries(allDeps)) {
+// Check direct production dependencies for packages with no source repository or homepage.
+for (const [depName] of Object.entries(pkg.dependencies ?? {})) {
   const lockEntry = getLockEntry(lockfile, depName);
   if (!lockEntry) continue;
   
-  // Check package metadata for repository field
-  // If no repository AND no homepage field, flag as risk
-  // Cache npm metadata lookups (1h TTL) to avoid rate limiting
+  // Prefer node_modules/<dep>/package.json.
+  // Fall back to npm registry metadata with timeout and per-scan cache when external enrichment is enabled.
 }
 ```
 
-**Rule:** `VS-SC-009` — No source repository
+**Rule:** `VS-SC-009` — No source repository or homepage
 - **Severity:** `medium`
 - **APP Mapping:** APP_11 (Security — no audit trail), APP_6 (Use & Disclosure — no accountability)
 - **Confidence:** 0.80
@@ -169,9 +169,11 @@ for (const [depName] of Object.entries(allDeps)) {
 
 **Exit criteria:**
 
-- [ ] VS-SC-009 finding generated for deps with no repository field
-- [ ] Test covers both npm metadata lookup and caching behavior
-- [ ] APP_11 + APP_6 mappings verified in finding output
+- [x] VS-SC-009 finding generated for direct production deps with no repository or homepage
+- [x] Local package metadata and opt-in npm registry fallback covered
+- [x] Registry failure produces recoverable warning, not a finding
+- [x] No collision with existing VS-SC-007 or VS-SC-008 behavior
+- [x] APP_11 + APP_6 mappings verified in mapping tests
 - [ ] `npm test`, `npm run lint`, `npm run build` all green
 
 ---
@@ -887,7 +889,6 @@ export const ScanSource = z.enum([
 export const ScanSource = z.enum([
   'guardvibe', 'vibesafe', 'mcp-scan', 'vibe-check',
   'supply-chain', 'url-scan', 'manual', 'questionnaire',
-  'osv',           // M3.1 — OSV.dev vulnerability source
   'behavioral',    // M3.5 — Behavioral supply-chain analysis
   'gitleaks',      // M3.6 — Git history secret scanning
   'sast-lite',     // M3.7 — SAST lite patterns
@@ -895,7 +896,11 @@ export const ScanSource = z.enum([
 ]);
 ```
 
+M3.1 intentionally did **not** add `osv` to `ScanSource`; OSV findings are emitted through the existing `supply-chain` source with dynamic `VS-OSV-<OSV_ID>` rule IDs. Revisit public source expansion only if M3.9 cross-scanner dedup requires it.
+
 ### `ScannerConfig` additions
+
+These are future-facing configuration candidates. M3.1/M3.2 currently use internal adapter options and do not add public CLI/schema fields.
 
 ```typescript
 export const ScannerConfig = z.object({
@@ -991,7 +996,7 @@ Each new adapter and rule module requires:
 | Metric | Before M3 | After M3 | Target |
 |---|---|---|---|
 | Total detection surface | ~180 static rules | ~250+ rules | 2x coverage on compliance-relevant vectors |
-| Vulnerability sources | 1 (npm audit) | 2 (npm audit + OSV.dev) | CVE coverage parity with Snyk |
+| Vulnerability sources | 1 (npm audit) | 2 with opt-in OSV.dev | CVE coverage parity with Snyk |
 | Supply-chain signals | 8 | 14+ | 6 behavioral signals added |
 | Secret detection | Current files only | Current + git history | Full coverage |
 | SAST patterns | 8 JS (url-scan only) | 28+ (url-scan + SAST-lite) | 3.5x increase |

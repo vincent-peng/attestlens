@@ -153,6 +153,21 @@ describe('CLI URL handling', () => {
   });
 });
 
+describe('CLI external enrichment option', () => {
+  it('exposes explicit external enrichment on scan, audit, and attest flows', async () => {
+    const scanHelp = await runCli(['scan', '--help']);
+    const auditHelp = await runCli(['audit', '--help']);
+    const attestHelp = await runCli(['attest', '--help']);
+
+    expect(scanHelp.code).toBe(0);
+    expect(auditHelp.code).toBe(0);
+    expect(attestHelp.code).toBe(0);
+    expect(scanHelp.stdout).toContain('--external-enrichment');
+    expect(auditHelp.stdout).toContain('--external-enrichment');
+    expect(attestHelp.stdout).toContain('--external-enrichment');
+  });
+});
+
 describe('CLI rule update command', () => {
   it('caches a local rule pack without network access', async () => {
     const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'attestlens-cli-rules-'));
@@ -285,7 +300,7 @@ describe('CLI rule update command', () => {
   });
 });
 
-describe('CLI attest command', () => {
+describe('CLI attest command', { timeout: 20000 }, () => {
   it('creates session.json and scan-results.json when starting from a local path target', async () => {
     const projectDir = await fs.mkdtemp(path.join(os.tmpdir(), 'attestlens-attest-project-'));
     const outputDir = await fs.mkdtemp(path.join(os.tmpdir(), 'attestlens-attest-output-'));

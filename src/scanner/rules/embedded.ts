@@ -4,8 +4,8 @@ import { INFRA_CHECKS } from './infra-checks.js';
 import { JS_PATTERNS } from './js-analysis.js';
 import { HEADER_CHECKS } from './url-headers.js';
 
-export const EMBEDDED_RULE_PACK_VERSION = '2026.04.24';
-export const EMBEDDED_RULE_PACK_GENERATED = '2026-04-24T00:00:00.000Z';
+export const EMBEDDED_RULE_PACK_VERSION = '2026.04.26';
+export const EMBEDDED_RULE_PACK_GENERATED = '2026-04-26T00:00:00.000Z';
 
 const app11Mapping: APPMapping = {
   principle: 'APP_11',
@@ -246,6 +246,18 @@ const supplyChainRules: RuleDefinition[] = [
     addedIn: EMBEDDED_RULE_PACK_VERSION,
     enabled: true,
     tags: ['supply-chain', 'install-script', 'provenance'],
+  },
+  {
+    id: 'VS-SC-009',
+    category: 'supply-chain',
+    severity: 'medium',
+    title: 'No source repository or homepage',
+    description: 'Detects direct production dependencies that publish neither repository nor homepage metadata.',
+    fixPrompt: 'Verify package provenance and prefer dependencies with public source repositories or documented project homepages.',
+    appMappings: [app11Mapping, app6Mapping],
+    addedIn: EMBEDDED_RULE_PACK_VERSION,
+    enabled: true,
+    tags: ['supply-chain', 'provenance'],
   },
 ];
 

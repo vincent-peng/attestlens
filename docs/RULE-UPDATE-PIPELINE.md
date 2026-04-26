@@ -25,7 +25,7 @@ When Axios got compromised on March 31, 2026, Socket.dev flagged it in **6 minut
 | **CheckVibe** | Manual rule additions by team | Days-weeks | No |
 | **Medusa (Pantheon)** | 9,600+ rules, versioned releases | Weeks (batch releases) | Partial — PR-based |
 
-**Key insight:** Socket.dev won the Axios race because they don't wait for rules — they use **behavioral heuristics** (install scripts, manifest-only changes, pre-staged packages) that catch novel attacks without needing a specific CVE rule. This is exactly what our supply-chain scanner already does (VS-SC-001→008).
+**Key insight:** Socket.dev won the Axios race because they don't wait for rules — they use **behavioral heuristics** (install scripts, manifest-only changes, pre-staged packages) that catch novel attacks without needing a specific CVE rule. This is exactly what our supply-chain scanner already does for the static provenance layer (VS-SC-001→009) and can enrich with OSV.dev for known vulnerabilities when `--external-enrichment` is enabled.
 
 ---
 
@@ -40,8 +40,9 @@ When Axios got compromised on March 31, 2026, Socket.dev flagged it in **6 minut
 - VS-SC-002: Manifest-only changes (catches stealth version bumps)
 - VS-SC-004: Typosquatting detection (catches decoy packages)
 - VS-SC-005: Lockfile integrity (catches dependency swaps)
-- VS-SC-007: No repository field (catches suspicious packages)
+- VS-SC-007: Lockfile entry with no resolved URL (catches non-registry or ambiguous sources)
 - VS-SC-008: Install scripts + no repo (compound risk)
+- VS-SC-009: No repository or homepage metadata for direct production dependencies
 
 **Expand with:**
 - **HEU-001:** Pre-staged packages (new dep appears <24h before suspicious activity)

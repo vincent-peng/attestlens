@@ -1,11 +1,16 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { SupplyChainAdapter } from './supply-chain.js';
+import { OSV_QUERY_BATCH_URL, OSV_VULN_URL, type FetchLike } from './osv.js';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import os from 'node:os';
 
 describe('SupplyChainAdapter', { timeout: 20000 }, () => {
-  const adapter = new SupplyChainAdapter();
+  const adapter = new SupplyChainAdapter({
+    osv: { enabled: false },
+    registry: { enabled: false },
+    audit: { enabled: false },
+  });
   let tmpDir: string;
 
   beforeAll(async () => {
@@ -164,4 +169,225 @@ describe('SupplyChainAdapter', { timeout: 20000 }, () => {
 
     await fs.rm(scriptDir, { recursive: true }).catch(() => {});
   });
+
+  it('should emit VS-SC-009 for direct production dependencies with no repository or homepage', async () => {
+    const provenanceDir = await createPackageProject({
+      dependencyName: 'no-repo-package',
+      dependencyPackageJson: {
+        name: 'no-repo-package',
+        version: '1.0.0',
+      },
+      installDependency: true,
+    });
+
+    const localAdapter = new SupplyChainAdapter({
+      osv: { enabled: false },
+      registry: { enabled: false },
+      audit: { enabled: false },
+    });
+    const result = await localAdapter.scan(provenanceDir);
+
+    const provenanceFindings = result.findings.filter(f => f.sourceRule === 'VS-SC-009');
+    expect(provenanceFindings).toHaveLength(1);
+    expect(provenanceFindings[0].title).toContain('no source repository or homepage');
+    expect(result.findings.some(f => f.sourceRule === 'VS-SC-007')).toBe(false);
+    expect(result.findings.some(f => f.sourceRule === 'VS-SC-008')).toBe(false);
+
+    await fs.rm(provenanceDir, { recursive: true }).catch(() => {});
+  });
+
+  it('should not emit VS-SC-009 when repository or homepage metadata exists', async () => {
+    const provenanceDir = await createPackageProject({
+      dependencyName: 'sourced-package',
+      dependencyPackageJson: {
+        name: 'sourced-package',
+        version: '1.0.0',
+        repository: { type: 'git', url: 'https://github.com/example/sourced-package.git' },
+      },
+      installDependency: true,
+    });
+
+    const localAdapter = new SupplyChainAdapter({
+      osv: { enabled: false },
+      registry: { enabled: false },
+      audit: { enabled: false },
+    });
+    const result = await localAdapter.scan(provenanceDir);
+
+    expect(result.findings.some(f => f.sourceRule === 'VS-SC-009')).toBe(false);
+
+    await fs.rm(provenanceDir, { recursive: true }).catch(() => {});
+  });
+
+  it('should fall back to npm registry metadata for VS-SC-009 when local package metadata is absent', async () => {
+    const provenanceDir = await createPackageProject({
+      dependencyName: 'remote-no-repo',
+      dependencyPackageJson: null,
+      installDependency: false,
+    });
+    const fetchImpl: FetchLike = async () => new Response(JSON.stringify({
+      name: 'remote-no-repo',
+      version: '1.0.0',
+    }), {
+      status: 200,
+      headers: { 'content-type': 'application/json' },
+    });
+
+    const localAdapter = new SupplyChainAdapter({
+      osv: { enabled: false },
+      registry: { fetchImpl },
+      audit: { enabled: false },
+    });
+    const result = await localAdapter.scan(provenanceDir);
+
+    const provenanceFindings = result.findings.filter(f => f.sourceRule === 'VS-SC-009');
+    expect(provenanceFindings).toHaveLength(1);
+    expect(provenanceFindings[0].evidence.rawOutput).toMatchObject({
+      packageName: 'remote-no-repo',
+      metadataSource: 'registry',
+    });
+
+    await fs.rm(provenanceDir, { recursive: true }).catch(() => {});
+  });
+
+  it('should treat npm registry metadata failures as recoverable warnings, not findings', async () => {
+    const provenanceDir = await createPackageProject({
+      dependencyName: 'metadata-fails',
+      dependencyPackageJson: null,
+      installDependency: false,
+    });
+    const fetchImpl: FetchLike = async () => new Response('not found', { status: 404 });
+
+    const localAdapter = new SupplyChainAdapter({
+      osv: { enabled: false },
+      registry: { fetchImpl },
+      audit: { enabled: false },
+    });
+    const result = await localAdapter.scan(provenanceDir);
+
+    expect(result.findings.some(f => f.sourceRule === 'VS-SC-009')).toBe(false);
+    expect(result.errors.some(error => error.code === 'NPM_METADATA_ERROR' && error.recoverable)).toBe(true);
+
+    await fs.rm(provenanceDir, { recursive: true }).catch(() => {});
+  });
+
+  it('should emit OSV findings as supply-chain findings and deduplicate npm audit aliases', async () => {
+    const osvDir = await createPackageProject({
+      dependencyName: 'vulnerable-package',
+      dependencyPackageJson: null,
+      installDependency: false,
+    });
+    const fetchImpl: FetchLike = async (input) => {
+      const url = String(input);
+      if (url === OSV_QUERY_BATCH_URL) {
+        return new Response(JSON.stringify({
+          results: [{ vulns: [{ id: 'GHSA-test-9999' }] }],
+        }), { status: 200, headers: { 'content-type': 'application/json' } });
+      }
+      if (url === `${OSV_VULN_URL}GHSA-test-9999`) {
+        return new Response(JSON.stringify({
+          id: 'GHSA-test-9999',
+          summary: 'Authentication bypass',
+          aliases: ['CVE-2026-9999'],
+          database_specific: { severity: 'CRITICAL' },
+        }), { status: 200, headers: { 'content-type': 'application/json' } });
+      }
+      return new Response('{}', { status: 404 });
+    };
+
+    const localAdapter = new SupplyChainAdapter({
+      osv: { fetchImpl },
+      registry: { enabled: false },
+      audit: {
+        run: async () => ({
+          vulnerabilities: {
+            'vulnerable-package': {
+              severity: 'high',
+              title: 'Authentication bypass GHSA-test-9999',
+              range: '<1.0.1',
+              url: 'https://github.com/advisories/GHSA-test-9999',
+              via: [{ source: 'GHSA-test-9999' }],
+            },
+          },
+        }),
+      },
+    });
+    const result = await localAdapter.scan(osvDir);
+
+    const osvFindings = result.findings.filter(f => f.sourceRule === 'VS-OSV-GHSA-test-9999');
+    expect(osvFindings).toHaveLength(0);
+
+    const auditFindings = result.findings.filter(f => f.sourceRule === 'VS-SC-006');
+    expect(auditFindings).toHaveLength(1);
+    expect(auditFindings[0]).toMatchObject({
+      source: 'supply-chain',
+      severity: 'high',
+      category: 'Security',
+    });
+
+    await fs.rm(osvDir, { recursive: true }).catch(() => {});
+  });
+
+  it('should keep other supply-chain checks when OSV fails', async () => {
+    const osvDir = await createPackageProject({
+      dependencyName: 'lodas',
+      dependencyPackageJson: null,
+      installDependency: false,
+    });
+    const fetchImpl: FetchLike = async () => {
+      throw new Error('OSV unavailable');
+    };
+
+    const localAdapter = new SupplyChainAdapter({
+      osv: { fetchImpl },
+      registry: { enabled: false },
+      audit: { enabled: false },
+    });
+    const result = await localAdapter.scan(osvDir);
+
+    expect(result.errors.some(error => error.code === 'OSV_API_ERROR' && error.recoverable)).toBe(true);
+    expect(result.findings.some(f => f.sourceRule === 'VS-SC-004')).toBe(true);
+
+    await fs.rm(osvDir, { recursive: true }).catch(() => {});
+  });
 });
+
+async function createPackageProject(options: {
+  dependencyName: string;
+  dependencyPackageJson: Record<string, unknown> | null;
+  installDependency: boolean;
+}): Promise<string> {
+  const projectDir = await fs.mkdtemp(path.join(os.tmpdir(), 'attestlens-sc-project-'));
+  const { dependencyName, dependencyPackageJson, installDependency } = options;
+  await fs.writeFile(path.join(projectDir, 'package.json'), JSON.stringify({
+    name: 'test-project',
+    version: '1.0.0',
+    dependencies: { [dependencyName]: '1.0.0' },
+  }, null, 2));
+  await fs.writeFile(path.join(projectDir, 'package-lock.json'), JSON.stringify({
+    lockfileVersion: 3,
+    packages: {
+      '': {
+        name: 'test-project',
+        version: '1.0.0',
+        dependencies: { [dependencyName]: '1.0.0' },
+      },
+      [`node_modules/${dependencyName}`]: {
+        version: '1.0.0',
+        resolved: `https://registry.npmjs.org/${dependencyName}/-/${dependencyName}-1.0.0.tgz`,
+        integrity: 'sha512-test',
+      },
+    },
+  }, null, 2));
+
+  if (installDependency && dependencyPackageJson) {
+    const dependencyDir = path.join(projectDir, 'node_modules', dependencyName);
+    await fs.mkdir(dependencyDir, { recursive: true });
+    await fs.writeFile(
+      path.join(dependencyDir, 'package.json'),
+      JSON.stringify(dependencyPackageJson, null, 2),
+    );
+  }
+
+  return projectDir;
+}

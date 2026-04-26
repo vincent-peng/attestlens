@@ -60,6 +60,32 @@ describe('ScannerOrchestrator', { timeout: 20000 }, () => {
     const uniqueKeys = new Set(keys);
     expect(keys.length).toBe(uniqueKeys.size);
   });
+
+  it('preserves package-scoped supply-chain findings that share package.json location', async () => {
+    const projectDir = await createNoProvenanceDependencyFixture();
+    const orchestrator = new ScannerOrchestrator({
+      supplyChain: {
+        audit: { enabled: false },
+        osv: { enabled: false },
+        registry: { enabled: false },
+      },
+    });
+
+    try {
+      const result = await orchestrator.scan(projectDir, ['supply-chain']);
+      const provenanceFindings = result.findings.filter(f => f.sourceRule === 'VS-SC-009');
+      const packageNames = provenanceFindings.map((finding) => {
+        const raw = finding.evidence.rawOutput as { packageName?: string };
+        return raw.packageName;
+      });
+
+      expect(provenanceFindings).toHaveLength(2);
+      expect(packageNames.sort()).toEqual(['no-repo-one', 'no-repo-two']);
+      expect(new Set(provenanceFindings.map(f => f.id)).size).toBe(2);
+    } finally {
+      await fs.rm(projectDir, { recursive: true, force: true });
+    }
+  });
 });
 
 async function createVulnerableAppFixture(): Promise<string> {
@@ -83,6 +109,57 @@ async function createVulnerableAppFixture(): Promise<string> {
       '}',
     ].join('\n'),
   );
+
+  return fixtureDir;
+}
+
+async function createNoProvenanceDependencyFixture(): Promise<string> {
+  const fixtureDir = await fs.mkdtemp(path.join(os.tmpdir(), 'attestlens-provenance-'));
+  const dependencies = {
+    'no-repo-one': '1.0.0',
+    'no-repo-two': '1.0.0',
+  };
+
+  await fs.writeFile(
+    path.join(fixtureDir, 'package.json'),
+    JSON.stringify({
+      name: 'provenance-test',
+      version: '1.0.0',
+      dependencies,
+    }, null, 2),
+  );
+  await fs.writeFile(
+    path.join(fixtureDir, 'package-lock.json'),
+    JSON.stringify({
+      lockfileVersion: 3,
+      packages: {
+        '': {
+          name: 'provenance-test',
+          version: '1.0.0',
+          dependencies,
+        },
+        'node_modules/no-repo-one': {
+          version: '1.0.0',
+          resolved: 'https://registry.npmjs.org/no-repo-one/-/no-repo-one-1.0.0.tgz',
+          integrity: 'sha512-test',
+        },
+        'node_modules/no-repo-two': {
+          version: '1.0.0',
+          resolved: 'https://registry.npmjs.org/no-repo-two/-/no-repo-two-1.0.0.tgz',
+          integrity: 'sha512-test',
+        },
+      },
+    }, null, 2),
+  );
+
+  for (const [name, version] of Object.entries(dependencies)) {
+    const dependencyDir = path.join(fixtureDir, 'node_modules', name);
+    await fs.mkdir(dependencyDir, { recursive: true });
+    await fs.writeFile(
+      path.join(dependencyDir, 'package.json'),
+      JSON.stringify({ name, version }, null, 2),
+    );
+  }
 
   return fixtureDir;
 }

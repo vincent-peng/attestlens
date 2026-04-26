@@ -68,6 +68,7 @@ program
   .option('--no-guardvibe', 'Disable GuardVibe scanner')
   .option('--no-mcp-scan', 'Disable mcp-scan')
   .option('--no-supply-chain', 'Disable supply chain scanner')
+  .option('--external-enrichment', 'Enable external OSV.dev and npm registry dependency enrichment')
   .option('--auto-update', 'Refresh the cached rule pack from ATTESTLENS_RULE_SOURCE before scanning')
   .action(async (targetInput: string, options: any) => {
     console.log(chalk.bold.cyan('\n🔍 AttestLens — Privacy Act Compliance Scanner\n'));
@@ -129,6 +130,7 @@ program
   .option('--no-guardvibe', 'Disable GuardVibe scanner')
   .option('--no-mcp-scan', 'Disable mcp-scan')
   .option('--no-supply-chain', 'Disable supply chain scanner')
+  .option('--external-enrichment', 'Enable external OSV.dev and npm registry dependency enrichment')
   .option('--auto-update', 'Refresh the cached rule pack from ATTESTLENS_RULE_SOURCE before scanning')
   .action(async (targetInput: string, options: any) => {
     console.log(chalk.bold.cyan('\n🔍 AttestLens — Privacy Act Compliance Audit\n'));
@@ -228,6 +230,7 @@ program
   .option('--no-guardvibe', 'Disable GuardVibe scanner')
   .option('--no-mcp-scan', 'Disable mcp-scan')
   .option('--no-supply-chain', 'Disable supply chain scanner')
+  .option('--external-enrichment', 'Enable external OSV.dev and npm registry dependency enrichment')
   .option('--auto-update', 'Refresh the cached rule pack from ATTESTLENS_RULE_SOURCE before scanning')
   .action(async (targetInput: string | undefined, options: any) => {
     console.log(chalk.bold.cyan('\n📝 AttestLens — Privacy Act Attestation\n'));
@@ -406,7 +409,13 @@ function formatRuleFreshnessForCli(ruleFreshness: RuleFreshnessMetadata): string
 }
 
 function createOrchestrator(targetKind: CliTarget['kind'], options: any): ScannerOrchestrator {
-  const orchestrator = new ScannerOrchestrator();
+  const externalEnrichment = options.externalEnrichment === true;
+  const orchestrator = new ScannerOrchestrator({
+    supplyChain: {
+      osv: { enabled: externalEnrichment },
+      registry: { enabled: externalEnrichment },
+    },
+  });
 
   if (targetKind === 'url') {
     orchestrator.disable('guardvibe');

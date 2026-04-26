@@ -165,6 +165,33 @@ describe('mapFindingToAPP', () => {
     // Security category matches APP_11 regardless of severity
     expect(mappings.some(m => m.principle === 'APP_11')).toBe(true);
   });
+
+  it('should map OSV dependency vulnerabilities to APP_11', () => {
+    const finding = makeFinding({
+      source: 'supply-chain',
+      sourceRule: 'VS-OSV-GHSA-test-1234',
+      severity: 'high',
+      category: 'Security',
+      title: 'OSV vulnerability in "pkg": Authentication bypass',
+    });
+    const mappings = mapFindingToAPP(finding);
+    const app11Mapping = mappings.find(m => m.principle === 'APP_11' && m.status === 'fail');
+    expect(app11Mapping).toBeDefined();
+    expect(app11Mapping!.confidence).toBeGreaterThanOrEqual(0.9);
+  });
+
+  it('should map missing dependency provenance to APP_11 and APP_6', () => {
+    const finding = makeFinding({
+      source: 'supply-chain',
+      sourceRule: 'VS-SC-009',
+      severity: 'medium',
+      category: 'Security',
+      title: 'Dependency "pkg" has no source repository or homepage',
+    });
+    const mappings = mapFindingToAPP(finding);
+    expect(mappings.some(m => m.principle === 'APP_11' && m.status === 'fail')).toBe(true);
+    expect(mappings.some(m => m.principle === 'APP_6' && m.status === 'unknown')).toBe(true);
+  });
 });
 
 // ─── mapAllFindings Tests ─────────────────────────────────────────────────────

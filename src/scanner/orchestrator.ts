@@ -8,12 +8,13 @@ import type { AttestLensFinding, ScanSource } from '../schema/index.js';
 import type { ScannerResult, ScannerAdapter, ScannerError, ScannerRegistryEntry, OrchestratedScanResult } from './types.js';
 import { GuardVibeAdapter } from './guardvibe.js';
 import { McpScanAdapter } from './mcp-scan.js';
-import { SupplyChainAdapter } from './supply-chain.js';
+import { SupplyChainAdapter, type SupplyChainAdapterOptions } from './supply-chain.js';
 import { UrlScanAdapter } from './url-scan.js';
 import { loadRulePack, type RulePackLoadOptions } from './rules/index.js';
 
 export interface ScannerOrchestratorOptions {
   rulePack?: RulePackLoadOptions;
+  supplyChain?: SupplyChainAdapterOptions;
 }
 
 export class ScannerOrchestrator {
@@ -25,7 +26,7 @@ export class ScannerOrchestrator {
     // Register default scanners
     this.register(new GuardVibeAdapter());
     this.register(new McpScanAdapter());
-    this.register(new SupplyChainAdapter());
+    this.register(new SupplyChainAdapter(options.supplyChain));
     // URL scanner registered but only activated when URL input detected
     this.register(new UrlScanAdapter());
   }
@@ -121,7 +122,7 @@ export class ScannerOrchestrator {
     };
 
     for (const finding of findings) {
-      const key = `${finding.sourceRule}:${finding.file || ''}:${finding.line || ''}`;
+      const key = this.getDeduplicationKey(finding);
       const existing = seen.get(key);
       
       if (!existing) {
@@ -135,6 +136,24 @@ export class ScannerOrchestrator {
     }
 
     return Array.from(seen.values());
+  }
+
+  private getDeduplicationKey(finding: AttestLensFinding): string {
+    const rawOutput = finding.evidence.rawOutput as Record<string, unknown> | undefined;
+    const packageName = typeof rawOutput?.packageName === 'string' ? rawOutput.packageName : '';
+    const vulnerabilityId = typeof rawOutput?.vulnerabilityId === 'string' ? rawOutput.vulnerabilityId : '';
+    const advisoryId = typeof rawOutput?.advisoryId === 'string' ? rawOutput.advisoryId : '';
+    const advisoryUrl = typeof rawOutput?.url === 'string' ? rawOutput.url : '';
+    const packageIdentity = [packageName, vulnerabilityId, advisoryId, advisoryUrl]
+      .filter(Boolean)
+      .join(':');
+
+    return [
+      finding.sourceRule,
+      finding.file || '',
+      finding.line || '',
+      packageIdentity,
+    ].join(':');
   }
 
   getRegistry(): ScannerRegistryEntry[] {
