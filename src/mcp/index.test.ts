@@ -69,7 +69,7 @@ describe('MCP Server', () => {
   });
 
   describe('handleToolCall', () => {
-    it('exposes explicit enrichment, typosquat, and timeout options on MCP scan tools', () => {
+    it('exposes explicit enrichment, typosquat, behavioral, and timeout options on MCP scan tools', () => {
       const scanTool = MCP_TOOLS.find((tool) => tool.name === 'attestlens_scan');
       const auditTool = MCP_TOOLS.find((tool) => tool.name === 'attestlens_audit');
       const urlTool = MCP_TOOLS.find((tool) => tool.name === 'attestlens_scan_url');
@@ -83,6 +83,9 @@ describe('MCP Server', () => {
       expect(scanTool?.inputSchema.properties).toHaveProperty('scannerTimeoutMs');
       expect(auditTool?.inputSchema.properties).toHaveProperty('scannerTimeoutMs');
       expect(urlTool?.inputSchema.properties).toHaveProperty('scannerTimeoutMs');
+      expect(scanTool?.inputSchema.properties).toHaveProperty('behavioral');
+      expect(auditTool?.inputSchema.properties).toHaveProperty('behavioral');
+      expect(urlTool?.inputSchema.properties).not.toHaveProperty('behavioral');
     });
 
     it('returns URL scan output keyed by targetUrl', async () => {
@@ -315,6 +318,18 @@ describe('MCP Server', () => {
       })).rejects.toThrow('scannerTimeoutMs must be a positive integer');
     });
 
+    it('enables MCP behavioral findings by default and allows explicit disable', async () => {
+      await writeMcpBehavioralProject(tempDir);
+
+      const enabledResponse = await handleToolCall('attestlens_scan', { path: tempDir });
+      const enabledPayload = JSON.parse(enabledResponse.content[0].text);
+      expect(enabledPayload.findings.some((finding: { sourceRule: string }) => finding.sourceRule === 'VS-BH-001')).toBe(true);
+
+      const disabledResponse = await handleToolCall('attestlens_scan', { path: tempDir, behavioral: false });
+      const disabledPayload = JSON.parse(disabledResponse.content[0].text);
+      expect(disabledPayload.findings.some((finding: { sourceRule: string }) => finding.sourceRule === 'VS-BH-001')).toBe(false);
+    });
+
     it('enables MCP audit external enrichment only when explicitly requested', async () => {
       await writeMcpPackageProject(tempDir, 'external-audit');
       const fetchMock = vi.fn(async (input: string | URL) => {
@@ -361,4 +376,18 @@ async function writeMcpPackageProject(projectDir: string, dependencyName: string
     version: '1.0.0',
     dependencies: { [dependencyName]: '1.0.0' },
   }, null, 2));
+}
+
+async function writeMcpBehavioralProject(projectDir: string): Promise<void> {
+  await fs.writeFile(path.join(projectDir, 'package.json'), JSON.stringify({
+    name: 'mcp-behavioral-project',
+    version: '1.0.0',
+    dependencies: { 'behavior-pkg': '1.0.0' },
+  }, null, 2));
+  await fs.mkdir(path.join(projectDir, 'node_modules', 'behavior-pkg'), { recursive: true });
+  await fs.writeFile(path.join(projectDir, 'node_modules', 'behavior-pkg', 'package.json'), JSON.stringify({
+    name: 'behavior-pkg',
+    version: '1.0.0',
+  }, null, 2));
+  await fs.writeFile(path.join(projectDir, 'node_modules', 'behavior-pkg', 'index.js'), 'export const run = (code) => eval(code);');
 }

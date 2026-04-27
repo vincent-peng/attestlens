@@ -37,13 +37,13 @@
 - ❌ Advisory-monitoring rule update pipeline
 - ❌ Executable remote rule migration for all scanner checks
 - ✅ OSV.dev vulnerability integration inside supply-chain scanner (M3.1)
-- ❌ Behavioral supply-chain analysis (M3.5)
+- ✅ Behavioral supply-chain analysis (M3.5)
 - ❌ Git history secret scanning (M3.6)
 - ❌ SAST lite compliance patterns (M3.7)
 - ❌ IaC misconfiguration detection (M3.8)
 - ❌ Web dashboard (M4 — not until M3 + design-partner validation)
 
-**Current focus:** M3 scanner enhancement (spec at `docs/milestones/M3-SCANNER-ENHANCEMENT.md`). M3.1–M3.4 are implemented; next up is design-partner/report validation before M3.5 behavioral supply-chain analysis. Dashboard is explicitly deferred to M4 — we need validated scanner output and consultant feedback before investing in UI.
+**Current focus:** M3 scanner enhancement (spec at `docs/milestones/M3-SCANNER-ENHANCEMENT.md`). M3.1–M3.5 are implemented; next up is M3.6 opt-in gitleaks history scanning. Dashboard is explicitly deferred to M4 — we need validated scanner output and consultant feedback before investing in UI.
 
 ---
 
@@ -176,7 +176,7 @@ Full spec: `docs/milestones/M3-SCANNER-ENHANCEMENT.md`
 - Progress callbacks for CLI feedback
 - Partial results on timeout, not hard failure
 
-### M3.5 — Behavioral Supply-Chain Analysis (1 week)
+### M3.5 — Behavioral Supply-Chain Analysis (shipped)
 - 6 signals: eval/Function, network access, shell access, env access, obfuscation, high-entropy strings
 - No compliance tool does this — highest differentiation opportunity
 - Maps to APP_11 + APP_8 + NDB

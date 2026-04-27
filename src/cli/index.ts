@@ -68,6 +68,7 @@ program
   .option('--no-guardvibe', 'Disable GuardVibe scanner')
   .option('--no-mcp-scan', 'Disable mcp-scan')
   .option('--no-supply-chain', 'Disable supply chain scanner')
+  .option('--no-behavioral', 'Disable behavioral supply-chain analysis')
   .option('--include-typosquat', 'Enable experimental typosquatting detection (VS-SC-004)')
   .option('--external-enrichment', 'Enable external OSV.dev and npm registry dependency enrichment')
   .option('--scanner-timeout <ms>', 'Per-scanner timeout in milliseconds')
@@ -132,6 +133,7 @@ program
   .option('--no-guardvibe', 'Disable GuardVibe scanner')
   .option('--no-mcp-scan', 'Disable mcp-scan')
   .option('--no-supply-chain', 'Disable supply chain scanner')
+  .option('--no-behavioral', 'Disable behavioral supply-chain analysis')
   .option('--include-typosquat', 'Enable experimental typosquatting detection (VS-SC-004)')
   .option('--external-enrichment', 'Enable external OSV.dev and npm registry dependency enrichment')
   .option('--scanner-timeout <ms>', 'Per-scanner timeout in milliseconds')
@@ -234,6 +236,7 @@ program
   .option('--no-guardvibe', 'Disable GuardVibe scanner')
   .option('--no-mcp-scan', 'Disable mcp-scan')
   .option('--no-supply-chain', 'Disable supply chain scanner')
+  .option('--no-behavioral', 'Disable behavioral supply-chain analysis')
   .option('--include-typosquat', 'Enable experimental typosquatting detection (VS-SC-004)')
   .option('--external-enrichment', 'Enable external OSV.dev and npm registry dependency enrichment')
   .option('--scanner-timeout <ms>', 'Per-scanner timeout in milliseconds')
@@ -424,6 +427,9 @@ export function buildScannerOrchestratorOptions(options: any): ScannerOrchestrat
       osv: { enabled: externalEnrichment },
       registry: { enabled: externalEnrichment },
     },
+    behavioral: {
+      enabled: options.behavioral !== false,
+    },
   };
 }
 
@@ -455,6 +461,7 @@ function createOrchestrator(targetKind: CliTarget['kind'], options: any): Scanne
   if (options.guardvibe === false) orchestrator.disable('guardvibe');
   if (options.mcpScan === false) orchestrator.disable('mcp-scan');
   if (options.supplyChain === false) orchestrator.disable('supply-chain');
+  if (options.behavioral === false) orchestrator.disable('behavioral');
   return orchestrator;
 }
 

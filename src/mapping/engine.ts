@@ -559,6 +559,46 @@ const NDB_RULES: MappingRule[] = [
     oaicReference: 'APP Guidelines Chapter 11.6',
   },
   {
+    id: 'MAP-037',
+    name: 'Behavioral Dependency Signal → APP 11.1',
+    sourcePatterns: {
+      ruleId: /^VS-BH-\d+$/,
+      category: /^Behavioral Supply Chain$/i,
+      severity: ['critical', 'high', 'medium', 'low'],
+    },
+    appPrinciple: 'APP_11',
+    status: 'fail',
+    confidence: 0.82,
+    rationale: 'Runtime-capable dependency behavior can affect whether reasonable steps are being taken to protect personal information under APP 11.1.',
+    oaicReference: 'APP Guidelines Chapter 11.1',
+  },
+  {
+    id: 'MAP-038',
+    name: 'Network-Capable Dependency → APP 8',
+    sourcePatterns: {
+      ruleId: /^VS-BH-002$/,
+      category: /^Behavioral Supply Chain$/i,
+    },
+    appPrinciple: 'APP_8',
+    status: 'unknown',
+    confidence: 0.70,
+    rationale: 'A dependency with outbound network capability may create cross-border disclosure pathways. APP 8 impact depends on runtime configuration and actual data destinations.',
+    oaicReference: 'APP Guidelines Chapter 8',
+  },
+  {
+    id: 'MAP-039',
+    name: 'Secret-Adjacent Dependency Behavior → NDB',
+    sourcePatterns: {
+      ruleId: /^VS-BH-00[46]$/,
+      category: /^Behavioral Supply Chain$/i,
+    },
+    appPrinciple: 'NDB',
+    status: 'unknown',
+    confidence: 0.68,
+    rationale: 'Dependency access to environment secrets or high-entropy embedded strings may create a breach pathway. NDB impact depends on whether credentials or personal information are exposed.',
+    oaicReference: 'NDB Guidelines s26WE',
+  },
+  {
     id: 'MAP-036',
     name: 'OSV Breach-Relevant Vulnerability → NDB',
     sourcePatterns: {

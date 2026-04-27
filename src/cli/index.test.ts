@@ -111,6 +111,24 @@ async function createCliPackageProject(dependencyName: string): Promise<string> 
   return projectDir;
 }
 
+async function createCliBehavioralProject(): Promise<string> {
+  const projectDir = await fs.mkdtemp(path.join(os.tmpdir(), 'attestlens-cli-behavioral-'));
+  await fs.writeFile(path.join(projectDir, 'package.json'), JSON.stringify({
+    name: 'cli-behavioral-test',
+    version: '1.0.0',
+    dependencies: {
+      'behavior-pkg': '1.0.0',
+    },
+  }, null, 2));
+  await fs.mkdir(path.join(projectDir, 'node_modules', 'behavior-pkg'), { recursive: true });
+  await fs.writeFile(path.join(projectDir, 'node_modules', 'behavior-pkg', 'package.json'), JSON.stringify({
+    name: 'behavior-pkg',
+    version: '1.0.0',
+  }, null, 2));
+  await fs.writeFile(path.join(projectDir, 'node_modules', 'behavior-pkg', 'index.js'), 'export const run = (code) => eval(code);');
+  return projectDir;
+}
+
 describe('CLI URL handling', () => {
   it('fails URL scans when the target is blocked or unreachable', async () => {
     const result = await runCli(['scan', 'http://localhost:3000']);
@@ -184,6 +202,9 @@ describe('CLI external enrichment option', () => {
     expect(scanHelp.stdout).toContain('--scanner-timeout');
     expect(auditHelp.stdout).toContain('--scanner-timeout');
     expect(attestHelp.stdout).toContain('--scanner-timeout');
+    expect(scanHelp.stdout).toContain('--no-behavioral');
+    expect(auditHelp.stdout).toContain('--no-behavioral');
+    expect(attestHelp.stdout).toContain('--no-behavioral');
   });
 
   it('keeps external enrichment disabled by default in shared scanner options', () => {
@@ -193,6 +214,9 @@ describe('CLI external enrichment option', () => {
           typosquat: { enabled: false },
           osv: { enabled: false },
           registry: { enabled: false },
+        },
+        behavioral: {
+          enabled: true,
         },
       });
     }
@@ -204,6 +228,9 @@ describe('CLI external enrichment option', () => {
         typosquat: { enabled: false },
         osv: { enabled: true },
         registry: { enabled: true },
+      },
+      behavioral: {
+        enabled: true,
       },
     });
   });
@@ -219,7 +246,25 @@ describe('CLI external enrichment option', () => {
         osv: { enabled: false },
         registry: { enabled: false },
       },
+      behavioral: {
+        enabled: true,
+      },
     });
+  });
+
+  it('disables behavioral findings from CLI scans when requested', async () => {
+    const projectDir = await createCliBehavioralProject();
+
+    try {
+      const enabled = await runCli(['scan', projectDir, '--no-guardvibe', '--no-mcp-scan', '--no-supply-chain']);
+      expect(`${enabled.stdout}\n${enabled.stderr}`).toContain('VS-BH-001');
+
+      const disabled = await runCli(['scan', projectDir, '--no-guardvibe', '--no-mcp-scan', '--no-supply-chain', '--no-behavioral']);
+      expect(`${disabled.stdout}\n${disabled.stderr}`).not.toContain('VS-BH-001');
+      expect(disabled.code).toBe(0);
+    } finally {
+      await fs.rm(projectDir, { recursive: true, force: true });
+    }
   });
 
   it('rejects invalid scanner timeout values', () => {

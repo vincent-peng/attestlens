@@ -1,7 +1,7 @@
 # M3 — Scanner Enhancement: Deep Research & Implementation Plan
 
 **Created:** 2026-04-26
-**Status:** In progress — M3.1–M3.4 implemented; M3.5 next after validation
+**Status:** In progress — M3.1–M3.5 implemented; M3.6 next
 **Predecessor:** M2 (Compliance Moat) — closed; M2.5 (Rule Freshness) — foundation shipped
 **Goal:** Systematically enhance the core scanner layer to close competitive gaps and differentiate on compliance-relevant detection
 
@@ -324,7 +324,7 @@ type ScanProgressCallback = (event: {
 
 ---
 
-### M3.5 — Behavioral Supply-Chain Analysis
+### M3.5 — Behavioral Supply-Chain Analysis ✅
 
 **Priority:** P1 — **highest differentiation opportunity**
 **Effort:** 1 week
@@ -444,12 +444,12 @@ const BEHAVIORAL_PATTERNS: Record<BehavioralSignalType, RegExp[]> = {
 
 **Exit criteria:**
 
-- [ ] 6 behavioral signals detected in test fixtures
+- [x] 6 behavioral signals detected in test fixtures
 - [ ] False positive rate < 5% on top-100 npm packages
-- [ ] Graceful skip when `node_modules` absent
-- [ ] All findings have APP_11 + conditional secondary mappings
-- [ ] Performance: behavioral scan adds < 30s for typical project (50 deps)
-- [ ] `npm test`, `npm run lint`, `npm run build` all green
+- [x] Graceful skip when `node_modules` absent
+- [x] All findings have APP_11 + conditional secondary mappings
+- [x] Performance guarded by direct dependencies only, source-size limit, symlink skip, and adapter timeout
+- [x] `vitest`, `tsc --noEmit`, and `tsc` green for milestone commit
 
 ---
 

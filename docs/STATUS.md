@@ -3,7 +3,7 @@
 **Last Updated:** 2026-04-27
 **Purpose:** Near-term source of truth for product status, current milestone, and next actions.
 
-**Current focus:** M3 scanner enhancement is underway. M3.1–M3.4 are implemented; next implementation is M3.5 behavioral supply-chain analysis after design-partner/report validation stays stable.
+**Current focus:** M3 scanner enhancement is underway. M3.1–M3.5 are implemented; next implementation is M3.6 git history secret scanning via gitleaks.
 
 **Sellable roadmap:** See `docs/SELLABLE-TODOS.md` for the prioritized path to a sellable product. Key additions beyond M3: Privacy Act 2026 reform module (P1.1), SMB compliance tier (P1.2), NDB breach penalty calculator (P1.5). Market research at `docs/COMPETITIVE-MARKET-RESEARCH.md`.
 
@@ -181,7 +181,7 @@ Full spec: `docs/milestones/M3-SCANNER-ENHANCEMENT.md`
 - ✅ M3.2 — Dependency provenance detection (`VS-SC-009`; registry fallback is opt-in)
 - ✅ M3.3 — Dynamic confidence scoring
 - ✅ M3.4 — Per-adapter timeout + progress reporting
-- M3.5 — Behavioral supply-chain analysis (1 week)
+- ✅ M3.5 — Behavioral supply-chain analysis
 - M3.6 — Git history secret scanning via gitleaks (3 days)
 - M3.7 — SAST lite: compliance-critical patterns (1 week)
 - M3.8 — IaC misconfiguration: Dockerfile + Terraform (1 week)
@@ -214,8 +214,8 @@ These are the default operating rules for the project.
 
 ### Next 2 Weeks
 
-1. Keep M3.1–M3.4 regression coverage green while scanning real design-partner projects.
-2. Validate the refreshed report shape with design partners before starting M3.5.
+1. Keep M3.1–M3.5 regression coverage green while scanning real design-partner projects.
+2. Validate behavioral dependency findings with design partners before treating them as sellable.
 3. Continue design-partner outreach with M2 sample reports.
 4. Keep `npm test`, `npm run lint`, and `npm run build` green.
 

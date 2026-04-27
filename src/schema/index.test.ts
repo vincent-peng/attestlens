@@ -10,6 +10,7 @@ describe('ScanSource', () => {
       'mcp-scan',
       'vibe-check',
       'supply-chain',
+      'behavioral',
       'url-scan',
       'manual',
       'questionnaire',

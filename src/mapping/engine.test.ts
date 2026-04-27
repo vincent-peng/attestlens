@@ -290,6 +290,28 @@ describe('mapFindingToAPP', () => {
     expect(mappings.some(m => m.principle === 'APP_11' && m.status === 'fail')).toBe(true);
     expect(mappings.some(m => m.principle === 'APP_6' && m.status === 'unknown')).toBe(true);
   });
+
+  it('should map behavioral dependency findings to APP_11 with conditional secondary obligations', () => {
+    const networkFinding = makeFinding({
+      source: 'behavioral',
+      sourceRule: 'VS-BH-002',
+      severity: 'medium',
+      category: 'Behavioral Supply Chain',
+      title: 'Dependency can make network requests',
+      description: 'Network-capable dependency',
+    });
+    const envFinding = makeFinding({
+      source: 'behavioral',
+      sourceRule: 'VS-BH-004',
+      severity: 'medium',
+      category: 'Behavioral Supply Chain',
+      title: 'Dependency reads environment variables',
+      description: 'Secret-adjacent dependency behavior',
+    });
+
+    expect(mapFindingToAPP(networkFinding).map(mapping => mapping.principle)).toEqual(['APP_11', 'APP_8']);
+    expect(mapFindingToAPP(envFinding).map(mapping => mapping.principle)).toEqual(['APP_11', 'NDB']);
+  });
 });
 
 // ─── mapAllFindings Tests ─────────────────────────────────────────────────────
