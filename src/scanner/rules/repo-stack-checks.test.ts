@@ -122,4 +122,14 @@ describe('repo stack checks', () => {
       expect(relevant.some((finding) => finding.sourceRule === 'VS-ENV')).toBe(false);
     });
   });
+
+  it('includes SAST-lite findings in GuardVibe fallback output', async () => {
+    await withTempProject({
+      'src/routes.ts': 'router.post("/api/user", async (req, res) => db.query("select * from users where id=" + req.params.id));',
+    }, async (projectDir) => {
+      const result = await new GuardVibeAdapter().scan(projectDir);
+
+      expect(result.findings.some((finding) => finding.sourceRule === 'VS-SAST-004')).toBe(true);
+    });
+  });
 });

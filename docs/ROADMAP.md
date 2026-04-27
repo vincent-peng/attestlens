@@ -39,11 +39,11 @@
 - ✅ OSV.dev vulnerability integration inside supply-chain scanner (M3.1)
 - ✅ Behavioral supply-chain analysis (M3.5)
 - ✅ Git history secret scanning (M3.6)
-- ❌ SAST lite compliance patterns (M3.7)
+- ✅ SAST lite compliance patterns (M3.7)
 - ❌ IaC misconfiguration detection (M3.8)
 - ❌ Web dashboard (M4 — not until M3 + design-partner validation)
 
-**Current focus:** M3 scanner enhancement (spec at `docs/milestones/M3-SCANNER-ENHANCEMENT.md`). M3.1–M3.6 are implemented; next up is M3.7 SAST lite compliance-critical patterns. Dashboard is explicitly deferred to M4 — we need validated scanner output and consultant feedback before investing in UI.
+**Current focus:** M3 scanner enhancement (spec at `docs/milestones/M3-SCANNER-ENHANCEMENT.md`). M3.1–M3.7 are implemented; next up is M3.8 IaC misconfiguration detection. Dashboard is explicitly deferred to M4 — we need validated scanner output and consultant feedback before investing in UI.
 
 ---
 
@@ -186,7 +186,7 @@ Full spec: `docs/milestones/M3-SCANNER-ENHANCEMENT.md`
 - 150+ secret detectors covering git history
 - Maps to APP_11 + NDB — the #1 gap consultants flag
 
-### M3.7 — SAST Lite: Compliance-Critical Patterns (1 week)
+### M3.7 — SAST Lite: Compliance-Critical Patterns (shipped)
 - 20 patterns: hardcoded creds, SQL injection, SSRF, CORS wildcard, prototype pollution, path traversal, etc.
 - Regex-based, no AST parsing needed
 - Direct APP/NDB mappings for each pattern

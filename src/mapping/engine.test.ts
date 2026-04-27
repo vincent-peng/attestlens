@@ -325,6 +325,26 @@ describe('mapFindingToAPP', () => {
 
     expect(mapFindingToAPP(finding).map(mapping => mapping.principle)).toEqual(['APP_11', 'NDB']);
   });
+
+  it('should map SAST-lite findings to APP/NDB obligations', () => {
+    const ssrf = makeFinding({
+      source: 'guardvibe',
+      sourceRule: 'VS-SAST-006',
+      severity: 'high',
+      category: 'SAST Lite',
+      title: 'Outbound request uses untrusted URL input',
+    });
+    const collection = makeFinding({
+      source: 'guardvibe',
+      sourceRule: 'VS-SAST-019',
+      severity: 'medium',
+      category: 'SAST Lite',
+      title: 'Personal data collected without visible consent check',
+    });
+
+    expect(mapFindingToAPP(ssrf).map(mapping => mapping.principle)).toEqual(['APP_11', 'APP_8']);
+    expect(mapFindingToAPP(collection).map(mapping => mapping.principle)).toEqual(['APP_11', 'APP_3']);
+  });
 });
 
 // ─── mapAllFindings Tests ─────────────────────────────────────────────────────

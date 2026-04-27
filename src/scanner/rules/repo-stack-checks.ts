@@ -3,6 +3,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 
 import type { AttestLensFinding, Severity } from '../../schema/index.js';
+import { scanSastLiteFiles } from './sast-lite.js';
 
 interface RepoFile {
   relativePath: string;
@@ -81,6 +82,8 @@ export async function scanRepoStackChecks(
     findings.push(...detectPublicSecretEnv(scannerVersion, file));
     findings.push(...detectPlatformSecrets(scannerVersion, file));
   }
+
+  findings.push(...scanSastLiteFiles(repoFiles, scannerVersion));
 
   return findings;
 }

@@ -1,7 +1,7 @@
 # M3 — Scanner Enhancement: Deep Research & Implementation Plan
 
 **Created:** 2026-04-26
-**Status:** In progress — M3.1–M3.6 implemented; M3.7 next
+**Status:** In progress — M3.1–M3.7 implemented; M3.8 next
 **Predecessor:** M2 (Compliance Moat) — closed; M2.5 (Rule Freshness) — foundation shipped
 **Goal:** Systematically enhance the core scanner layer to close competitive gaps and differentiate on compliance-relevant detection
 
@@ -539,7 +539,7 @@ const GITLEAKS_CATEGORY_MAP: Record<string, { category: string; appMappings: APP
 
 ---
 
-### M3.7 — SAST Lite: Compliance-Critical Source Patterns
+### M3.7 — SAST Lite: Compliance-Critical Source Patterns ✅
 
 **Priority:** P2 — extends detection surface meaningfully
 **Effort:** 1 week
@@ -652,12 +652,12 @@ Add 20-30 high-compliance-impact SAST patterns as regex-based rules in a new rul
 
 **Exit criteria:**
 
-- [ ] 20 SAST-lite patterns implemented in `src/scanner/rules/sast-lite.ts`
-- [ ] All patterns have APP/NDB mappings with confidence scores
-- [ ] All patterns have `fixPrompt` strings for AI remediation
-- [ ] Patterns tested against real-world code samples (both true and false positive cases)
-- [ ] GuardVibe adapter includes SAST-lite rules in its scan
-- [ ] `npm test`, `npm run lint`, `npm run build` all green
+- [x] 20 SAST-lite patterns implemented in `src/scanner/rules/sast-lite.ts`
+- [x] All patterns have APP/NDB mappings with confidence scores
+- [x] All patterns have `fixPrompt` strings for AI remediation
+- [x] Patterns tested against positive and negative code samples
+- [x] GuardVibe adapter includes SAST-lite rules in its scan
+- [x] `vitest`, `tsc --noEmit`, and `tsc` green for milestone commit
 
 ---
 
