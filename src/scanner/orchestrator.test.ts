@@ -55,6 +55,11 @@ describe('ScannerOrchestrator', { timeout: 20000 }, () => {
     expect(scanResult.totalDurationMs).toBeGreaterThan(0);
   });
 
+  it('does not run URL scanning for path targets by default', async () => {
+    expect(scanResult.results.some(result => result.source === 'url-scan')).toBe(false);
+    expect(scanResult.errors.some(error => error.source === 'url-scan')).toBe(false);
+  });
+
   it('should deduplicate findings by rule+file+line', async () => {
     // Check no duplicate rule+file+line combinations
     const keys = scanResult.findings.map(f => `${f.sourceRule}:${f.file}:${f.line}`);

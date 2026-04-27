@@ -65,9 +65,18 @@ export class ScannerOrchestrator {
     const allErrors: ScannerError[] = [];
     const rulePack = await loadRulePack(this.rulePackOptions);
 
+    const targetKind = getTargetKind(targetPath);
     const enabledAdapters = Array.from(this.registry.values())
       .filter(entry => entry.enabled)
-      .filter(entry => !sources || sources.includes(entry.adapter.name));
+      .filter(entry => {
+        if (sources) {
+          return sources.includes(entry.adapter.name);
+        }
+        if (targetKind === 'url') {
+          return entry.adapter.name === 'url-scan';
+        }
+        return entry.adapter.name !== 'url-scan';
+      });
 
     // Run all enabled scanners in parallel
     const scanPromises = enabledAdapters.map(async (entry) => {
@@ -279,6 +288,18 @@ class ScannerTimeoutError extends Error {
     super(`${source} timed out after ${timeoutMs}ms`);
     this.name = 'ScannerTimeoutError';
   }
+}
+
+function getTargetKind(target: string): 'path' | 'url' {
+  try {
+    const parsed = new URL(target);
+    if (parsed.protocol === 'http:' || parsed.protocol === 'https:') {
+      return 'url';
+    }
+  } catch {
+    // Not a URL; treat as filesystem path.
+  }
+  return 'path';
 }
 
 export default ScannerOrchestrator;
