@@ -69,7 +69,7 @@ describe('MCP Server', () => {
   });
 
   describe('handleToolCall', () => {
-    it('exposes external enrichment only for MCP path scan and audit tools', () => {
+    it('exposes explicit enrichment, typosquat, and timeout options on MCP scan tools', () => {
       const scanTool = MCP_TOOLS.find((tool) => tool.name === 'attestlens_scan');
       const auditTool = MCP_TOOLS.find((tool) => tool.name === 'attestlens_audit');
       const urlTool = MCP_TOOLS.find((tool) => tool.name === 'attestlens_scan_url');
@@ -77,6 +77,12 @@ describe('MCP Server', () => {
       expect(scanTool?.inputSchema.properties).toHaveProperty('externalEnrichment');
       expect(auditTool?.inputSchema.properties).toHaveProperty('externalEnrichment');
       expect(urlTool?.inputSchema.properties).not.toHaveProperty('externalEnrichment');
+      expect(scanTool?.inputSchema.properties).toHaveProperty('includeTyposquat');
+      expect(auditTool?.inputSchema.properties).toHaveProperty('includeTyposquat');
+      expect(urlTool?.inputSchema.properties).not.toHaveProperty('includeTyposquat');
+      expect(scanTool?.inputSchema.properties).toHaveProperty('scannerTimeoutMs');
+      expect(auditTool?.inputSchema.properties).toHaveProperty('scannerTimeoutMs');
+      expect(urlTool?.inputSchema.properties).toHaveProperty('scannerTimeoutMs');
     });
 
     it('returns URL scan output keyed by targetUrl', async () => {
@@ -277,6 +283,36 @@ describe('MCP Server', () => {
         'https://api.osv.dev/v1/querybatch',
         expect.objectContaining({ method: 'POST' }),
       );
+    });
+
+    it('keeps MCP typosquat findings disabled by default', async () => {
+      await writeMcpPackageProject(tempDir, 'lodas');
+
+      const response = await handleToolCall('attestlens_scan', { path: tempDir });
+      const payload = JSON.parse(response.content[0].text);
+
+      expect(payload.findings.some((finding: { sourceRule: string }) => finding.sourceRule === 'VS-SC-004')).toBe(false);
+      expect(payload.errors.some((error: { code?: string }) => error.code === 'EXPERIMENTAL_TYPOSQUAT')).toBe(false);
+    });
+
+    it('enables MCP typosquat findings only when explicitly requested', async () => {
+      await writeMcpPackageProject(tempDir, 'lodas');
+
+      const response = await handleToolCall('attestlens_scan', {
+        path: tempDir,
+        includeTyposquat: true,
+      });
+      const payload = JSON.parse(response.content[0].text);
+
+      expect(payload.findings.some((finding: { sourceRule: string }) => finding.sourceRule === 'VS-SC-004')).toBe(true);
+      expect(payload.errors.some((error: { code?: string }) => error.code === 'EXPERIMENTAL_TYPOSQUAT')).toBe(true);
+    });
+
+    it('rejects invalid MCP scanner timeout values', async () => {
+      await expect(handleToolCall('attestlens_scan', {
+        path: tempDir,
+        scannerTimeoutMs: 0,
+      })).rejects.toThrow('scannerTimeoutMs must be a positive integer');
     });
 
     it('enables MCP audit external enrichment only when explicitly requested', async () => {

@@ -10,7 +10,7 @@ import crypto from 'node:crypto';
 import path from 'node:path';
 import fs from 'node:fs/promises';
 import type { AttestLensFinding, ScanSource } from '../schema/index.js';
-import type { ScannerAdapter, ScannerResult, ScannerError, McpScanResult } from './types.js';
+import type { ScannerAdapter, ScannerContext, ScannerResult, ScannerError, McpScanResult } from './types.js';
 
 export class McpScanAdapter implements ScannerAdapter {
   readonly name: ScanSource = 'mcp-scan';
@@ -41,7 +41,7 @@ export class McpScanAdapter implements ScannerAdapter {
     }
   }
 
-  async scan(targetPath: string): Promise<ScannerResult> {
+  async scan(targetPath: string, context?: ScannerContext): Promise<ScannerResult> {
     // Validate and resolve path
     const resolvedPath = path.resolve(targetPath);
     let stat;
@@ -73,15 +73,18 @@ export class McpScanAdapter implements ScannerAdapter {
     const findings: AttestLensFinding[] = [];
 
     try {
-      const { execFileSync } = await import('node:child_process');
+      const { execFile } = await import('node:child_process');
+      const { promisify } = await import('node:util');
+      const execFileAsync = promisify(execFile);
       
       // mcp-scan checks MCP server configurations for security issues
-      // Use execFileSync to prevent command injection
-      const result = execFileSync(
+      // Use execFile to prevent command injection
+      const { stdout } = await execFileAsync(
         'npx',
         ['mcp-scan', 'scan', '--path', safePath, '--format', 'json'],
-        { stdio: 'pipe' as const, timeout: 60000 }
-      ).toString();
+        { timeout: 60000, signal: context?.signal }
+      );
+      const result = stdout.toString();
 
       const scanResult: McpScanResult = JSON.parse(result);
       

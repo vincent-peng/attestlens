@@ -68,7 +68,9 @@ program
   .option('--no-guardvibe', 'Disable GuardVibe scanner')
   .option('--no-mcp-scan', 'Disable mcp-scan')
   .option('--no-supply-chain', 'Disable supply chain scanner')
+  .option('--include-typosquat', 'Enable experimental typosquatting detection (VS-SC-004)')
   .option('--external-enrichment', 'Enable external OSV.dev and npm registry dependency enrichment')
+  .option('--scanner-timeout <ms>', 'Per-scanner timeout in milliseconds')
   .option('--auto-update', 'Refresh the cached rule pack from ATTESTLENS_RULE_SOURCE before scanning')
   .action(async (targetInput: string, options: any) => {
     console.log(chalk.bold.cyan('\n🔍 AttestLens — Privacy Act Compliance Scanner\n'));
@@ -130,7 +132,9 @@ program
   .option('--no-guardvibe', 'Disable GuardVibe scanner')
   .option('--no-mcp-scan', 'Disable mcp-scan')
   .option('--no-supply-chain', 'Disable supply chain scanner')
+  .option('--include-typosquat', 'Enable experimental typosquatting detection (VS-SC-004)')
   .option('--external-enrichment', 'Enable external OSV.dev and npm registry dependency enrichment')
+  .option('--scanner-timeout <ms>', 'Per-scanner timeout in milliseconds')
   .option('--auto-update', 'Refresh the cached rule pack from ATTESTLENS_RULE_SOURCE before scanning')
   .action(async (targetInput: string, options: any) => {
     console.log(chalk.bold.cyan('\n🔍 AttestLens — Privacy Act Compliance Audit\n'));
@@ -230,7 +234,9 @@ program
   .option('--no-guardvibe', 'Disable GuardVibe scanner')
   .option('--no-mcp-scan', 'Disable mcp-scan')
   .option('--no-supply-chain', 'Disable supply chain scanner')
+  .option('--include-typosquat', 'Enable experimental typosquatting detection (VS-SC-004)')
   .option('--external-enrichment', 'Enable external OSV.dev and npm registry dependency enrichment')
+  .option('--scanner-timeout <ms>', 'Per-scanner timeout in milliseconds')
   .option('--auto-update', 'Refresh the cached rule pack from ATTESTLENS_RULE_SOURCE before scanning')
   .action(async (targetInput: string | undefined, options: any) => {
     console.log(chalk.bold.cyan('\n📝 AttestLens — Privacy Act Attestation\n'));
@@ -410,12 +416,30 @@ function formatRuleFreshnessForCli(ruleFreshness: RuleFreshnessMetadata): string
 
 export function buildScannerOrchestratorOptions(options: any): ScannerOrchestratorOptions {
   const externalEnrichment = options.externalEnrichment === true;
+  const scannerTimeoutMs = parseScannerTimeoutOption(options.scannerTimeout);
   return {
+    ...(scannerTimeoutMs !== undefined ? { adapterTimeoutMs: scannerTimeoutMs } : {}),
     supplyChain: {
+      typosquat: { enabled: options.includeTyposquat === true },
       osv: { enabled: externalEnrichment },
       registry: { enabled: externalEnrichment },
     },
   };
+}
+
+function parseScannerTimeoutOption(rawValue: unknown): number | undefined {
+  if (rawValue === undefined || rawValue === null || rawValue === '') {
+    return undefined;
+  }
+
+  if (typeof rawValue === 'string' && !/^\d+$/.test(rawValue.trim())) {
+    throw new Error(`Unsupported scanner timeout: ${rawValue}. Provide a positive integer number of milliseconds.`);
+  }
+  const value = typeof rawValue === 'number' ? rawValue : Number.parseInt(String(rawValue), 10);
+  if (!Number.isFinite(value) || !Number.isInteger(value) || value <= 0) {
+    throw new Error(`Unsupported scanner timeout: ${rawValue}. Provide a positive integer number of milliseconds.`);
+  }
+  return value;
 }
 
 function createOrchestrator(targetKind: CliTarget['kind'], options: any): ScannerOrchestrator {

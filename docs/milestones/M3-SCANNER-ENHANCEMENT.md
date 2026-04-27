@@ -1,7 +1,7 @@
 # M3 — Scanner Enhancement: Deep Research & Implementation Plan
 
 **Created:** 2026-04-26
-**Status:** In progress — M3.1/M3.2 implemented; M3.3 next
+**Status:** In progress — M3.1–M3.4 implemented; M3.5 next after validation
 **Predecessor:** M2 (Compliance Moat) — closed; M2.5 (Rule Freshness) — foundation shipped
 **Goal:** Systematically enhance the core scanner layer to close competitive gaps and differentiate on compliance-relevant detection
 

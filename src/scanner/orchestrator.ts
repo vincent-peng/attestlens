@@ -5,7 +5,14 @@
  */
 
 import type { AttestLensFinding, ScanSource } from '../schema/index.js';
-import type { ScannerResult, ScannerAdapter, ScannerError, ScannerRegistryEntry, OrchestratedScanResult } from './types.js';
+import type {
+  ScannerResult,
+  ScannerAdapter,
+  ScannerError,
+  ScannerRegistryEntry,
+  OrchestratedScanResult,
+  ScannerProgressEvent,
+} from './types.js';
 import { GuardVibeAdapter } from './guardvibe.js';
 import { McpScanAdapter } from './mcp-scan.js';
 import { SupplyChainAdapter, type SupplyChainAdapterOptions } from './supply-chain.js';
@@ -15,14 +22,20 @@ import { loadRulePack, type RulePackLoadOptions } from './rules/index.js';
 export interface ScannerOrchestratorOptions {
   rulePack?: RulePackLoadOptions;
   supplyChain?: SupplyChainAdapterOptions;
+  adapterTimeoutMs?: number | Partial<Record<ScanSource, number>>;
+  onProgress?: (event: ScannerProgressEvent) => void;
 }
 
 export class ScannerOrchestrator {
   private registry: Map<ScanSource, ScannerRegistryEntry> = new Map();
   private rulePackOptions: RulePackLoadOptions;
+  private adapterTimeoutMs?: number | Partial<Record<ScanSource, number>>;
+  private onProgress?: (event: ScannerProgressEvent) => void;
 
   constructor(options: ScannerOrchestratorOptions = {}) {
     this.rulePackOptions = options.rulePack || {};
+    this.adapterTimeoutMs = options.adapterTimeoutMs;
+    this.onProgress = options.onProgress;
     // Register default scanners
     this.register(new GuardVibeAdapter());
     this.register(new McpScanAdapter());
@@ -58,28 +71,100 @@ export class ScannerOrchestrator {
 
     // Run all enabled scanners in parallel
     const scanPromises = enabledAdapters.map(async (entry) => {
+      const source = entry.adapter.name;
+      const adapterStartTime = Date.now();
+      this.emitProgress({
+        source,
+        phase: 'start',
+        message: `Starting ${source}`,
+      });
+
       const available = await entry.adapter.isAvailable();
       if (!available) {
-        allErrors.push({
-          source: entry.adapter.name,
+        const error = {
+          source,
           message: `${entry.adapter.name} is not available. Skipping.`,
           code: 'SCANNER_UNAVAILABLE',
           recoverable: true,
+        };
+        allErrors.push(error);
+        this.emitProgress({
+          source,
+          phase: 'skip',
+          message: error.message,
+          elapsedMs: Date.now() - adapterStartTime,
         });
         return null;
       }
 
+      const timeoutMs = this.getAdapterTimeoutMs(source);
+      const controller = new AbortController();
+      let timeout: ReturnType<typeof setTimeout> | undefined;
+
       try {
-        const result = await entry.adapter.scan(targetPath, { rulePack: rulePack.manifest });
+        const timeoutPromise = new Promise<never>((_, reject) => {
+          timeout = setTimeout(() => {
+            reject(new ScannerTimeoutError(source, timeoutMs));
+            controller.abort();
+          }, timeoutMs);
+        });
+        const result = await Promise.race([
+          entry.adapter.scan(targetPath, {
+            rulePack: rulePack.manifest,
+            signal: controller.signal,
+            onProgress: (event) => this.emitProgress(event),
+          }),
+          timeoutPromise,
+        ]);
+        if (timeout) clearTimeout(timeout);
         entry.lastRun = new Date().toISOString();
         entry.lastResult = result;
+        this.emitProgress({
+          source,
+          phase: 'complete',
+          message: `${source} complete`,
+          elapsedMs: Date.now() - adapterStartTime,
+        });
+        for (const error of result.errors) {
+          this.emitProgress({
+            source,
+            phase: 'warning',
+            message: error.message,
+            elapsedMs: Date.now() - adapterStartTime,
+          });
+        }
         return result;
       } catch (error: any) {
-        allErrors.push({
-          source: entry.adapter.name,
+        if (timeout) clearTimeout(timeout);
+        if (error instanceof ScannerTimeoutError) {
+          const scannerError = {
+            source,
+            message: `${source} timed out after ${timeoutMs}ms`,
+            code: 'SCANNER_TIMEOUT',
+            recoverable: true,
+          };
+          allErrors.push(scannerError);
+          this.emitProgress({
+            source,
+            phase: 'timeout',
+            message: scannerError.message,
+            elapsedMs: Date.now() - adapterStartTime,
+          });
+          return null;
+        }
+
+        const scannerError = {
+          source,
           message: `Scanner error: ${error.message}`,
           code: 'SCANNER_ERROR',
           recoverable: true,
+        };
+        allErrors.push(scannerError);
+        this.emitProgress({
+          source,
+          phase: 'warning',
+          message: scannerError.message,
+          elapsedMs: Date.now() - adapterStartTime,
         });
         return null;
       }
@@ -158,6 +243,41 @@ export class ScannerOrchestrator {
 
   getRegistry(): ScannerRegistryEntry[] {
     return Array.from(this.registry.values());
+  }
+
+  private getAdapterTimeoutMs(source: ScanSource): number {
+    if (typeof this.adapterTimeoutMs === 'number') {
+      return this.adapterTimeoutMs;
+    }
+    if (this.adapterTimeoutMs?.[source]) {
+      return this.adapterTimeoutMs[source]!;
+    }
+    return DEFAULT_ADAPTER_TIMEOUT_MS[source] ?? 60_000;
+  }
+
+  private emitProgress(event: ScannerProgressEvent): void {
+    this.onProgress?.(event);
+  }
+}
+
+const DEFAULT_ADAPTER_TIMEOUT_MS: Record<ScanSource, number> = {
+  guardvibe: 120_000,
+  'mcp-scan': 60_000,
+  'supply-chain': 60_000,
+  'url-scan': 60_000,
+  vibesafe: 60_000,
+  'vibe-check': 60_000,
+  manual: 60_000,
+  questionnaire: 60_000,
+};
+
+class ScannerTimeoutError extends Error {
+  constructor(
+    readonly source: ScanSource,
+    readonly timeoutMs: number,
+  ) {
+    super(`${source} timed out after ${timeoutMs}ms`);
+    this.name = 'ScannerTimeoutError';
   }
 }
 

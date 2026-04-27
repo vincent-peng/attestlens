@@ -68,19 +68,22 @@ export class GuardVibeAdapter implements ScannerAdapter {
     const findings: AttestLensFinding[] = [];
 
     try {
-      const { execFileSync } = await import('node:child_process');
+      const { execFile } = await import('node:child_process');
+      const { promisify } = await import('node:util');
+      const execFileAsync = promisify(execFile);
       
       // Run GuardVibe full_audit tool via CLI
-      // Use execFileSync to prevent command injection (args are not shell-interpolated)
-      const result = execFileSync(
+      // Use execFile to prevent command injection (args are not shell-interpolated)
+      const { stdout } = await execFileAsync(
         this.binaryPath,
         ['@guardvibe/cli', 'full_audit', '--path', safePath, '--format', 'json'],
         { 
-          stdio: 'pipe' as const, 
           timeout: 120000,
           cwd: safePath,
+          signal: context?.signal,
         }
-      ).toString();
+      );
+      const result = stdout.toString();
 
       const auditResult: GuardVibeAuditResult = JSON.parse(result);
       

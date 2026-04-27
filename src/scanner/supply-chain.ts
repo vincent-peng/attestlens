@@ -18,7 +18,7 @@ import crypto from 'node:crypto';
 import path from 'node:path';
 import fs from 'node:fs/promises';
 import type { AttestLensFinding, ScanSource, Severity } from '../schema/index.js';
-import type { ScannerAdapter, ScannerResult, ScannerError } from './types.js';
+import type { ScannerAdapter, ScannerContext, ScannerResult, ScannerError } from './types.js';
 import {
   fetchJsonWithLimit,
   scanOsvVulnerabilities,
@@ -110,7 +110,12 @@ function levenshteinDistance(a: string, b: string): number {
   return matrix[b.length][a.length];
 }
 
-function isTyposquat(depName: string): string | null {
+interface TyposquatMatch {
+  target: string;
+  distance: number;
+}
+
+function isTyposquat(depName: string): TyposquatMatch | null {
   // Scoped-package namespace confusion is a separate signal; comparing
   // @org/package names to top unscoped packages created noisy false positives.
   if (depName.startsWith('@')) {
@@ -135,7 +140,7 @@ function isTyposquat(depName: string): string | null {
     if (Math.abs(name.length - popular.length) > TYPOSQUAT_DISTANCE) continue;
     const dist = levenshteinDistance(name, popular);
     if (dist > 0 && dist <= TYPOSQUAT_DISTANCE) {
-      return popular;
+      return { target: popular, distance: dist };
     }
   }
   return null;
@@ -172,6 +177,9 @@ interface PackageMetadata {
 type NpmAuditRunner = (safePath: string) => Promise<string | Record<string, any>>;
 
 export interface SupplyChainAdapterOptions {
+  typosquat?: {
+    enabled?: boolean;
+  };
   osv?: {
     enabled?: boolean;
     fetchImpl?: FetchLike;
@@ -375,7 +383,7 @@ export class SupplyChainAdapter implements ScannerAdapter {
     return this.version;
   }
 
-  async scan(targetPath: string): Promise<ScannerResult> {
+  async scan(targetPath: string, context?: ScannerContext): Promise<ScannerResult> {
     // Validate and resolve path
     const resolvedPath = path.resolve(targetPath);
     let pathStat;
@@ -406,6 +414,7 @@ export class SupplyChainAdapter implements ScannerAdapter {
     const errors: ScannerError[] = [];
     const findings: AttestLensFinding[] = [];
     const safePath = resolvedPath;
+    let emittedExperimentalTyposquat = false;
 
     // ─── 1. Parse package.json ────────────────────────────────────────────
     let pkgJson: PackageJson | null = null;
@@ -473,18 +482,19 @@ export class SupplyChainAdapter implements ScannerAdapter {
       // Will be implemented with npm registry API integration
       
       // VS-SC-004: Typosquatting
-      const typosquatTarget = isTyposquat(depName);
-      if (typosquatTarget) {
+      const typosquatMatch = this.options.typosquat?.enabled === true ? isTyposquat(depName) : null;
+      if (typosquatMatch) {
         findings.push(this.makeFinding(
           'VS-SC-004',
           'critical',
           'Security',
-          `Potential typosquat: "${depName}" resembles "${typosquatTarget}"`,
-          `Dependency "${depName}" appears to be a typosquat of the popular package "${typosquatTarget}". Typosquatting is a common supply chain attack vector where malicious packages mimic popular ones to trick developers into installing them.`,
-          `Verify this is the correct package. If intentional, add to an allowlist. Consider replacing with "${typosquatTarget}" if this was unintentional.`,
+          `Potential typosquat: "${depName}" resembles "${typosquatMatch.target}"`,
+          `Dependency "${depName}" appears to be a typosquat of the popular package "${typosquatMatch.target}". Typosquatting is a common supply chain attack vector where malicious packages mimic popular ones to trick developers into installing them.`,
+          `Verify this is the correct package. If intentional, add to an allowlist. Consider replacing with "${typosquatMatch.target}" if this was unintentional.`,
           safePath,
-          { typosquatTarget, packageName: depName },
+          { typosquatTarget: typosquatMatch.target, typosquatDistance: typosquatMatch.distance, packageName: depName },
         ));
+        emittedExperimentalTyposquat = true;
       }
       
       // VS-SC-007: No repository field
@@ -502,8 +512,17 @@ export class SupplyChainAdapter implements ScannerAdapter {
       }
     }
 
+    if (emittedExperimentalTyposquat) {
+      errors.push({
+        source: this.name,
+        code: 'EXPERIMENTAL_TYPOSQUAT',
+        message: 'Typosquatting detection is experimental and disabled by default. Validate VS-SC-004 findings manually or with a dedicated package-intelligence tool.',
+        recoverable: true,
+      });
+    }
+
     // ─── 4b. Check direct production dependency provenance ────────────────
-    await this.checkDependencyProvenance(pkg, lockPackages, safePath, findings, errors);
+    await this.checkDependencyProvenance(pkg, lockPackages, safePath, findings, errors, context);
 
     // ─── 5. Check for manifest-only changes ─────────────────────────────
     // Compare package.json dependencies against actual imports in source code
@@ -529,10 +548,10 @@ export class SupplyChainAdapter implements ScannerAdapter {
     }
 
     // ─── 7. Run npm audit ────────────────────────────────────────────────
-    await this.runNpmAudit(safePath, findings, errors);
+    await this.runNpmAudit(safePath, findings, errors, context);
 
     // ─── 7b. Enrich known vulnerabilities with OSV.dev ───────────────────
-    await this.runOsvScan(pkg, lockPackages, safePath, findings, errors);
+    await this.runOsvScan(pkg, lockPackages, safePath, findings, errors, context);
 
     // ─── 8. Check lockfile integrity ─────────────────────────────────────
     // (Already handled by VS-SC-005 above for missing lockfile)
@@ -616,12 +635,13 @@ export class SupplyChainAdapter implements ScannerAdapter {
     safePath: string,
     findings: AttestLensFinding[],
     errors: ScannerError[],
+    context?: ScannerContext,
   ): Promise<void> {
     const productionDeps = pkgJson.dependencies || {};
     const metadataCache = new Map<string, PackageMetadata | null>();
 
     for (const [depName, requestedVersion] of Object.entries(productionDeps)) {
-      const metadataResult = await this.getDependencyMetadata(depName, requestedVersion, lockPackages, safePath, metadataCache);
+      const metadataResult = await this.getDependencyMetadata(depName, requestedVersion, lockPackages, safePath, metadataCache, context);
 
       if (metadataResult.error) {
         errors.push(metadataResult.error);
@@ -658,6 +678,7 @@ export class SupplyChainAdapter implements ScannerAdapter {
     lockPackages: Record<string, LockfileEntry>,
     safePath: string,
     metadataCache: Map<string, PackageMetadata | null>,
+    context?: ScannerContext,
   ): Promise<{ metadata: PackageMetadata | null; source?: 'local' | 'registry'; error?: ScannerError }> {
     const resolvedVersion = resolveDependencyVersion(depName, requestedVersion, lockPackages);
     const metadataCacheKey = `${depName}@${resolvedVersion ?? 'latest'}`;
@@ -694,6 +715,7 @@ export class SupplyChainAdapter implements ScannerAdapter {
         { method: 'GET' },
         this.options.registry?.timeoutMs ?? NPM_REGISTRY_TIMEOUT_MS,
         this.options.registry?.maxBytes ?? NPM_REGISTRY_MAX_RESPONSE_BYTES,
+        context?.signal,
       );
       metadataCache.set(metadataCacheKey, metadata);
       return { metadata, source: 'registry' };
@@ -717,6 +739,7 @@ export class SupplyChainAdapter implements ScannerAdapter {
     safePath: string,
     findings: AttestLensFinding[],
     errors: ScannerError[],
+    context?: ScannerContext,
   ): Promise<void> {
     const osvEnabled = this.options.osv?.enabled === true;
     if (!osvEnabled) return;
@@ -732,6 +755,7 @@ export class SupplyChainAdapter implements ScannerAdapter {
         fetchImpl: this.options.osv?.fetchImpl,
         timeoutMs: this.options.osv?.timeoutMs ?? OSV_FETCH_TIMEOUT_MS,
         maxBytes: this.options.osv?.maxBytes ?? OSV_MAX_RESPONSE_BYTES,
+        signal: context?.signal,
       },
     );
 
@@ -900,6 +924,7 @@ export class SupplyChainAdapter implements ScannerAdapter {
     safePath: string,
     findings: AttestLensFinding[],
     errors: ScannerError[],
+    context?: ScannerContext,
   ): Promise<void> {
     if (this.options.audit?.enabled === false) {
       return;
@@ -918,7 +943,7 @@ export class SupplyChainAdapter implements ScannerAdapter {
     }
 
     try {
-      const audit = await this.readNpmAudit(safePath);
+      const audit = await this.readNpmAudit(safePath, context?.signal);
       
       // Process vulnerabilities
       const vulns = audit.vulnerabilities || {};
@@ -960,7 +985,7 @@ export class SupplyChainAdapter implements ScannerAdapter {
     }
   }
 
-  private async readNpmAudit(safePath: string): Promise<Record<string, any>> {
+  private async readNpmAudit(safePath: string, signal?: AbortSignal): Promise<Record<string, any>> {
     if (this.options.audit?.run) {
       try {
         const result = await this.options.audit.run(safePath);
@@ -977,6 +1002,8 @@ export class SupplyChainAdapter implements ScannerAdapter {
     const execFileAsync = promisify(execFileCb);
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 30000);
+    const abort = () => controller.abort();
+    signal?.addEventListener('abort', abort, { once: true });
 
     try {
       const { stdout } = await execFileAsync('npm', ['audit', '--json'], {
@@ -991,6 +1018,7 @@ export class SupplyChainAdapter implements ScannerAdapter {
       throw error;
     } finally {
       clearTimeout(timeout);
+      signal?.removeEventListener('abort', abort);
     }
   }
 

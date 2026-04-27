@@ -4,6 +4,7 @@ import path from 'node:path';
 
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { ScannerOrchestrator } from './orchestrator.js';
+import type { ScannerAdapter, ScannerContext, ScannerProgressEvent, ScannerResult } from './types.js';
 
 describe('ScannerOrchestrator', { timeout: 20000 }, () => {
   let scanResult: Awaited<ReturnType<ScannerOrchestrator['scan']>>;
@@ -86,6 +87,35 @@ describe('ScannerOrchestrator', { timeout: 20000 }, () => {
       await fs.rm(projectDir, { recursive: true, force: true });
     }
   });
+
+  it('returns completed adapter results when another adapter times out', async () => {
+    const progressEvents: ScannerProgressEvent[] = [];
+    const orchestrator = new ScannerOrchestrator({
+      adapterTimeoutMs: {
+        manual: 100,
+        questionnaire: 10,
+      },
+      onProgress: (event) => progressEvents.push(event),
+    });
+    orchestrator.register(makeFakeAdapter('manual', 0));
+    orchestrator.register(makeFakeAdapter('questionnaire', 100));
+
+    const result = await orchestrator.scan(fixtureDir, ['manual', 'questionnaire']);
+
+    expect(result.results.map(scan => scan.source)).toEqual(['manual']);
+    expect(result.errors).toContainEqual(expect.objectContaining({
+      source: 'questionnaire',
+      code: 'SCANNER_TIMEOUT',
+      recoverable: true,
+    }));
+    expect(result.findings).toHaveLength(1);
+    expect(progressEvents.map(event => `${event.source}:${event.phase}`)).toEqual([
+      'manual:start',
+      'questionnaire:start',
+      'manual:complete',
+      'questionnaire:timeout',
+    ]);
+  });
 });
 
 async function createVulnerableAppFixture(): Promise<string> {
@@ -111,6 +141,55 @@ async function createVulnerableAppFixture(): Promise<string> {
   );
 
   return fixtureDir;
+}
+
+function makeFakeAdapter(source: 'manual' | 'questionnaire', delayMs: number): ScannerAdapter {
+  return {
+    name: source,
+    version: 'test',
+    async isAvailable() {
+      return true;
+    },
+    async getVersion() {
+      return 'test';
+    },
+    async scan(_targetPath: string, context?: ScannerContext): Promise<ScannerResult> {
+      await new Promise<void>((resolve) => {
+        const timeout = setTimeout(resolve, delayMs);
+        context?.signal?.addEventListener('abort', () => {
+          clearTimeout(timeout);
+          resolve();
+        }, { once: true });
+      });
+      if (context?.signal?.aborted) {
+        await new Promise(resolve => setTimeout(resolve, delayMs));
+      }
+      return {
+        source,
+        version: 'test',
+        timestamp: new Date().toISOString(),
+        findings: source === 'manual'
+          ? [{
+            id: 'fake-finding',
+            source: 'manual',
+            sourceRule: 'FAKE-001',
+            severity: 'low',
+            category: 'Test',
+            title: 'Fake finding',
+            description: 'Fake finding',
+            appMappings: [],
+            evidence: {
+              timestamp: new Date().toISOString(),
+              scannerVersion: 'test',
+              rawOutput: {},
+            },
+          }]
+          : [],
+        errors: [],
+        durationMs: delayMs,
+      };
+    },
+  };
 }
 
 async function createNoProvenanceDependencyFixture(): Promise<string> {

@@ -1,9 +1,11 @@
 # AttestLens — Status
 
-**Last Updated:** 2026-04-26
+**Last Updated:** 2026-04-27
 **Purpose:** Near-term source of truth for product status, current milestone, and next actions.
 
-**Current focus:** M3 scanner enhancement is underway. M3.1 (OSV.dev) and M3.2 (dependency provenance) are implemented; next implementation is M3.3 (dynamic confidence) → M3.4 (adapter timeouts/progress).
+**Current focus:** M3 scanner enhancement is underway. M3.1–M3.4 are implemented; next implementation is M3.5 behavioral supply-chain analysis after design-partner/report validation stays stable.
+
+**Sellable roadmap:** See `docs/SELLABLE-TODOS.md` for the prioritized path to a sellable product. Key additions beyond M3: Privacy Act 2026 reform module (P1.1), SMB compliance tier (P1.2), NDB breach penalty calculator (P1.5). Market research at `docs/COMPETITIVE-MARKET-RESEARCH.md`.
 
 ---
 
@@ -78,6 +80,9 @@ In practice, that means:
   - OSV findings emitted as `supply-chain` findings with dynamic `VS-OSV-<OSV_ID>` rule IDs
   - direct production dependency provenance finding `VS-SC-009` for packages without repository or homepage metadata
   - local `node_modules` provenance checks by default, with opt-in npm registry metadata fallback via `--external-enrichment`
+  - `VS-SC-004` typosquat findings disabled by default and available only with explicit `--include-typosquat` / MCP opt-in
+  - dynamic APP mapping confidence for typosquat edit distance, auth-sensitive URL headers, template env files, and OSV/npm audit corroboration
+  - per-adapter scanner timeout and progress callback support, with CLI/MCP timeout overrides and recoverable `SCANNER_TIMEOUT` warnings
 
 ### In Progress
 
@@ -174,8 +179,8 @@ Full spec: `docs/milestones/M3-SCANNER-ENHANCEMENT.md`
 
 - ✅ M3.1 — OSV.dev vulnerability integration (`--external-enrichment`)
 - ✅ M3.2 — Dependency provenance detection (`VS-SC-009`; registry fallback is opt-in)
-- M3.3 — Dynamic confidence scoring (1 day)
-- M3.4 — Per-adapter timeout + progress reporting (2 days)
+- ✅ M3.3 — Dynamic confidence scoring
+- ✅ M3.4 — Per-adapter timeout + progress reporting
 - M3.5 — Behavioral supply-chain analysis (1 week)
 - M3.6 — Git history secret scanning via gitleaks (3 days)
 - M3.7 — SAST lite: compliance-critical patterns (1 week)
@@ -209,8 +214,8 @@ These are the default operating rules for the project.
 
 ### Next 2 Weeks
 
-1. Implement M3.3 (dynamic confidence) and M3.4 (per-adapter timeouts) — production hardening.
-2. Keep M3.1/M3.2 regression coverage green while scanning real design-partner projects.
+1. Keep M3.1–M3.4 regression coverage green while scanning real design-partner projects.
+2. Validate the refreshed report shape with design partners before starting M3.5.
 3. Continue design-partner outreach with M2 sample reports.
 4. Keep `npm test`, `npm run lint`, and `npm run build` green.
 
@@ -221,7 +226,9 @@ These are the default operating rules for the project.
 - broad growth automation
 - additional compliance frameworks beyond APP/NDB
 - SaaS dashboard before M3 scanner enhancements ship
-- behavioral analysis before M3.3 dynamic confidence and M3.4 adapter timeouts
+- treating behavioral analysis as sellable until design-partner report feedback is stable
+- typosquatting as a default headline signal (use explicit `--include-typosquat`; see `SELLABLE-TODOS.md`)
+- competing on supply-chain breadth (Socket/Dependency Guardian win that game)
 
 ---
 

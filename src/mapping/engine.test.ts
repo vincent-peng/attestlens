@@ -143,6 +143,49 @@ describe('mapFindingToAPP', () => {
     expect(mappings.some(m => m.principle === 'APP_11' && m.status === 'fail')).toBe(true);
   });
 
+  it('should boost missing security header confidence on auth-sensitive URLs', () => {
+    const neutral = makeFinding({
+      source: 'url-scan',
+      sourceRule: 'AL-URL-001',
+      severity: 'high',
+      category: 'Security Headers',
+      title: 'Missing Content-Security-Policy Header',
+      url: 'https://example.com/about',
+    });
+    const auth = makeFinding({
+      ...neutral,
+      id: 'FIND-AUTH',
+      url: 'https://example.com/login',
+      evidence: {
+        timestamp: new Date().toISOString(),
+        scannerVersion: '0.2.0',
+        rawOutput: { url: 'https://example.com/login' },
+      },
+    });
+
+    const neutralConfidence = mapFindingToAPP(neutral).find(m => m.principle === 'APP_11')!.confidence;
+    const authConfidence = mapFindingToAPP(auth).find(m => m.principle === 'APP_11')!.confidence;
+    expect(authConfidence).toBeGreaterThan(neutralConfidence);
+  });
+
+  it('should reduce confidence for secrets in template env files', () => {
+    const realEnv = makeFinding({
+      sourceRule: 'VS-ENV',
+      severity: 'critical',
+      title: '.env exposed',
+      file: '.env',
+    });
+    const templateEnv = makeFinding({
+      ...realEnv,
+      id: 'FIND-TEMPLATE',
+      file: '.env.example',
+    });
+
+    const realConfidence = mapFindingToAPP(realEnv).find(m => m.principle === 'APP_11')!.confidence;
+    const templateConfidence = mapFindingToAPP(templateEnv).find(m => m.principle === 'APP_11')!.confidence;
+    expect(templateConfidence).toBeLessThan(realConfidence);
+  });
+
   it('should map unmapped high-severity Security findings to APP_11 as unknown', () => {
     const finding = makeFinding({
       sourceRule: 'CUSTOM-RULE-999',
@@ -204,6 +247,35 @@ describe('mapFindingToAPP', () => {
     expect(mappings.some(m => m.principle === 'APP_11' && m.status === 'fail')).toBe(true);
     expect(mappings.some(m => m.principle === 'APP_8' && m.status === 'unknown')).toBe(true);
     expect(mappings.some(m => m.principle === 'NDB' && m.status === 'unknown')).toBe(true);
+    expect(Math.max(...mappings.map(m => m.confidence))).toBeGreaterThan(0.9);
+  });
+
+  it('should lower typosquat confidence as edit distance increases', () => {
+    const distanceOne = makeFinding({
+      source: 'supply-chain',
+      sourceRule: 'VS-SC-004',
+      severity: 'critical',
+      category: 'Security',
+      title: 'Potential typosquat: "lodas" resembles "lodash"',
+      evidence: {
+        timestamp: new Date().toISOString(),
+        scannerVersion: '0.2.0',
+        rawOutput: { packageName: 'lodas', typosquatTarget: 'lodash', typosquatDistance: 1 },
+      },
+    });
+    const distanceTwo = makeFinding({
+      ...distanceOne,
+      id: 'FIND-DIST-2',
+      evidence: {
+        timestamp: new Date().toISOString(),
+        scannerVersion: '0.2.0',
+        rawOutput: { packageName: 'loash', typosquatTarget: 'lodash', typosquatDistance: 2 },
+      },
+    });
+
+    const confidenceOne = mapFindingToAPP(distanceOne).find(m => m.principle === 'APP_11')!.confidence;
+    const confidenceTwo = mapFindingToAPP(distanceTwo).find(m => m.principle === 'APP_11')!.confidence;
+    expect(confidenceOne).toBeGreaterThan(confidenceTwo);
   });
 
   it('should map missing dependency provenance to APP_11 and APP_6', () => {

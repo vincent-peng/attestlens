@@ -56,6 +56,8 @@ attestlens scan ./my-project --auto-update      # Refresh from ATTESTLENS_RULE_S
 attestlens scan ./my-project --no-guardvibe   # Skip GuardVibe scanner
 attestlens scan ./my-project --no-mcp-scan     # Skip MCP config scanner
 attestlens scan ./my-project --external-enrichment
+attestlens scan ./my-project --include-typosquat
+attestlens scan ./my-project --scanner-timeout 60000
 ```
 
 Output: List of findings with severity, rule ID, file location, and affected APP principles.
@@ -79,6 +81,8 @@ attestlens audit ./my-project -n "MyApp" -o ./reports --strict
 | `--strict` | Treat UNKNOWN controls as FAIL | `false` |
 | `--auto-update` | Refresh from `ATTESTLENS_RULE_SOURCE` before scanning when configured | `false` |
 | `--external-enrichment` | Enable OSV.dev vulnerability lookup and npm registry metadata fallback. Sends package names and exact versions to external services. | `false` |
+| `--include-typosquat` | Enable experimental `VS-SC-004` typosquat detection. Disabled by default due false-positive risk. | `false` |
+| `--scanner-timeout <ms>` | Override per-scanner timeout in milliseconds. Timed-out scanners return recoverable warnings and preserve completed adapter results. | Adapter default |
 | `--no-guardvibe` | Disable GuardVibe scanner | — |
 | `--no-mcp-scan` | Disable MCP config scanner | — |
 | `--no-supply-chain` | Disable supply chain scanner | — |
@@ -205,7 +209,7 @@ Detects supply chain risks in npm projects — designed to catch attacks like th
 |---------|----------|----------------|
 | `VS-SC-001` | Critical | Install scripts in dependencies (postinstall, preinstall) |
 | `VS-SC-002` | High | Unused production dependencies (manifest-only injection) |
-| `VS-SC-004` | Critical | Typosquatting against top npm packages |
+| `VS-SC-004` | Critical | Typosquatting against top npm packages (experimental, opt-in via `--include-typosquat`) |
 | `VS-SC-005` | Critical | Missing or invalid lockfile |
 | `VS-SC-006` | High | Known vulnerabilities via `npm audit` |
 | `VS-OSV-*` | Variable | Known vulnerabilities via opt-in OSV.dev enrichment |
@@ -213,7 +217,7 @@ Detects supply chain risks in npm projects — designed to catch attacks like th
 | `VS-SC-008` | Critical | Install scripts + no source repo (critical combo) |
 | `VS-SC-009` | Medium | Direct production deps with no repository or homepage metadata |
 
-Local `node_modules/<dep>/package.json` provenance checks run by default. OSV.dev vulnerability enrichment and npm registry metadata fallback require `--external-enrichment`; enabling it discloses dependency names and exact resolved versions to OSV.dev and npmjs.org.
+Local `node_modules/<dep>/package.json` provenance checks run by default. OSV.dev vulnerability enrichment and npm registry metadata fallback require `--external-enrichment`; enabling it discloses dependency names and exact resolved versions to OSV.dev and npmjs.org. Typosquatting detection is available only with `--include-typosquat` and emits an experimental warning.
 
 The Axios attack would have been caught on **5-7 of 7 indicators** (manifest-only dependency, install scripts, pre-staged package, typosquatting, no repo, and the critical combo). See [`docs/SUPPLY-CHAIN-DETECTION.md`](docs/SUPPLY-CHAIN-DETECTION.md) for full analysis.
 

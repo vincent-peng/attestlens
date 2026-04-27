@@ -178,12 +178,19 @@ describe('CLI external enrichment option', () => {
     expect(scanHelp.stdout).toContain('--external-enrichment');
     expect(auditHelp.stdout).toContain('--external-enrichment');
     expect(attestHelp.stdout).toContain('--external-enrichment');
+    expect(scanHelp.stdout).toContain('--include-typosquat');
+    expect(auditHelp.stdout).toContain('--include-typosquat');
+    expect(attestHelp.stdout).toContain('--include-typosquat');
+    expect(scanHelp.stdout).toContain('--scanner-timeout');
+    expect(auditHelp.stdout).toContain('--scanner-timeout');
+    expect(attestHelp.stdout).toContain('--scanner-timeout');
   });
 
   it('keeps external enrichment disabled by default in shared scanner options', () => {
     for (const options of [{}, { externalEnrichment: false }]) {
       expect(buildScannerOrchestratorOptions(options)).toEqual({
         supplyChain: {
+          typosquat: { enabled: false },
           osv: { enabled: false },
           registry: { enabled: false },
         },
@@ -194,10 +201,32 @@ describe('CLI external enrichment option', () => {
   it('enables OSV and registry enrichment only when explicitly requested', () => {
     expect(buildScannerOrchestratorOptions({ externalEnrichment: true })).toEqual({
       supplyChain: {
+        typosquat: { enabled: false },
         osv: { enabled: true },
         registry: { enabled: true },
       },
     });
+  });
+
+  it('enables typosquat and scanner timeout only when explicitly requested', () => {
+    expect(buildScannerOrchestratorOptions({
+      includeTyposquat: true,
+      scannerTimeout: '1234',
+    })).toEqual({
+      adapterTimeoutMs: 1234,
+      supplyChain: {
+        typosquat: { enabled: true },
+        osv: { enabled: false },
+        registry: { enabled: false },
+      },
+    });
+  });
+
+  it('rejects invalid scanner timeout values', () => {
+    expect(() => buildScannerOrchestratorOptions({ scannerTimeout: 'abc' }))
+      .toThrow('Unsupported scanner timeout');
+    expect(() => buildScannerOrchestratorOptions({ scannerTimeout: '0' }))
+      .toThrow('Unsupported scanner timeout');
   });
 
   it('does not call OSV or npm registry during default attest scans', async () => {

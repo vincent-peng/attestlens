@@ -68,7 +68,7 @@ describe('SupplyChainAdapter', { timeout: 20000 }, () => {
     await fs.rm(missingLockDir, { recursive: true }).catch(() => {});
   });
 
-  it('should detect typosquatting', async () => {
+  it('should suppress typosquatting by default', async () => {
     const typosquatDir = await fs.mkdtemp(path.join(os.tmpdir(), 'attestlens-typo-'));
     
     // Package with a typosquat dependency
@@ -82,10 +82,42 @@ describe('SupplyChainAdapter', { timeout: 20000 }, () => {
 
     const result = await adapter.scan(typosquatDir);
     const typoFindings = result.findings.filter(f => f.sourceRule === 'VS-SC-004');
+    expect(typoFindings).toHaveLength(0);
+    expect(result.errors.some(error => error.code === 'EXPERIMENTAL_TYPOSQUAT')).toBe(false);
+
+    await fs.rm(typosquatDir, { recursive: true }).catch(() => {});
+  });
+
+  it('should detect typosquatting when explicitly enabled', async () => {
+    const typosquatDir = await fs.mkdtemp(path.join(os.tmpdir(), 'attestlens-typo-'));
+
+    // Package with a typosquat dependency
+    const pkgJson = {
+      name: 'test-project',
+      version: '1.0.0',
+      dependencies: { 'lodas': '^4.18.0' }, // typosquat of 'lodash'
+    };
+    await fs.writeFile(path.join(typosquatDir, 'package.json'), JSON.stringify(pkgJson, null, 2));
+    await fs.writeFile(path.join(typosquatDir, 'package-lock.json'), '{}');
+
+    const localAdapter = new SupplyChainAdapter({
+      typosquat: { enabled: true },
+      osv: { enabled: false },
+      registry: { enabled: false },
+      audit: { enabled: false },
+    });
+    const result = await localAdapter.scan(typosquatDir);
+    const typoFindings = result.findings.filter(f => f.sourceRule === 'VS-SC-004');
     expect(typoFindings.length).toBeGreaterThan(0);
     expect(typoFindings[0].title).toContain('typosquat');
     expect(typoFindings[0].title).toContain('lodas');
     expect(typoFindings[0].title).toContain('lodash');
+    expect(typoFindings[0].evidence.rawOutput).toMatchObject({
+      packageName: 'lodas',
+      typosquatTarget: 'lodash',
+      typosquatDistance: 1,
+    });
+    expect(result.errors.some(error => error.code === 'EXPERIMENTAL_TYPOSQUAT' && error.recoverable)).toBe(true);
 
     await fs.rm(typosquatDir, { recursive: true }).catch(() => {});
   });
@@ -101,7 +133,12 @@ describe('SupplyChainAdapter', { timeout: 20000 }, () => {
     await fs.writeFile(path.join(allowDir, 'package.json'), JSON.stringify(pkgJson, null, 2));
     await fs.writeFile(path.join(allowDir, 'package-lock.json'), '{}');
 
-    const result = await adapter.scan(allowDir);
+    const result = await new SupplyChainAdapter({
+      typosquat: { enabled: true },
+      osv: { enabled: false },
+      registry: { enabled: false },
+      audit: { enabled: false },
+    }).scan(allowDir);
     const oraFindings = result.findings.filter(f => f.sourceRule === 'VS-SC-004' && f.title.includes('ora'));
     expect(oraFindings.length).toBe(0);
 
@@ -128,7 +165,12 @@ describe('SupplyChainAdapter', { timeout: 20000 }, () => {
     await fs.writeFile(path.join(allowDir, 'package.json'), JSON.stringify(pkgJson, null, 2));
     await fs.writeFile(path.join(allowDir, 'package-lock.json'), '{}');
 
-    const result = await adapter.scan(allowDir);
+    const result = await new SupplyChainAdapter({
+      typosquat: { enabled: true },
+      osv: { enabled: false },
+      registry: { enabled: false },
+      audit: { enabled: false },
+    }).scan(allowDir);
     expect(result.findings.filter(f => f.sourceRule === 'VS-SC-004')).toHaveLength(0);
 
     await fs.rm(allowDir, { recursive: true }).catch(() => {});
@@ -163,7 +205,12 @@ describe('SupplyChainAdapter', { timeout: 20000 }, () => {
     await fs.writeFile(path.join(popularDir, 'package.json'), JSON.stringify(pkgJson, null, 2));
     await fs.writeFile(path.join(popularDir, 'package-lock.json'), '{}');
 
-    const result = await adapter.scan(popularDir);
+    const result = await new SupplyChainAdapter({
+      typosquat: { enabled: true },
+      osv: { enabled: false },
+      registry: { enabled: false },
+      audit: { enabled: false },
+    }).scan(popularDir);
     const jestFindings = result.findings.filter(f => f.sourceRule === 'VS-SC-004' && f.title.includes('jest'));
     expect(jestFindings.length).toBe(0);
 
@@ -606,6 +653,7 @@ describe('SupplyChainAdapter', { timeout: 20000 }, () => {
     };
 
     const localAdapter = new SupplyChainAdapter({
+      typosquat: { enabled: true },
       osv: { enabled: true, fetchImpl },
       registry: { enabled: false },
       audit: { enabled: false },

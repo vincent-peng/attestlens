@@ -1,6 +1,6 @@
 # AttestLens — Master Development Roadmap
 
-**Last Updated:** 2026-04-26
+**Last Updated:** 2026-04-27
 **Status:** Living document — update as we ship
 
 ---
@@ -30,6 +30,8 @@
 - ✅ Consultant-facing deterministic narrative report sections
 - ✅ GuardVibe fallback test recovery and `AL-INFRA-006` rule-noise cleanup
 - ✅ M2.5 rule-pack foundation with typed manifests, embedded rules, cache fallback, explicit update command, opt-in auto-update, and rule freshness metadata
+- ✅ M3.3 dynamic confidence scoring for APP mappings
+- ✅ M3.4 per-adapter timeout and progress plumbing
 
 **What's NOT built yet:**
 - ❌ Advisory-monitoring rule update pipeline
@@ -41,7 +43,7 @@
 - ❌ IaC misconfiguration detection (M3.8)
 - ❌ Web dashboard (M4 — not until M3 + design-partner validation)
 
-**Current focus:** M3 scanner enhancement (spec at `docs/milestones/M3-SCANNER-ENHANCEMENT.md`). M3.1/M3.2 are implemented; next up are M3.3 dynamic confidence and M3.4 adapter timeout/progress. Design-partner review continues in parallel. Dashboard is explicitly deferred to M4 — we need validated scanner output and consultant feedback before investing in UI.
+**Current focus:** M3 scanner enhancement (spec at `docs/milestones/M3-SCANNER-ENHANCEMENT.md`). M3.1–M3.4 are implemented; next up is design-partner/report validation before M3.5 behavioral supply-chain analysis. Dashboard is explicitly deferred to M4 — we need validated scanner output and consultant feedback before investing in UI.
 
 ---
 
@@ -164,12 +166,12 @@ Full spec: `docs/milestones/M3-SCANNER-ENHANCEMENT.md`
 - Local `node_modules/<dep>/package.json` metadata is used by default; npm registry fallback is opt-in via `--external-enrichment` and has recoverable warnings
 - Maps to APP_11 and APP_6
 
-### M3.3 — Dynamic Confidence Scoring (1 day)
+### M3.3 — Dynamic Confidence Scoring ✅
 - Replace hardcoded confidence with context-aware calculation
 - Typosquat distance, auth endpoints, multi-source confirmation, file type
 - Makes reports defensible for consultant use
 
-### M3.4 — Per-Adapter Timeout & Progress Reporting (2 days)
+### M3.4 — Per-Adapter Timeout & Progress Reporting ✅
 - AbortSignal per adapter, configurable timeouts
 - Progress callbacks for CLI feedback
 - Partial results on timeout, not hard failure
@@ -206,7 +208,7 @@ Full spec: `docs/milestones/M3-SCANNER-ENHANCEMENT.md`
 ### Implementation Timeline
 
 ```
-Week 1-2:  M3.1 ✅ + M3.2 ✅ + M3.3 + M3.4  (quick wins + production hardening)
+Week 1-2:  M3.1 ✅ + M3.2 ✅ + M3.3 ✅ + M3.4 ✅  (quick wins + production hardening)
 Week 3-4:  M3.5 + M3.6                  (differentiation + consultant value)
 Week 5-6:  M3.7 + M3.8                  (extended coverage)
 Week 7:    M3.9 + M3.10                 (quality + enrichment)

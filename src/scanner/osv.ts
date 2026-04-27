@@ -34,6 +34,7 @@ export interface OsvScanOptions {
   fetchImpl?: FetchLike;
   timeoutMs?: number;
   maxBytes?: number;
+  signal?: AbortSignal;
 }
 
 export interface OsvScanResult {
@@ -136,6 +137,7 @@ export async function scanOsvVulnerabilities(
       },
       timeoutMs,
       maxBytes,
+      options.signal,
     );
   } catch (error) {
     return {
@@ -189,6 +191,7 @@ export async function scanOsvVulnerabilities(
         { method: 'GET' },
         timeoutMs,
         maxBytes,
+        options.signal,
       );
       if (detail?.id) {
         details.set(id, detail);
@@ -218,9 +221,12 @@ export async function fetchJsonWithLimit<T>(
   init: RequestInit,
   timeoutMs: number,
   maxBytes: number,
+  signal?: AbortSignal,
 ): Promise<T> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
+  const abort = () => controller.abort();
+  signal?.addEventListener('abort', abort, { once: true });
 
   try {
     const response = await fetchImpl(url, {
@@ -241,6 +247,7 @@ export async function fetchJsonWithLimit<T>(
     throw error;
   } finally {
     clearTimeout(timeout);
+    signal?.removeEventListener('abort', abort);
   }
 }
 

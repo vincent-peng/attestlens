@@ -18,6 +18,7 @@ import {
   type APPMapping,
   type APPControl,
 } from '../schema/index.js';
+import { calculateMappingConfidence } from './confidence.js';
 
 // ─── Mapping Rules ──────────────────────────────────────────────────────────
 
@@ -691,7 +692,7 @@ export function mapFindingToAPP(finding: AttestLensFinding): APPMapping[] {
         principle: rule.appPrinciple,
         obligation: APPInfo[rule.appPrinciple].obligation,
         status: rule.status,
-        confidence: rule.confidence,
+        confidence: calculateMappingConfidence(rule.confidence, finding),
         rationale: rule.rationale,
       });
     }

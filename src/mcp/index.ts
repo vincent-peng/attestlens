@@ -52,6 +52,15 @@ export const MCP_TOOLS = [
           description: 'Enable external OSV.dev and npm registry dependency enrichment',
           default: false,
         },
+        includeTyposquat: {
+          type: 'boolean',
+          description: 'Enable experimental typosquatting detection (VS-SC-004)',
+          default: false,
+        },
+        scannerTimeoutMs: {
+          type: 'number',
+          description: 'Per-scanner timeout in milliseconds',
+        },
       },
       required: ['path'],
     },
@@ -64,6 +73,10 @@ export const MCP_TOOLS = [
       properties: {
         url: { type: 'string', description: 'Public http(s) URL to scan' },
         strict: { type: 'boolean', description: 'Treat UNKNOWN controls as FAIL', default: false },
+        scannerTimeoutMs: {
+          type: 'number',
+          description: 'Per-scanner timeout in milliseconds',
+        },
       },
       required: ['url'],
     },
@@ -82,6 +95,15 @@ export const MCP_TOOLS = [
           type: 'boolean',
           description: 'Enable external OSV.dev and npm registry dependency enrichment',
           default: false,
+        },
+        includeTyposquat: {
+          type: 'boolean',
+          description: 'Enable experimental typosquatting detection (VS-SC-004)',
+          default: false,
+        },
+        scannerTimeoutMs: {
+          type: 'number',
+          description: 'Per-scanner timeout in milliseconds',
         },
       },
       required: ['path'],
@@ -180,11 +202,13 @@ export function validateUrl(targetUrl: string): string {
 
 function createOrchestrator(
   targetKind: 'path' | 'url',
-  options: { externalEnrichment?: boolean } = {},
+  options: { externalEnrichment?: boolean; includeTyposquat?: boolean; scannerTimeoutMs?: number } = {},
 ): ScannerOrchestrator {
   const externalEnrichment = targetKind === 'path' && options.externalEnrichment === true;
   const orchestratorOptions: ScannerOrchestratorOptions = {
+    adapterTimeoutMs: options.scannerTimeoutMs,
     supplyChain: {
+      typosquat: { enabled: targetKind === 'path' && options.includeTyposquat === true },
       osv: { enabled: externalEnrichment },
       registry: { enabled: externalEnrichment },
     },
@@ -196,6 +220,16 @@ function createOrchestrator(
     orchestrator.disable('supply-chain');
   }
   return orchestrator;
+}
+
+function parseScannerTimeoutMs(value: unknown): number | undefined {
+  if (value === undefined || value === null) {
+    return undefined;
+  }
+  if (typeof value !== 'number' || !Number.isInteger(value) || value <= 0) {
+    throw new McpError(ErrorCode.InvalidParams, 'scannerTimeoutMs must be a positive integer number of milliseconds');
+  }
+  return value;
 }
 
 function serializeFindings(findings: AttestLensFinding[]) {
@@ -336,8 +370,10 @@ export async function handleToolCall(name: string, args: Record<string, unknown>
       const targetPath = await validatePath(args?.path as string);
       const strict = args?.strict === true;
       const externalEnrichment = args?.externalEnrichment === true;
+      const includeTyposquat = args?.includeTyposquat === true;
+      const scannerTimeoutMs = parseScannerTimeoutMs(args?.scannerTimeoutMs);
 
-      const orchestrator = createOrchestrator('path', { externalEnrichment });
+      const orchestrator = createOrchestrator('path', { externalEnrichment, includeTyposquat, scannerTimeoutMs });
       const result = await orchestrator.scan(targetPath);
 
       return {
@@ -355,8 +391,9 @@ export async function handleToolCall(name: string, args: Record<string, unknown>
     case 'attestlens_scan_url': {
       const targetUrl = validateUrl(args?.url as string);
       const strict = args?.strict === true;
+      const scannerTimeoutMs = parseScannerTimeoutMs(args?.scannerTimeoutMs);
 
-      const orchestrator = createOrchestrator('url');
+      const orchestrator = createOrchestrator('url', { scannerTimeoutMs });
       const result = await orchestrator.scan(targetUrl);
       const urlScanFailure = getUrlScanFailureError(result);
       if (urlScanFailure) {
@@ -381,8 +418,10 @@ export async function handleToolCall(name: string, args: Record<string, unknown>
       const format = parseReportFormat(args?.format);
       const strict = args?.strict === true;
       const externalEnrichment = args?.externalEnrichment === true;
+      const includeTyposquat = args?.includeTyposquat === true;
+      const scannerTimeoutMs = parseScannerTimeoutMs(args?.scannerTimeoutMs);
 
-      const orchestrator = createOrchestrator('path', { externalEnrichment });
+      const orchestrator = createOrchestrator('path', { externalEnrichment, includeTyposquat, scannerTimeoutMs });
       const startTime = Date.now();
       const scanResult = await orchestrator.scan(targetPath);
       const duration = Date.now() - startTime;
