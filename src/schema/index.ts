@@ -22,6 +22,7 @@ export const ScanSource = z.enum([
   'vibe-check',
   'supply-chain',
   'behavioral',
+  'gitleaks',
   'url-scan',
   'manual',
   'questionnaire',

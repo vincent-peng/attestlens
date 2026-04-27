@@ -599,6 +599,34 @@ const NDB_RULES: MappingRule[] = [
     oaicReference: 'NDB Guidelines s26WE',
   },
   {
+    id: 'MAP-040',
+    name: 'Git History Secret → APP 11.1',
+    sourcePatterns: {
+      ruleId: /^VS-GL-/,
+      category: /(credential|secret|key|token)/i,
+      severity: ['critical', 'high', 'medium'],
+    },
+    matchMode: 'or',
+    appPrinciple: 'APP_11',
+    status: 'fail',
+    confidence: 0.92,
+    rationale: 'Secrets committed to git history can remain exposed after deletion from the current tree. Reasonable security steps under APP 11.1 include detecting and rotating exposed credentials.',
+    oaicReference: 'APP Guidelines Chapter 11.1',
+  },
+  {
+    id: 'MAP-041',
+    name: 'Git History Secret → NDB',
+    sourcePatterns: {
+      ruleId: /^VS-GL-/,
+      severity: ['critical', 'high'],
+    },
+    appPrinciple: 'NDB',
+    status: 'unknown',
+    confidence: 0.82,
+    rationale: 'A credential exposed in git history may create a data-breach pathway. NDB impact depends on whether the credential was valid, accessed, and connected to personal information.',
+    oaicReference: 'NDB Guidelines s26WE',
+  },
+  {
     id: 'MAP-036',
     name: 'OSV Breach-Relevant Vulnerability → NDB',
     sourcePatterns: {

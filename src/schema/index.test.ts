@@ -11,6 +11,7 @@ describe('ScanSource', () => {
       'vibe-check',
       'supply-chain',
       'behavioral',
+      'gitleaks',
       'url-scan',
       'manual',
       'questionnaire',

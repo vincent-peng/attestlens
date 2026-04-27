@@ -205,6 +205,12 @@ describe('CLI external enrichment option', () => {
     expect(scanHelp.stdout).toContain('--no-behavioral');
     expect(auditHelp.stdout).toContain('--no-behavioral');
     expect(attestHelp.stdout).toContain('--no-behavioral');
+    expect(scanHelp.stdout).toContain('--include-gitleaks');
+    expect(auditHelp.stdout).toContain('--include-gitleaks');
+    expect(attestHelp.stdout).toContain('--include-gitleaks');
+    expect(scanHelp.stdout).toContain('--gitleaks-path');
+    expect(auditHelp.stdout).toContain('--gitleaks-path');
+    expect(attestHelp.stdout).toContain('--gitleaks-path');
   });
 
   it('keeps external enrichment disabled by default in shared scanner options', () => {
@@ -217,6 +223,10 @@ describe('CLI external enrichment option', () => {
         },
         behavioral: {
           enabled: true,
+        },
+        gitleaks: {
+          enabled: false,
+          path: 'gitleaks',
         },
       });
     }
@@ -231,6 +241,10 @@ describe('CLI external enrichment option', () => {
       },
       behavioral: {
         enabled: true,
+      },
+      gitleaks: {
+        enabled: false,
+        path: 'gitleaks',
       },
     });
   });
@@ -248,6 +262,30 @@ describe('CLI external enrichment option', () => {
       },
       behavioral: {
         enabled: true,
+      },
+      gitleaks: {
+        enabled: false,
+        path: 'gitleaks',
+      },
+    });
+  });
+
+  it('enables gitleaks only when explicitly requested', () => {
+    expect(buildScannerOrchestratorOptions({
+      includeGitleaks: true,
+      gitleaksPath: '/usr/local/bin/gitleaks',
+    })).toEqual({
+      supplyChain: {
+        typosquat: { enabled: false },
+        osv: { enabled: false },
+        registry: { enabled: false },
+      },
+      behavioral: {
+        enabled: true,
+      },
+      gitleaks: {
+        enabled: true,
+        path: '/usr/local/bin/gitleaks',
       },
     });
   });

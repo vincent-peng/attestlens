@@ -38,12 +38,12 @@
 - ❌ Executable remote rule migration for all scanner checks
 - ✅ OSV.dev vulnerability integration inside supply-chain scanner (M3.1)
 - ✅ Behavioral supply-chain analysis (M3.5)
-- ❌ Git history secret scanning (M3.6)
+- ✅ Git history secret scanning (M3.6)
 - ❌ SAST lite compliance patterns (M3.7)
 - ❌ IaC misconfiguration detection (M3.8)
 - ❌ Web dashboard (M4 — not until M3 + design-partner validation)
 
-**Current focus:** M3 scanner enhancement (spec at `docs/milestones/M3-SCANNER-ENHANCEMENT.md`). M3.1–M3.5 are implemented; next up is M3.6 opt-in gitleaks history scanning. Dashboard is explicitly deferred to M4 — we need validated scanner output and consultant feedback before investing in UI.
+**Current focus:** M3 scanner enhancement (spec at `docs/milestones/M3-SCANNER-ENHANCEMENT.md`). M3.1–M3.6 are implemented; next up is M3.7 SAST lite compliance-critical patterns. Dashboard is explicitly deferred to M4 — we need validated scanner output and consultant feedback before investing in UI.
 
 ---
 
@@ -181,7 +181,7 @@ Full spec: `docs/milestones/M3-SCANNER-ENHANCEMENT.md`
 - No compliance tool does this — highest differentiation opportunity
 - Maps to APP_11 + APP_8 + NDB
 
-### M3.6 — Git History Secret Scanning (3 days)
+### M3.6 — Git History Secret Scanning (shipped)
 - Gitleaks integration as opt-in adapter (like mcp-scan)
 - 150+ secret detectors covering git history
 - Maps to APP_11 + NDB — the #1 gap consultants flag

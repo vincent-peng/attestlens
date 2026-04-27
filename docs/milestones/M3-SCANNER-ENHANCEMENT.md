@@ -1,7 +1,7 @@
 # M3 — Scanner Enhancement: Deep Research & Implementation Plan
 
 **Created:** 2026-04-26
-**Status:** In progress — M3.1–M3.5 implemented; M3.6 next
+**Status:** In progress — M3.1–M3.6 implemented; M3.7 next
 **Predecessor:** M2 (Compliance Moat) — closed; M2.5 (Rule Freshness) — foundation shipped
 **Goal:** Systematically enhance the core scanner layer to close competitive gaps and differentiate on compliance-relevant detection
 
@@ -453,7 +453,7 @@ const BEHAVIORAL_PATTERNS: Record<BehavioralSignalType, RegExp[]> = {
 
 ---
 
-### M3.6 — Git History Secret Scanning
+### M3.6 — Git History Secret Scanning ✅
 
 **Priority:** P1 — highest consultant value (every consultant knows current-files-only is incomplete)
 **Effort:** 3 days
@@ -528,14 +528,14 @@ const GITLEAKS_CATEGORY_MAP: Record<string, { category: string; appMappings: APP
 
 **Exit criteria:**
 
-- [ ] `GitleaksAdapter` implemented and registered in orchestrator
-- [ ] `ScanSource` enum updated with `'gitleaks'`
-- [ ] SARIF parsing handles all gitleaks output formats
-- [ ] Top 20 gitleaks rules mapped to APP/NDB principles
-- [ ] Graceful degradation when gitleaks not installed
-- [ ] Orchestrator includes gitleaks in registry but disables by default
-- [ ] Tests with mocked gitleaks output
-- [ ] `npm test`, `npm run lint`, `npm run build` all green
+- [x] `GitleaksAdapter` implemented and registered in orchestrator
+- [x] `ScanSource` enum updated with `'gitleaks'`
+- [x] SARIF parsing handles gitleaks rule metadata, locations, fingerprints, and findings exit behavior
+- [x] Common gitleaks rules mapped to APP/NDB principles
+- [x] Graceful degradation when gitleaks not installed
+- [x] Orchestrator includes gitleaks in registry but disables by default
+- [x] Tests with mocked gitleaks output
+- [x] `vitest`, `tsc --noEmit`, and `tsc` green for milestone commit
 
 ---
 

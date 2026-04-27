@@ -3,7 +3,7 @@
 **Last Updated:** 2026-04-27
 **Purpose:** Near-term source of truth for product status, current milestone, and next actions.
 
-**Current focus:** M3 scanner enhancement is underway. M3.1–M3.5 are implemented; next implementation is M3.6 git history secret scanning via gitleaks.
+**Current focus:** M3 scanner enhancement is underway. M3.1–M3.6 are implemented; next implementation is M3.7 SAST lite compliance-critical patterns.
 
 **Sellable roadmap:** See `docs/SELLABLE-TODOS.md` for the prioritized path to a sellable product. Key additions beyond M3: Privacy Act 2026 reform module (P1.1), SMB compliance tier (P1.2), NDB breach penalty calculator (P1.5). Market research at `docs/COMPETITIVE-MARKET-RESEARCH.md`.
 
@@ -182,7 +182,7 @@ Full spec: `docs/milestones/M3-SCANNER-ENHANCEMENT.md`
 - ✅ M3.3 — Dynamic confidence scoring
 - ✅ M3.4 — Per-adapter timeout + progress reporting
 - ✅ M3.5 — Behavioral supply-chain analysis
-- M3.6 — Git history secret scanning via gitleaks (3 days)
+- ✅ M3.6 — Git history secret scanning via gitleaks
 - M3.7 — SAST lite: compliance-critical patterns (1 week)
 - M3.8 — IaC misconfiguration: Dockerfile + Terraform (1 week)
 - M3.9 — Cross-scanner finding deduplication (1 day)

@@ -62,6 +62,15 @@ export const MCP_TOOLS = [
           description: 'Enable behavioral supply-chain analysis',
           default: true,
         },
+        includeGitleaks: {
+          type: 'boolean',
+          description: 'Enable opt-in git history secret scanning via gitleaks',
+          default: false,
+        },
+        gitleaksPath: {
+          type: 'string',
+          description: 'Path to gitleaks binary',
+        },
         scannerTimeoutMs: {
           type: 'number',
           description: 'Per-scanner timeout in milliseconds',
@@ -110,6 +119,15 @@ export const MCP_TOOLS = [
           type: 'boolean',
           description: 'Enable behavioral supply-chain analysis',
           default: true,
+        },
+        includeGitleaks: {
+          type: 'boolean',
+          description: 'Enable opt-in git history secret scanning via gitleaks',
+          default: false,
+        },
+        gitleaksPath: {
+          type: 'string',
+          description: 'Path to gitleaks binary',
         },
         scannerTimeoutMs: {
           type: 'number',
@@ -212,7 +230,7 @@ export function validateUrl(targetUrl: string): string {
 
 function createOrchestrator(
   targetKind: 'path' | 'url',
-  options: { externalEnrichment?: boolean; includeTyposquat?: boolean; behavioral?: boolean; scannerTimeoutMs?: number } = {},
+  options: { externalEnrichment?: boolean; includeTyposquat?: boolean; behavioral?: boolean; includeGitleaks?: boolean; gitleaksPath?: string; scannerTimeoutMs?: number } = {},
 ): ScannerOrchestrator {
   const externalEnrichment = targetKind === 'path' && options.externalEnrichment === true;
   const orchestratorOptions: ScannerOrchestratorOptions = {
@@ -224,6 +242,10 @@ function createOrchestrator(
     },
     behavioral: {
       enabled: targetKind === 'path' && options.behavioral !== false,
+    },
+    gitleaks: {
+      enabled: targetKind === 'path' && options.includeGitleaks === true,
+      path: options.gitleaksPath || 'gitleaks',
     },
   };
   const orchestrator = new ScannerOrchestrator(orchestratorOptions);
@@ -385,9 +407,11 @@ export async function handleToolCall(name: string, args: Record<string, unknown>
       const externalEnrichment = args?.externalEnrichment === true;
       const includeTyposquat = args?.includeTyposquat === true;
       const behavioral = args?.behavioral !== false;
+      const includeGitleaks = args?.includeGitleaks === true;
+      const gitleaksPath = typeof args?.gitleaksPath === 'string' ? args.gitleaksPath : undefined;
       const scannerTimeoutMs = parseScannerTimeoutMs(args?.scannerTimeoutMs);
 
-      const orchestrator = createOrchestrator('path', { externalEnrichment, includeTyposquat, behavioral, scannerTimeoutMs });
+      const orchestrator = createOrchestrator('path', { externalEnrichment, includeTyposquat, behavioral, includeGitleaks, gitleaksPath, scannerTimeoutMs });
       const result = await orchestrator.scan(targetPath);
 
       return {
@@ -434,9 +458,11 @@ export async function handleToolCall(name: string, args: Record<string, unknown>
       const externalEnrichment = args?.externalEnrichment === true;
       const includeTyposquat = args?.includeTyposquat === true;
       const behavioral = args?.behavioral !== false;
+      const includeGitleaks = args?.includeGitleaks === true;
+      const gitleaksPath = typeof args?.gitleaksPath === 'string' ? args.gitleaksPath : undefined;
       const scannerTimeoutMs = parseScannerTimeoutMs(args?.scannerTimeoutMs);
 
-      const orchestrator = createOrchestrator('path', { externalEnrichment, includeTyposquat, behavioral, scannerTimeoutMs });
+      const orchestrator = createOrchestrator('path', { externalEnrichment, includeTyposquat, behavioral, includeGitleaks, gitleaksPath, scannerTimeoutMs });
       const startTime = Date.now();
       const scanResult = await orchestrator.scan(targetPath);
       const duration = Date.now() - startTime;

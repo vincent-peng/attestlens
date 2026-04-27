@@ -312,6 +312,19 @@ describe('mapFindingToAPP', () => {
     expect(mapFindingToAPP(networkFinding).map(mapping => mapping.principle)).toEqual(['APP_11', 'APP_8']);
     expect(mapFindingToAPP(envFinding).map(mapping => mapping.principle)).toEqual(['APP_11', 'NDB']);
   });
+
+  it('should map gitleaks findings to APP_11 and NDB', () => {
+    const finding = makeFinding({
+      source: 'gitleaks',
+      sourceRule: 'VS-GL-GITHUB-PAT',
+      severity: 'high',
+      category: 'Developer Credentials',
+      title: 'Secret detected in git history',
+      description: 'gitleaks detected a GitHub PAT',
+    });
+
+    expect(mapFindingToAPP(finding).map(mapping => mapping.principle)).toEqual(['APP_11', 'NDB']);
+  });
 });
 
 // ─── mapAllFindings Tests ─────────────────────────────────────────────────────

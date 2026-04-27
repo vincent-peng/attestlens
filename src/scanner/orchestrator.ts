@@ -17,6 +17,7 @@ import { GuardVibeAdapter } from './guardvibe.js';
 import { McpScanAdapter } from './mcp-scan.js';
 import { SupplyChainAdapter, type SupplyChainAdapterOptions } from './supply-chain.js';
 import { BehavioralAdapter, type BehavioralAdapterOptions } from './behavioral.js';
+import { GitleaksAdapter, type GitleaksAdapterOptions } from './gitleaks.js';
 import { UrlScanAdapter } from './url-scan.js';
 import { loadRulePack, type RulePackLoadOptions } from './rules/index.js';
 
@@ -24,6 +25,7 @@ export interface ScannerOrchestratorOptions {
   rulePack?: RulePackLoadOptions;
   supplyChain?: SupplyChainAdapterOptions;
   behavioral?: BehavioralAdapterOptions;
+  gitleaks?: GitleaksAdapterOptions;
   adapterTimeoutMs?: number | Partial<Record<ScanSource, number>>;
   onProgress?: (event: ScannerProgressEvent) => void;
 }
@@ -43,6 +45,7 @@ export class ScannerOrchestrator {
     this.register(new McpScanAdapter());
     this.register(new SupplyChainAdapter(options.supplyChain));
     this.register(new BehavioralAdapter(options.behavioral), options.behavioral?.enabled !== false);
+    this.register(new GitleaksAdapter(options.gitleaks), options.gitleaks?.enabled === true);
     // URL scanner registered but only activated when URL input detected
     this.register(new UrlScanAdapter());
   }
@@ -277,6 +280,7 @@ const DEFAULT_ADAPTER_TIMEOUT_MS: Record<ScanSource, number> = {
   'mcp-scan': 60_000,
   'supply-chain': 60_000,
   behavioral: 60_000,
+  gitleaks: 60_000,
   'url-scan': 60_000,
   vibesafe: 60_000,
   'vibe-check': 60_000,
