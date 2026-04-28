@@ -228,7 +228,8 @@ export interface SupplyChainAdapterOptions {
 }
 
 const NPM_REGISTRY_TIMEOUT_MS = 10_000;
-const NPM_REGISTRY_MAX_RESPONSE_BYTES = 1_000_000;
+const NPM_REGISTRY_MAX_RESPONSE_BYTES = 5_000_000;
+const NPM_REGISTRY_ACCEPT_HEADER = 'application/vnd.npm.install-v1+json, application/json';
 const NPM_MATURITY_CACHE_TTL_MS = 60 * 60 * 1000;
 const NPM_REGISTRY_MIN_REQUEST_INTERVAL_MS = 100;
 const ALTERNATE_LOCKFILES = [
@@ -848,7 +849,12 @@ export class SupplyChainAdapter implements ScannerAdapter {
     return fetchJsonWithLimit<T>(
       fetchImpl,
       url,
-      { method: 'GET' },
+      {
+        method: 'GET',
+        headers: {
+          accept: NPM_REGISTRY_ACCEPT_HEADER,
+        },
+      },
       this.options.registry?.timeoutMs ?? NPM_REGISTRY_TIMEOUT_MS,
       this.options.registry?.maxBytes ?? NPM_REGISTRY_MAX_RESPONSE_BYTES,
       context?.signal,

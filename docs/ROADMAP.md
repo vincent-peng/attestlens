@@ -43,9 +43,10 @@
 - ❌ Advisory-monitoring rule update pipeline
 - ❌ Executable remote rule migration for all scanner checks
 - ❌ Web dashboard (M4 — not until M3 + design-partner validation)
-- ⏳ M3.8–M3.10 real-project validation gate
+- ⏳ Design-partner report review before M4
+- ⏳ P2 URL-corpus hardening for blocked live targets
 
-**Current focus:** M3 scanner enhancement implementation is complete. The next gate is M3.8–M3.10 validation across real local projects, with dashboard explicitly deferred to M4 until scanner output and consultant report shape are validated.
+**Current focus:** M3 scanner enhancement implementation, local validation, and P0/P1 review-fallout fixes are complete. Dashboard remains deferred to M4 until design partners validate scanner output and consultant report shape.
 
 ---
 
@@ -55,7 +56,7 @@
 Phase 1.5 — Scanner Credibility Release    ✅
 Phase 2   — Compliance Differentiation      ✅
 Phase 2.5 — Rule Update Pipeline (foundation) ✅
-Phase 3   — Scanner Enhancement              ✅ implementation complete, validation gate now
+Phase 3   — Scanner Enhancement              ✅ implementation + local validation complete
 Phase 3.5 — Rule Update Pipeline (full)
 Phase 4   — Platform, Dashboard & AI Integration
 Phase 5   — Launch & Growth
@@ -223,7 +224,7 @@ Week 7:    M3.9 ✅ + M3.10 ✅            (quality + enrichment)
 - All 10 enhancements shipped and tested ✅
 - Full verification green as of the M3.10 milestone commit ✅
 - Total detection surface > 250 compliance-relevant rules
-- M3.8–M3.10 local validation gate documented before M4
+- M3.8–M3.10 local validation gate documented before M4 ✅
 - npm audit plus opt-in OSV.dev dual-source CVE coverage
 - Behavioral analysis producing findings with APP_11 mappings
 - Gitleaks integration working as opt-in adapter

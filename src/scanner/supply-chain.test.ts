@@ -568,6 +568,67 @@ describe('SupplyChainAdapter', { timeout: 20000 }, () => {
     await fs.rm(maturityDir, { recursive: true }).catch(() => {});
   });
 
+  it('should not warn when healthy package maturity uses a large bounded packument', async () => {
+    const dependencyName = uniquePackageName('large-maturity');
+    const maturityDir = await createPackageProject({
+      dependencyName,
+      dependencyPackageJson: null,
+      installDependency: false,
+    });
+    await fs.writeFile(path.join(maturityDir, 'index.js'), `import pkg from '${dependencyName}';\nexport default pkg;\n`);
+    const largeReadme = `# ${dependencyName}\n${'a'.repeat(1_100_000)}`;
+    const fetchImpl: FetchLike = async (input) => {
+      const url = String(input);
+      if (url === `https://registry.npmjs.org/${dependencyName}/1.0.0`) {
+        return new Response(JSON.stringify({
+          name: dependencyName,
+          version: '1.0.0',
+          repository: { type: 'git', url: `https://github.com/example/${dependencyName}.git` },
+        }), { status: 200, headers: { 'content-type': 'application/json' } });
+      }
+      if (url === `https://registry.npmjs.org/${dependencyName}`) {
+        return new Response(JSON.stringify({
+          name: dependencyName,
+          'dist-tags': { latest: '1.0.0' },
+          time: { created: '2020-01-01T00:00:00.000Z' },
+          versions: {
+            '1.0.0': {
+              name: dependencyName,
+              version: '1.0.0',
+              repository: { type: 'git', url: `https://github.com/example/${dependencyName}.git` },
+              scripts: { test: 'vitest run' },
+            },
+            '1.0.1': {
+              name: dependencyName,
+              version: '1.0.1',
+            },
+          },
+          maintainers: [{ name: 'maintainer-a' }, { name: 'maintainer-b' }],
+          readme: largeReadme,
+        }), { status: 200, headers: { 'content-type': 'application/json' } });
+      }
+      if (url === `https://api.npmjs.org/downloads/point/last-week/${dependencyName}`) {
+        return new Response(JSON.stringify({ downloads: 50_000 }), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        });
+      }
+      return new Response('{}', { status: 404 });
+    };
+
+    const localAdapter = new SupplyChainAdapter({
+      osv: { enabled: false },
+      registry: { enabled: true, fetchImpl },
+      audit: { enabled: false },
+    });
+    const result = await localAdapter.scan(maturityDir);
+
+    expect(result.findings.some(f => f.sourceRule === 'VS-SC-010')).toBe(false);
+    expect(result.errors.some(error => error.code === 'NPM_MATURITY_ERROR')).toBe(false);
+
+    await fs.rm(maturityDir, { recursive: true }).catch(() => {});
+  });
+
   it('should treat package maturity lookup failures as recoverable warnings', async () => {
     const dependencyName = uniquePackageName('maturity-fails');
     const maturityDir = await createPackageProject({

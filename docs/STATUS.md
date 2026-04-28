@@ -3,7 +3,7 @@
 **Last Updated:** 2026-04-28
 **Purpose:** Near-term source of truth for product status, current milestone, and next actions.
 
-**Current focus:** M3 scanner enhancement implementation is complete through M3.10. The next gate is M3 closeout validation across real local projects before any dashboard/SaaS work.
+**Current focus:** M3 scanner enhancement implementation, local validation, and P0/P1 review-fallout fixes are complete. The next gate is design-partner report review, with P2 URL-corpus hardening tracked before dashboard/SaaS work.
 
 **Sellable roadmap:** See `docs/SELLABLE-TODOS.md` for the prioritized path to a sellable product. Key additions beyond M3: Privacy Act 2026 reform module (P1.1), SMB compliance tier (P1.2), NDB breach penalty calculator (P1.5). Market research at `docs/COMPETITIVE-MARKET-RESEARCH.md`.
 
@@ -94,9 +94,9 @@ In practice, that means:
 
 - Design-partner validation and consultant/MSP outreach
 - Design-partner feedback tracking in `docs/validation/DESIGN-PARTNER-VALIDATION.md`
-- External validation remains required; the 2026-04-25 local gate found no local P0/P1 report-shape issue but does not replace design-partner feedback
-- M3.8–M3.10 validation gate across real local projects before starting M4
-- Validation-driven rule cleanup for remaining false positives, timeout behavior, dedup/report narrative issues, and CDN/bot-blocked targets
+- External validation remains required; the 2026-04-28 local gate found no remaining P0/P1 M3.8-M3.10 scanner credibility issue after follow-up fixes, but does not replace design-partner feedback
+- P2 URL-corpus hardening for CDN/bot-blocked startup failures and blocked-target report wording
+- Validation-driven rule cleanup for remaining lower-priority false positives, timeout behavior, dedup/report narrative issues, and live-target instability
 
 ### Not Shipped
 
@@ -195,7 +195,7 @@ Full spec: `docs/milestones/M3-SCANNER-ENHANCEMENT.md`
 - ✅ M3.9 — Cross-scanner finding deduplication
 - ✅ M3.10 — Package maturity scoring (`VS-SC-010`; external enrichment only)
 
-**Current gate:** Run the M3.8–M3.10 validation sweep across local projects, document false positives and report-shape issues, and fix any P0/P1 credibility problems before M4.
+**Current gate:** M3 implementation, local validation, and P0/P1 review-fallout fixes are complete. Do not start M4 until design partners review the refreshed M2/M3 report shape; keep P2 URL-corpus hardening queued for live-site startup failures.
 
 ## M4 — SaaS Wrapper
 
@@ -223,9 +223,9 @@ These are the default operating rules for the project.
 
 ### Next 2 Weeks
 
-1. Close M3 docs and run the M3.8–M3.10 validation gate across AttestLens, Strands, bgm-cafe, Paperclip, and Multica.
-2. Fix any P0/P1 credibility issues before M4; likely areas are IaC precision, maturity scoring noise, dedup canonical keys, and report wording for corroborated findings.
-3. Continue design-partner outreach with refreshed M2/M3 sample reports.
+1. Continue design-partner outreach with refreshed M2/M3 sample reports.
+2. Run a P2 URL-corpus hardening pass for live-site startup failures and blocked-target notes.
+3. Keep maturity scoring, IaC precision, dedup canonical keys, and corroborated finding wording on the validation-watch list.
 4. Keep `npm test`, `npm run lint`, and `npm run build` green.
 
 ### Explicitly Not Now
@@ -234,7 +234,7 @@ These are the default operating rules for the project.
 - billing
 - broad growth automation
 - additional compliance frameworks beyond APP/NDB
-- SaaS dashboard before M3 scanner validation and design-partner review
+- SaaS dashboard before design-partner review
 - treating behavioral analysis as sellable until design-partner report feedback is stable
 - typosquatting as a default headline signal (use explicit `--include-typosquat`; see `SELLABLE-TODOS.md`)
 - competing on supply-chain breadth (Socket/Dependency Guardian win that game)

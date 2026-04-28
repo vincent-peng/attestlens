@@ -1,7 +1,8 @@
 # M3.8-M3.10 Validation Gate
 
 - Date: 2026-04-28
-- Final commit validated: `38992e2`
+- Validation pass commit: `38992e2`
+- Post-review scanner fallout fix: `11ab57c`
 - Raw local artifacts: `/tmp/attestlens-m3-8-10-validation-final-2026-04-28T10-49-41-751Z`
 - Public corpus artifacts: `attestlens-reports/validation/2026-04-28` (gitignored)
 
@@ -11,8 +12,9 @@ M3.8-M3.10 is acceptable for scanner closeout after two validation-fallout fixes
 
 - `7f62ac2` reduced static/SAST report noise from tests, fixtures, hidden worktrees, and safe ORM SQL templates.
 - `38992e2` stopped IaC scanning hidden worktrees and prevented secret resolver identifiers from being reported as hardcoded secrets.
+- `11ab57c` fixed post-review scanner fallout around real hidden config paths, context-aware `VS-HARDKEY` matching, and embedded rule-pack metadata.
 
-No remaining P0/P1 credibility issue was found in the final local pass. Dashboard/SaaS work should still wait for design-partner review of the refreshed report shape.
+No remaining P0/P1 issue was found in the final local validation pass after the original fallout fixes; the subsequent review-found scanner regressions were fixed in `11ab57c`. Dashboard/SaaS work should still wait for design-partner review of the refreshed report shape.
 
 ## Local Project Gate
 
