@@ -23,6 +23,7 @@ export const ScanSource = z.enum([
   'supply-chain',
   'behavioral',
   'gitleaks',
+  'iac',
   'url-scan',
   'manual',
   'questionnaire',

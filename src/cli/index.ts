@@ -69,6 +69,7 @@ program
   .option('--no-mcp-scan', 'Disable mcp-scan')
   .option('--no-supply-chain', 'Disable supply chain scanner')
   .option('--no-behavioral', 'Disable behavioral supply-chain analysis')
+  .option('--no-iac', 'Disable infrastructure-as-code misconfiguration scanning')
   .option('--include-gitleaks', 'Enable opt-in git history secret scanning via gitleaks')
   .option('--gitleaks-path <path>', 'Path to gitleaks binary', 'gitleaks')
   .option('--include-typosquat', 'Enable experimental typosquatting detection (VS-SC-004)')
@@ -136,6 +137,7 @@ program
   .option('--no-mcp-scan', 'Disable mcp-scan')
   .option('--no-supply-chain', 'Disable supply chain scanner')
   .option('--no-behavioral', 'Disable behavioral supply-chain analysis')
+  .option('--no-iac', 'Disable infrastructure-as-code misconfiguration scanning')
   .option('--include-gitleaks', 'Enable opt-in git history secret scanning via gitleaks')
   .option('--gitleaks-path <path>', 'Path to gitleaks binary', 'gitleaks')
   .option('--include-typosquat', 'Enable experimental typosquatting detection (VS-SC-004)')
@@ -241,6 +243,7 @@ program
   .option('--no-mcp-scan', 'Disable mcp-scan')
   .option('--no-supply-chain', 'Disable supply chain scanner')
   .option('--no-behavioral', 'Disable behavioral supply-chain analysis')
+  .option('--no-iac', 'Disable infrastructure-as-code misconfiguration scanning')
   .option('--include-gitleaks', 'Enable opt-in git history secret scanning via gitleaks')
   .option('--gitleaks-path <path>', 'Path to gitleaks binary', 'gitleaks')
   .option('--include-typosquat', 'Enable experimental typosquatting detection (VS-SC-004)')
@@ -436,6 +439,9 @@ export function buildScannerOrchestratorOptions(options: any): ScannerOrchestrat
     behavioral: {
       enabled: options.behavioral !== false,
     },
+    iac: {
+      enabled: options.iac !== false,
+    },
     gitleaks: {
       enabled: options.includeGitleaks === true,
       path: options.gitleaksPath || 'gitleaks',
@@ -472,6 +478,7 @@ function createOrchestrator(targetKind: CliTarget['kind'], options: any): Scanne
   if (options.mcpScan === false) orchestrator.disable('mcp-scan');
   if (options.supplyChain === false) orchestrator.disable('supply-chain');
   if (options.behavioral === false) orchestrator.disable('behavioral');
+  if (options.iac === false) orchestrator.disable('iac');
   if (options.includeGitleaks === true) orchestrator.enable('gitleaks');
   return orchestrator;
 }

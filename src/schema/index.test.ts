@@ -12,6 +12,7 @@ describe('ScanSource', () => {
       'supply-chain',
       'behavioral',
       'gitleaks',
+      'iac',
       'url-scan',
       'manual',
       'questionnaire',

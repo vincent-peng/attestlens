@@ -129,6 +129,20 @@ async function createCliBehavioralProject(): Promise<string> {
   return projectDir;
 }
 
+async function createCliIacProject(): Promise<string> {
+  const projectDir = await fs.mkdtemp(path.join(os.tmpdir(), 'attestlens-cli-iac-'));
+  await fs.writeFile(
+    path.join(projectDir, 'Dockerfile'),
+    [
+      'FROM node:latest',
+      'RUN apt-get update && apt-get install -y curl',
+      'EXPOSE 80',
+      'CMD ["node", "server.js"]',
+    ].join('\n'),
+  );
+  return projectDir;
+}
+
 describe('CLI URL handling', () => {
   it('fails URL scans when the target is blocked or unreachable', async () => {
     const result = await runCli(['scan', 'http://localhost:3000']);
@@ -205,6 +219,9 @@ describe('CLI external enrichment option', () => {
     expect(scanHelp.stdout).toContain('--no-behavioral');
     expect(auditHelp.stdout).toContain('--no-behavioral');
     expect(attestHelp.stdout).toContain('--no-behavioral');
+    expect(scanHelp.stdout).toContain('--no-iac');
+    expect(auditHelp.stdout).toContain('--no-iac');
+    expect(attestHelp.stdout).toContain('--no-iac');
     expect(scanHelp.stdout).toContain('--include-gitleaks');
     expect(auditHelp.stdout).toContain('--include-gitleaks');
     expect(attestHelp.stdout).toContain('--include-gitleaks');
@@ -224,6 +241,9 @@ describe('CLI external enrichment option', () => {
         behavioral: {
           enabled: true,
         },
+        iac: {
+          enabled: true,
+        },
         gitleaks: {
           enabled: false,
           path: 'gitleaks',
@@ -240,6 +260,9 @@ describe('CLI external enrichment option', () => {
         registry: { enabled: true },
       },
       behavioral: {
+        enabled: true,
+      },
+      iac: {
         enabled: true,
       },
       gitleaks: {
@@ -263,6 +286,9 @@ describe('CLI external enrichment option', () => {
       behavioral: {
         enabled: true,
       },
+      iac: {
+        enabled: true,
+      },
       gitleaks: {
         enabled: false,
         path: 'gitleaks',
@@ -283,6 +309,9 @@ describe('CLI external enrichment option', () => {
       behavioral: {
         enabled: true,
       },
+      iac: {
+        enabled: true,
+      },
       gitleaks: {
         enabled: true,
         path: '/usr/local/bin/gitleaks',
@@ -299,6 +328,21 @@ describe('CLI external enrichment option', () => {
 
       const disabled = await runCli(['scan', projectDir, '--no-guardvibe', '--no-mcp-scan', '--no-supply-chain', '--no-behavioral']);
       expect(`${disabled.stdout}\n${disabled.stderr}`).not.toContain('VS-BH-001');
+      expect(disabled.code).toBe(0);
+    } finally {
+      await fs.rm(projectDir, { recursive: true, force: true });
+    }
+  });
+
+  it('disables IaC findings from CLI scans when requested', async () => {
+    const projectDir = await createCliIacProject();
+
+    try {
+      const enabled = await runCli(['scan', projectDir, '--no-guardvibe', '--no-mcp-scan', '--no-supply-chain', '--no-behavioral']);
+      expect(`${enabled.stdout}\n${enabled.stderr}`).toContain('VS-IAC-007');
+
+      const disabled = await runCli(['scan', projectDir, '--no-guardvibe', '--no-mcp-scan', '--no-supply-chain', '--no-behavioral', '--no-iac']);
+      expect(`${disabled.stdout}\n${disabled.stderr}`).not.toContain('VS-IAC-007');
       expect(disabled.code).toBe(0);
     } finally {
       await fs.rm(projectDir, { recursive: true, force: true });

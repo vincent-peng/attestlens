@@ -69,7 +69,7 @@ describe('MCP Server', () => {
   });
 
   describe('handleToolCall', () => {
-    it('exposes explicit enrichment, typosquat, behavioral, gitleaks, and timeout options on MCP scan tools', () => {
+    it('exposes explicit enrichment, typosquat, behavioral, iac, gitleaks, and timeout options on MCP scan tools', () => {
       const scanTool = MCP_TOOLS.find((tool) => tool.name === 'attestlens_scan');
       const auditTool = MCP_TOOLS.find((tool) => tool.name === 'attestlens_audit');
       const urlTool = MCP_TOOLS.find((tool) => tool.name === 'attestlens_scan_url');
@@ -86,6 +86,9 @@ describe('MCP Server', () => {
       expect(scanTool?.inputSchema.properties).toHaveProperty('behavioral');
       expect(auditTool?.inputSchema.properties).toHaveProperty('behavioral');
       expect(urlTool?.inputSchema.properties).not.toHaveProperty('behavioral');
+      expect(scanTool?.inputSchema.properties).toHaveProperty('iac');
+      expect(auditTool?.inputSchema.properties).toHaveProperty('iac');
+      expect(urlTool?.inputSchema.properties).not.toHaveProperty('iac');
       expect(scanTool?.inputSchema.properties).toHaveProperty('includeGitleaks');
       expect(auditTool?.inputSchema.properties).toHaveProperty('includeGitleaks');
       expect(urlTool?.inputSchema.properties).not.toHaveProperty('includeGitleaks');
