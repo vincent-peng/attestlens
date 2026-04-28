@@ -17,7 +17,7 @@ import { lookup } from 'node:dns/promises';
 import { isIP } from 'node:net';
 import { URL } from 'node:url';
 import type { AttestLensFinding, ScanSource, Severity } from '../schema/index.js';
-import type { ScannerAdapter, ScannerResult, ScannerError } from './types.js';
+import type { ScannerAdapter, ScannerContext, ScannerResult, ScannerError } from './types.js';
 import { HEADER_CHECKS } from './rules/url-headers.js';
 import { KEY_PATTERNS } from './rules/exposed-keys.js';
 import { INFRA_CHECKS, type InfraCheck } from './rules/infra-checks.js';
@@ -46,6 +46,7 @@ interface GuardedFetchOptions {
   headers?: HeadersInit;
   maxBytes?: number;
   blockBehavior?: 'throw' | 'skip';
+  signal?: AbortSignal;
 }
 
 class BlockedUrlError extends Error {
@@ -70,7 +71,7 @@ export class UrlScanAdapter implements ScannerAdapter {
     return this.version;
   }
 
-  async scan(targetPath: string): Promise<ScannerResult> {
+  async scan(targetPath: string, context?: ScannerContext): Promise<ScannerResult> {
     const startTime = Date.now();
     const findings: AttestLensFinding[] = [];
     const errors: ScannerError[] = [];
@@ -96,7 +97,7 @@ export class UrlScanAdapter implements ScannerAdapter {
 
     let pageResult: { headers: Headers; html: string; finalUrl: URL } | null = null;
     try {
-      pageResult = await this.fetchPage(targetUrl);
+      pageResult = await this.fetchPage(targetUrl, context?.signal);
     } catch (err: any) {
       if (err instanceof BlockedUrlError) {
         return {
@@ -141,7 +142,7 @@ export class UrlScanAdapter implements ScannerAdapter {
 
       // 4. Extract and fetch JS bundles using a strict total byte budget.
       const scriptUrls = this.extractScriptUrls(html, finalUrl);
-      const jsContents = await this.fetchJavaScriptBundles(scriptUrls);
+      const jsContents = await this.fetchJavaScriptBundles(scriptUrls, MAX_TOTAL_JS_SIZE, context?.signal);
 
       // 5. Check inline scripts
       const inlineScripts = this.extractInlineScripts(html);
@@ -161,12 +162,12 @@ export class UrlScanAdapter implements ScannerAdapter {
 
       // 8. Check infrastructure probes
       for (const check of INFRA_CHECKS) {
-        await this.probeInfra(check, finalUrl, findings);
+        await this.probeInfra(check, finalUrl, findings, context?.signal);
         await this.sleep(PROBE_DELAY_MS); // Rate limit probes
       }
 
       // 9. Check source maps
-      findings.push(...await this.checkSourceMaps(scriptUrls));
+      findings.push(...await this.checkSourceMaps(scriptUrls, context?.signal));
 
       // 10. Check cookie flags
       findings.push(...this.checkCookies(headers, finalUrl.href));
@@ -336,13 +337,14 @@ This addresses APP 11.1 (Security) and APP 6.1 (Use/Disclosure).`,
 
   // ─── Infrastructure Probes ──────────────────────────────────────────────
 
-  private async probeInfra(check: InfraCheck, baseUrl: URL, findings: AttestLensFinding[]): Promise<void> {
+  private async probeInfra(check: InfraCheck, baseUrl: URL, findings: AttestLensFinding[], signal?: AbortSignal): Promise<void> {
     try {
       const checkUrl = new URL(check.path, baseUrl).href;
       const response = await this.fetchGuardedText(checkUrl, {
         timeoutMs: REQUEST_TIMEOUT,
         method: check.method,
         blockBehavior: 'skip',
+        signal,
       });
 
       if (response && check.vulnerableStatuses.includes(response.status)) {
@@ -370,7 +372,7 @@ This addresses APP 11.1 (Security) and APP 6.1 (Use/Disclosure).`,
 
   // ─── Source Map Check ────────────────────────────────────────────────────
 
-  private async checkSourceMaps(scriptUrls: string[]): Promise<AttestLensFinding[]> {
+  private async checkSourceMaps(scriptUrls: string[], signal?: AbortSignal): Promise<AttestLensFinding[]> {
     const findings: AttestLensFinding[] = [];
     const sourceMapPattern = JS_PATTERNS.find(p => p.id === 'AL-JS-007');
     if (!sourceMapPattern) return findings;
@@ -381,6 +383,7 @@ This addresses APP 11.1 (Security) and APP 6.1 (Use/Disclosure).`,
         const response = await this.fetchGuardedText(mapUrl, {
           timeoutMs: 5000,
           blockBehavior: 'skip',
+          signal,
         });
 
         if (response?.ok && !this.isHtmlResponse(response)) {
@@ -483,6 +486,7 @@ This addresses APP 11.1 (Security).`,
   private async fetchJavaScriptBundles(
     urls: string[],
     maxTotalBytes: number = MAX_TOTAL_JS_SIZE,
+    signal?: AbortSignal,
   ): Promise<Map<string, string>> {
     const results = new Map<string, string>();
     let remainingJsBudget = maxTotalBytes;
@@ -494,6 +498,7 @@ This addresses APP 11.1 (Security).`,
         timeoutMs: JS_TIMEOUT,
         maxBytes: remainingJsBudget,
         blockBehavior: 'skip',
+        signal,
       });
 
       if (!response || !response.ok) {
@@ -515,11 +520,12 @@ This addresses APP 11.1 (Security).`,
     return results;
   }
 
-  private async fetchPage(url: URL): Promise<{ headers: Headers; html: string; finalUrl: URL } | null> {
+  private async fetchPage(url: URL, signal?: AbortSignal): Promise<{ headers: Headers; html: string; finalUrl: URL } | null> {
     const response = await this.fetchGuardedText(url, {
       timeoutMs: REQUEST_TIMEOUT,
       maxBytes: MAX_HTML_SIZE,
       blockBehavior: 'throw',
+      signal,
       headers: {
         'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
         'Accept-Language': 'en-US,en;q=0.5',
@@ -596,15 +602,22 @@ This addresses APP 11.1 (Security).`,
       }
 
       let response: Response;
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), options.timeoutMs);
+      const abort = () => controller.abort();
+      options.signal?.addEventListener('abort', abort, { once: true });
       try {
         response = await fetch(currentUrl.href, {
           method,
           headers,
-          signal: AbortSignal.timeout(options.timeoutMs),
+          signal: controller.signal,
           redirect: 'manual',
         });
       } catch {
         return null;
+      } finally {
+        clearTimeout(timeout);
+        options.signal?.removeEventListener('abort', abort);
       }
 
       if (this.isRedirectStatus(response.status)) {

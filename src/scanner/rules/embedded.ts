@@ -4,8 +4,8 @@ import { INFRA_CHECKS } from './infra-checks.js';
 import { JS_PATTERNS } from './js-analysis.js';
 import { HEADER_CHECKS } from './url-headers.js';
 
-export const EMBEDDED_RULE_PACK_VERSION = '2026.04.26';
-export const EMBEDDED_RULE_PACK_GENERATED = '2026-04-26T00:00:00.000Z';
+export const EMBEDDED_RULE_PACK_VERSION = '2026.04.28';
+export const EMBEDDED_RULE_PACK_GENERATED = '2026-04-28T00:00:00.000Z';
 
 const app11Mapping: APPMapping = {
   principle: 'APP_11',
@@ -56,7 +56,7 @@ const guardVibeStaticRules: RuleDefinition[] = [
     severity: 'critical',
     title: 'Hardcoded secret key',
     description: 'A hardcoded secret key was found in source code. Secrets should never be committed.',
-    pattern: String.raw`(?:api[_-]?key|secret[_-]?key|private[_-]?key|access[_-]?token)\s*[:=]\s*['"]?[A-Za-z0-9+/=_-]{16,}['"]?`,
+    pattern: String.raw`\b[A-Za-z0-9_]*(?:api[_-]?key|secret[_-]?key|private[_-]?key|access[_-]?token)[A-Za-z0-9_]*\s*[:=]\s*['"]?[A-Za-z0-9+/=_-]{16,}['"]?`,
     flags: 'gi',
     fixPrompt: 'Move secrets to environment variables (.env.local, not committed). Add to .gitignore.',
     appMappings: [app11Mapping],
@@ -70,7 +70,7 @@ const guardVibeStaticRules: RuleDefinition[] = [
     severity: 'high',
     title: 'Potential SQL injection vector',
     description: 'Dynamic query construction detected that may allow SQL injection through user input.',
-    pattern: String.raw`(?:\.from\(|\.raw\(|sql\`|\.query\().*(?:\$\{|\`|\+\s*(?:req\.|params|query))`,
+    pattern: String.raw`(?:\.raw\(|\.query\(|sql\`).*(?:\+\s*(?:req\.|params\.|query\.|body\.)|\$\{\s*(?:req\.|params\.|query\.|body\.))`,
     flags: 'gi',
     fixPrompt: 'Use parameterized queries. Supabase client .from().select() is parameterized; avoid raw SQL with string interpolation.',
     appMappings: [app11Mapping],

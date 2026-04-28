@@ -159,6 +159,61 @@ describe('scanOsvVulnerabilities', () => {
     expect(raw.references).toEqual(['https://example.com/unsafe']);
   });
 
+  it('maps CVSS v3 vectors to severity and keeps the highest valid signal', async () => {
+    const cases = [
+      {
+        id: 'GHSA-cvss-critical',
+        vector: 'CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H',
+        label: 'LOW',
+        expected: 'critical',
+      },
+      {
+        id: 'GHSA-cvss-high',
+        vector: 'CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:H/I:H/A:H',
+        expected: 'high',
+      },
+      {
+        id: 'GHSA-cvss-medium',
+        vector: 'CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:L/I:L/A:N',
+        expected: 'medium',
+      },
+      {
+        id: 'GHSA-cvss-low',
+        vector: 'CVSS:3.1/AV:L/AC:H/PR:H/UI:R/S:U/C:L/I:N/A:N',
+        expected: 'low',
+      },
+    ] as const;
+
+    for (const testCase of cases) {
+      const fetchImpl: FetchLike = async (input) => {
+        const url = String(input);
+        if (url === OSV_QUERY_BATCH_URL) {
+          return jsonResponse({ results: [{ vulns: [{ id: testCase.id }] }] });
+        }
+        if (url === `${OSV_VULN_URL}${testCase.id}`) {
+          return jsonResponse({
+            id: testCase.id,
+            summary: 'CVSS vector case',
+            database_specific: 'label' in testCase ? { severity: testCase.label } : undefined,
+            severity: [{ type: 'CVSS_V3', score: testCase.vector }],
+          });
+        }
+        return jsonResponse({}, 404);
+      };
+
+      const result = await scanOsvVulnerabilities(
+        [{ name: 'vulnerable-package', version: '1.0.0' }],
+        tmpDir,
+        '0.2.0',
+        { fetchImpl },
+      );
+
+      expect(result.errors).toEqual([]);
+      expect(result.findings).toHaveLength(1);
+      expect(result.findings[0].severity).toBe(testCase.expected);
+    }
+  });
+
   it('returns a recoverable error when querybatch times out', async () => {
     const fetchImpl: FetchLike = (_input, init) => new Promise((_resolve, reject) => {
       init?.signal?.addEventListener('abort', () => {

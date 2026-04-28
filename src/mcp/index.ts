@@ -28,7 +28,7 @@ import {
   generatePDFReport,
 } from '../report/generator.js';
 import type { ReportFormat, ReportOptions } from '../report/generator.js';
-import { ScannerOrchestrator } from '../scanner/orchestrator.js';
+import { ScannerOrchestrator, type ScannerOrchestratorOptions } from '../scanner/orchestrator.js';
 import type { ScannerError, ScannerResult } from '../scanner/types.js';
 import { RuleFreshness as RuleFreshnessSchema } from '../schema/index.js';
 import type { AttestLensFinding } from '../schema/index.js';
@@ -47,6 +47,39 @@ export const MCP_TOOLS = [
       properties: {
         path: { type: 'string', description: 'Path to the project directory to scan' },
         strict: { type: 'boolean', description: 'Treat UNKNOWN controls as FAIL', default: false },
+        externalEnrichment: {
+          type: 'boolean',
+          description: 'Enable external OSV.dev and npm registry dependency enrichment',
+          default: false,
+        },
+        includeTyposquat: {
+          type: 'boolean',
+          description: 'Enable experimental typosquatting detection (VS-SC-004)',
+          default: false,
+        },
+        behavioral: {
+          type: 'boolean',
+          description: 'Enable behavioral supply-chain analysis',
+          default: true,
+        },
+        iac: {
+          type: 'boolean',
+          description: 'Enable infrastructure-as-code misconfiguration scanning',
+          default: true,
+        },
+        includeGitleaks: {
+          type: 'boolean',
+          description: 'Enable opt-in git history secret scanning via gitleaks',
+          default: false,
+        },
+        gitleaksPath: {
+          type: 'string',
+          description: 'Path to gitleaks binary',
+        },
+        scannerTimeoutMs: {
+          type: 'number',
+          description: 'Per-scanner timeout in milliseconds',
+        },
       },
       required: ['path'],
     },
@@ -59,6 +92,10 @@ export const MCP_TOOLS = [
       properties: {
         url: { type: 'string', description: 'Public http(s) URL to scan' },
         strict: { type: 'boolean', description: 'Treat UNKNOWN controls as FAIL', default: false },
+        scannerTimeoutMs: {
+          type: 'number',
+          description: 'Per-scanner timeout in milliseconds',
+        },
       },
       required: ['url'],
     },
@@ -73,6 +110,39 @@ export const MCP_TOOLS = [
         name: { type: 'string', description: 'Project name for the report' },
         format: { type: 'string', enum: ['json', 'html', 'markdown', 'pdf'], description: 'Output format', default: 'json' },
         strict: { type: 'boolean', description: 'Treat UNKNOWN controls as FAIL', default: false },
+        externalEnrichment: {
+          type: 'boolean',
+          description: 'Enable external OSV.dev and npm registry dependency enrichment',
+          default: false,
+        },
+        includeTyposquat: {
+          type: 'boolean',
+          description: 'Enable experimental typosquatting detection (VS-SC-004)',
+          default: false,
+        },
+        behavioral: {
+          type: 'boolean',
+          description: 'Enable behavioral supply-chain analysis',
+          default: true,
+        },
+        iac: {
+          type: 'boolean',
+          description: 'Enable infrastructure-as-code misconfiguration scanning',
+          default: true,
+        },
+        includeGitleaks: {
+          type: 'boolean',
+          description: 'Enable opt-in git history secret scanning via gitleaks',
+          default: false,
+        },
+        gitleaksPath: {
+          type: 'string',
+          description: 'Path to gitleaks binary',
+        },
+        scannerTimeoutMs: {
+          type: 'number',
+          description: 'Per-scanner timeout in milliseconds',
+        },
       },
       required: ['path'],
     },
@@ -168,14 +238,46 @@ export function validateUrl(targetUrl: string): string {
   return parsed.toString();
 }
 
-function createOrchestrator(targetKind: 'path' | 'url'): ScannerOrchestrator {
-  const orchestrator = new ScannerOrchestrator();
+function createOrchestrator(
+  targetKind: 'path' | 'url',
+  options: { externalEnrichment?: boolean; includeTyposquat?: boolean; behavioral?: boolean; iac?: boolean; includeGitleaks?: boolean; gitleaksPath?: string; scannerTimeoutMs?: number } = {},
+): ScannerOrchestrator {
+  const externalEnrichment = targetKind === 'path' && options.externalEnrichment === true;
+  const orchestratorOptions: ScannerOrchestratorOptions = {
+    adapterTimeoutMs: options.scannerTimeoutMs,
+    supplyChain: {
+      typosquat: { enabled: targetKind === 'path' && options.includeTyposquat === true },
+      osv: { enabled: externalEnrichment },
+      registry: { enabled: externalEnrichment },
+    },
+    behavioral: {
+      enabled: targetKind === 'path' && options.behavioral !== false,
+    },
+    iac: {
+      enabled: targetKind === 'path' && options.iac !== false,
+    },
+    gitleaks: {
+      enabled: targetKind === 'path' && options.includeGitleaks === true,
+      path: options.gitleaksPath || 'gitleaks',
+    },
+  };
+  const orchestrator = new ScannerOrchestrator(orchestratorOptions);
   if (targetKind === 'url') {
     orchestrator.disable('guardvibe');
     orchestrator.disable('mcp-scan');
     orchestrator.disable('supply-chain');
   }
   return orchestrator;
+}
+
+function parseScannerTimeoutMs(value: unknown): number | undefined {
+  if (value === undefined || value === null) {
+    return undefined;
+  }
+  if (typeof value !== 'number' || !Number.isInteger(value) || value <= 0) {
+    throw new McpError(ErrorCode.InvalidParams, 'scannerTimeoutMs must be a positive integer number of milliseconds');
+  }
+  return value;
 }
 
 function serializeFindings(findings: AttestLensFinding[]) {
@@ -191,6 +293,7 @@ function serializeFindings(findings: AttestLensFinding[]) {
     url: finding.url,
     fix: finding.fix,
     fixPrompt: finding.fixPrompt,
+    corroboratedBy: finding.corroboratedBy,
     appMappings: finding.appMappings.map((mapping) => ({
       principle: mapping.principle,
       obligation: mapping.obligation,
@@ -315,8 +418,15 @@ export async function handleToolCall(name: string, args: Record<string, unknown>
     case 'attestlens_scan': {
       const targetPath = await validatePath(args?.path as string);
       const strict = args?.strict === true;
+      const externalEnrichment = args?.externalEnrichment === true;
+      const includeTyposquat = args?.includeTyposquat === true;
+      const behavioral = args?.behavioral !== false;
+      const iac = args?.iac !== false;
+      const includeGitleaks = args?.includeGitleaks === true;
+      const gitleaksPath = typeof args?.gitleaksPath === 'string' ? args.gitleaksPath : undefined;
+      const scannerTimeoutMs = parseScannerTimeoutMs(args?.scannerTimeoutMs);
 
-      const orchestrator = createOrchestrator('path');
+      const orchestrator = createOrchestrator('path', { externalEnrichment, includeTyposquat, behavioral, iac, includeGitleaks, gitleaksPath, scannerTimeoutMs });
       const result = await orchestrator.scan(targetPath);
 
       return {
@@ -334,8 +444,9 @@ export async function handleToolCall(name: string, args: Record<string, unknown>
     case 'attestlens_scan_url': {
       const targetUrl = validateUrl(args?.url as string);
       const strict = args?.strict === true;
+      const scannerTimeoutMs = parseScannerTimeoutMs(args?.scannerTimeoutMs);
 
-      const orchestrator = createOrchestrator('url');
+      const orchestrator = createOrchestrator('url', { scannerTimeoutMs });
       const result = await orchestrator.scan(targetUrl);
       const urlScanFailure = getUrlScanFailureError(result);
       if (urlScanFailure) {
@@ -359,8 +470,15 @@ export async function handleToolCall(name: string, args: Record<string, unknown>
       const projectName = (args?.name as string) || path.basename(targetPath) || 'project';
       const format = parseReportFormat(args?.format);
       const strict = args?.strict === true;
+      const externalEnrichment = args?.externalEnrichment === true;
+      const includeTyposquat = args?.includeTyposquat === true;
+      const behavioral = args?.behavioral !== false;
+      const iac = args?.iac !== false;
+      const includeGitleaks = args?.includeGitleaks === true;
+      const gitleaksPath = typeof args?.gitleaksPath === 'string' ? args.gitleaksPath : undefined;
+      const scannerTimeoutMs = parseScannerTimeoutMs(args?.scannerTimeoutMs);
 
-      const orchestrator = createOrchestrator('path');
+      const orchestrator = createOrchestrator('path', { externalEnrichment, includeTyposquat, behavioral, iac, includeGitleaks, gitleaksPath, scannerTimeoutMs });
       const startTime = Date.now();
       const scanResult = await orchestrator.scan(targetPath);
       const duration = Date.now() - startTime;

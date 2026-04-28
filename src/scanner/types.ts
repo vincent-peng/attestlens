@@ -33,8 +33,19 @@ export interface OrchestratedScanResult {
   ruleFreshness: RuleFreshness;
 }
 
+export type ScannerProgressPhase = 'start' | 'complete' | 'skip' | 'warning' | 'timeout';
+
+export interface ScannerProgressEvent {
+  source: ScanSource;
+  phase: ScannerProgressPhase;
+  message: string;
+  elapsedMs?: number;
+}
+
 export interface ScannerContext {
   rulePack: RulePackManifest;
+  signal?: AbortSignal;
+  onProgress?: (event: ScannerProgressEvent) => void;
 }
 
 // ─── Scanner Adapter Interface ───────────────────────────────────────────────

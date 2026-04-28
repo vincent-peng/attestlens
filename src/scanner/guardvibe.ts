@@ -13,7 +13,7 @@ import path from 'node:path';
 import type { AttestLensFinding, ScanSource } from '../schema/index.js';
 import type { ScannerAdapter, ScannerContext, ScannerResult, ScannerError, GuardVibeFinding, GuardVibeAuditResult } from './types.js';
 import { getExecutableGuardVibeStaticRuleSet } from './rules/executable.js';
-import { scanRepoStackChecks } from './rules/repo-stack-checks.js';
+import { scanRepoStackChecks, shouldSkipRepoScanPath } from './rules/repo-stack-checks.js';
 
 export class GuardVibeAdapter implements ScannerAdapter {
   readonly name: ScanSource = 'guardvibe';
@@ -68,19 +68,22 @@ export class GuardVibeAdapter implements ScannerAdapter {
     const findings: AttestLensFinding[] = [];
 
     try {
-      const { execFileSync } = await import('node:child_process');
+      const { execFile } = await import('node:child_process');
+      const { promisify } = await import('node:util');
+      const execFileAsync = promisify(execFile);
       
       // Run GuardVibe full_audit tool via CLI
-      // Use execFileSync to prevent command injection (args are not shell-interpolated)
-      const result = execFileSync(
+      // Use execFile to prevent command injection (args are not shell-interpolated)
+      const { stdout } = await execFileAsync(
         this.binaryPath,
         ['@guardvibe/cli', 'full_audit', '--path', safePath, '--format', 'json'],
         { 
-          stdio: 'pipe' as const, 
           timeout: 120000,
           cwd: safePath,
+          signal: context?.signal,
         }
-      ).toString();
+      );
+      const result = stdout.toString();
 
       const auditResult: GuardVibeAuditResult = JSON.parse(result);
       
@@ -179,7 +182,7 @@ export class GuardVibeAdapter implements ScannerAdapter {
             for (let i = 0; i < lines.length; i++) {
               pattern.regex.lastIndex = 0;
               const match = pattern.regex.exec(lines[i]);
-              if (match) {
+              if (match && this.shouldKeepStaticMatch(pattern.rule, relativePath, match[0])) {
                 findings.push({
                   id: this.generateId('guardvibe', pattern.rule, relativePath, i + 1),
                   source: 'guardvibe',
@@ -239,11 +242,12 @@ export class GuardVibeAdapter implements ScannerAdapter {
       const entries = await fs.readdir(dir, { withFileTypes: true });
       for (const entry of entries) {
         const fullPath = pathModule.join(dir, entry.name);
+        const relativePath = pathModule.relative(targetPath, fullPath);
         if (entry.isDirectory()) {
-          if (!excludeDirs.includes(entry.name)) {
+          if (!excludeDirs.includes(entry.name) && !shouldSkipRepoScanPath(relativePath)) {
             await walk(fullPath);
           }
-        } else if (extensions.some(ext => entry.name.endsWith(ext))) {
+        } else if (extensions.some(ext => entry.name.endsWith(ext)) && !shouldSkipRepoScanPath(relativePath)) {
           files.push(fullPath);
         }
       }
@@ -251,6 +255,21 @@ export class GuardVibeAdapter implements ScannerAdapter {
 
     await walk(targetPath);
     return files;
+  }
+
+  private shouldKeepStaticMatch(rule: string, relativePath: string, matchText: string): boolean {
+    if (rule !== 'VS-HARDKEY') {
+      return true;
+    }
+
+    const assignment = /[:=]\s*(?<value>['"]?[A-Za-z0-9+/=_-]{16,}['"]?)/.exec(matchText);
+    const value = assignment?.groups?.value;
+    if (!value) {
+      return false;
+    }
+
+    const quoted = value.startsWith('"') || value.startsWith("'");
+    return isEnvLikePath(relativePath) || quoted;
   }
 
   private mapSeverity(severity: string): 'critical' | 'high' | 'medium' | 'low' | 'info' {
@@ -288,6 +307,11 @@ export class GuardVibeAdapter implements ScannerAdapter {
       return !specificLocations.has(`${finding.file || ''}:${finding.line || ''}`);
     });
   }
+}
+
+function isEnvLikePath(relativePath: string): boolean {
+  const basename = relativePath.replace(/\\/g, '/').split('/').pop()?.toLowerCase() || '';
+  return basename === '.env' || basename.startsWith('.env.');
 }
 
 export default GuardVibeAdapter;

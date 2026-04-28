@@ -21,6 +21,9 @@ export const ScanSource = z.enum([
   'mcp-scan',
   'vibe-check',
   'supply-chain',
+  'behavioral',
+  'gitleaks',
+  'iac',
   'url-scan',
   'manual',
   'questionnaire',
@@ -100,6 +103,7 @@ export const AttestLensFinding = z.object({
   url: z.string().optional(),            // Source URL (for url-scan findings)
   fix: z.string().optional(),           // Suggested fix
   fixPrompt: z.string().optional(),     // AI-ready fix prompt for Cursor/Copilot
+  corroboratedBy: z.array(ScanSource).optional(), // Other scanner sources merged into this finding
   appMappings: z.array(APPMapping),
   evidence: FindingEvidence,
 });

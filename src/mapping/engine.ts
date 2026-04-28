@@ -18,6 +18,7 @@ import {
   type APPMapping,
   type APPControl,
 } from '../schema/index.js';
+import { calculateMappingConfidence } from './confidence.js';
 
 // ─── Mapping Rules ──────────────────────────────────────────────────────────
 
@@ -543,6 +544,20 @@ const NDB_RULES: MappingRule[] = [
     oaicReference: 'APP Guidelines Chapter 11.1',
   },
   {
+    id: 'MAP-051',
+    name: 'Low-Maturity Dependency → APP 11.1',
+    sourcePatterns: {
+      ruleId: /^VS-SC-010$/,
+      category: /^Supply Chain Maturity$/i,
+      severity: ['medium', 'high', 'critical'],
+    },
+    appPrinciple: 'APP_11',
+    status: 'unknown',
+    confidence: 0.74,
+    rationale: 'Low package maturity is a supply-chain risk indicator. Manual review is required to determine whether the dependency is appropriate for production systems handling personal information.',
+    oaicReference: 'APP Guidelines Chapter 11.1',
+  },
+  {
     id: 'MAP-025',
     name: 'Missing Lockfile → APP 11.1',
     sourcePatterns: {
@@ -556,6 +571,194 @@ const NDB_RULES: MappingRule[] = [
     confidence: 0.85,
     rationale: 'Missing or invalid lockfiles make dependency resolution non-deterministic, increasing supply chain risk. Under APP 11.1, entities must ensure reproducible builds to maintain the security of personal information.',
     oaicReference: 'APP Guidelines Chapter 11.6',
+  },
+  {
+    id: 'MAP-037',
+    name: 'Behavioral Dependency Signal → APP 11.1',
+    sourcePatterns: {
+      ruleId: /^VS-BH-\d+$/,
+      category: /^Behavioral Supply Chain$/i,
+      severity: ['critical', 'high', 'medium', 'low'],
+    },
+    appPrinciple: 'APP_11',
+    status: 'fail',
+    confidence: 0.82,
+    rationale: 'Runtime-capable dependency behavior can affect whether reasonable steps are being taken to protect personal information under APP 11.1.',
+    oaicReference: 'APP Guidelines Chapter 11.1',
+  },
+  {
+    id: 'MAP-038',
+    name: 'Network-Capable Dependency → APP 8',
+    sourcePatterns: {
+      ruleId: /^VS-BH-002$/,
+      category: /^Behavioral Supply Chain$/i,
+    },
+    appPrinciple: 'APP_8',
+    status: 'unknown',
+    confidence: 0.70,
+    rationale: 'A dependency with outbound network capability may create cross-border disclosure pathways. APP 8 impact depends on runtime configuration and actual data destinations.',
+    oaicReference: 'APP Guidelines Chapter 8',
+  },
+  {
+    id: 'MAP-039',
+    name: 'Secret-Adjacent Dependency Behavior → NDB',
+    sourcePatterns: {
+      ruleId: /^VS-BH-00[46]$/,
+      category: /^Behavioral Supply Chain$/i,
+    },
+    appPrinciple: 'NDB',
+    status: 'unknown',
+    confidence: 0.68,
+    rationale: 'Dependency access to environment secrets or high-entropy embedded strings may create a breach pathway. NDB impact depends on whether credentials or personal information are exposed.',
+    oaicReference: 'NDB Guidelines s26WE',
+  },
+  {
+    id: 'MAP-040',
+    name: 'Git History Secret → APP 11.1',
+    sourcePatterns: {
+      ruleId: /^VS-GL-/,
+      category: /(credential|secret|key|token)/i,
+      severity: ['critical', 'high', 'medium'],
+    },
+    matchMode: 'or',
+    appPrinciple: 'APP_11',
+    status: 'fail',
+    confidence: 0.92,
+    rationale: 'Secrets committed to git history can remain exposed after deletion from the current tree. Reasonable security steps under APP 11.1 include detecting and rotating exposed credentials.',
+    oaicReference: 'APP Guidelines Chapter 11.1',
+  },
+  {
+    id: 'MAP-041',
+    name: 'Git History Secret → NDB',
+    sourcePatterns: {
+      ruleId: /^VS-GL-/,
+      severity: ['critical', 'high'],
+    },
+    appPrinciple: 'NDB',
+    status: 'unknown',
+    confidence: 0.82,
+    rationale: 'A credential exposed in git history may create a data-breach pathway. NDB impact depends on whether the credential was valid, accessed, and connected to personal information.',
+    oaicReference: 'NDB Guidelines s26WE',
+  },
+  {
+    id: 'MAP-042',
+    name: 'SAST Lite Security Pattern → APP 11.1',
+    sourcePatterns: {
+      ruleId: /^VS-SAST-\d+$/,
+      category: /^SAST Lite$/i,
+      severity: ['critical', 'high', 'medium', 'low'],
+    },
+    appPrinciple: 'APP_11',
+    status: 'fail',
+    confidence: 0.78,
+    rationale: 'Compliance-critical source patterns can indicate missing reasonable security controls for personal information under APP 11.1.',
+    oaicReference: 'APP Guidelines Chapter 11.1',
+  },
+  {
+    id: 'MAP-043',
+    name: 'SAST Lite Cross-Border/Data Flow Pattern → APP 8',
+    sourcePatterns: {
+      ruleId: /^VS-SAST-00[6]|^VS-SAST-010$/,
+      category: /^SAST Lite$/i,
+    },
+    appPrinciple: 'APP_8',
+    status: 'unknown',
+    confidence: 0.65,
+    rationale: 'Outbound request and wildcard CORS patterns may create cross-border disclosure pathways. APP 8 impact depends on actual destinations and data sent.',
+    oaicReference: 'APP Guidelines Chapter 8',
+  },
+  {
+    id: 'MAP-044',
+    name: 'SAST Lite Secret/Data Exposure Pattern → NDB',
+    sourcePatterns: {
+      ruleId: /^VS-SAST-00[17]|^VS-SAST-011|^VS-SAST-012|^VS-SAST-013$/,
+      category: /^SAST Lite$/i,
+    },
+    appPrinciple: 'NDB',
+    status: 'unknown',
+    confidence: 0.72,
+    rationale: 'Secrets, sensitive logging, URL-exposed data, localStorage secrets, and unencrypted object storage may create a breach pathway requiring NDB assessment.',
+    oaicReference: 'NDB Guidelines s26WE',
+  },
+  {
+    id: 'MAP-045',
+    name: 'Personal Data Collection Pattern → APP 3',
+    sourcePatterns: {
+      ruleId: /^VS-SAST-019$/,
+      category: /^SAST Lite$/i,
+    },
+    appPrinciple: 'APP_3',
+    status: 'unknown',
+    confidence: 0.65,
+    rationale: 'Personal data collection without a visible consent, notice, or lawful-basis check may affect whether collection is lawful, fair, and necessary.',
+    oaicReference: 'APP Guidelines Chapter 3',
+  },
+  {
+    id: 'MAP-046',
+    name: 'Personal Data Retention Pattern → APP 12',
+    sourcePatterns: {
+      ruleId: /^VS-SAST-020$/,
+      category: /^SAST Lite$/i,
+    },
+    appPrinciple: 'APP_12',
+    status: 'unknown',
+    confidence: 0.60,
+    rationale: 'Personal data writes without visible retention or deletion controls may affect access and lifecycle handling obligations.',
+    oaicReference: 'APP Guidelines Chapter 12',
+  },
+  {
+    id: 'MAP-047',
+    name: 'IaC Misconfiguration → APP 11.1',
+    sourcePatterns: {
+      ruleId: /^VS-IAC-\d+$/,
+      category: /^Infrastructure as Code$/i,
+      severity: ['critical', 'high', 'medium', 'low'],
+    },
+    appPrinciple: 'APP_11',
+    status: 'fail',
+    confidence: 0.82,
+    rationale: 'Infrastructure-as-code misconfigurations can weaken reasonable technical controls used to protect personal information under APP 11.1.',
+    oaicReference: 'APP Guidelines Chapter 11.1',
+  },
+  {
+    id: 'MAP-048',
+    name: 'IaC Secret Exposure → NDB',
+    sourcePatterns: {
+      ruleId: /^VS-IAC-00[5]|^VS-IAC-024$/,
+      category: /^Infrastructure as Code$/i,
+      severity: ['critical', 'high'],
+    },
+    appPrinciple: 'NDB',
+    status: 'unknown',
+    confidence: 0.76,
+    rationale: 'Secrets embedded in infrastructure configuration may create a data-breach pathway. NDB impact depends on credential validity, access, and connected personal information.',
+    oaicReference: 'NDB Guidelines s26WE',
+  },
+  {
+    id: 'MAP-049',
+    name: 'Public IaC Storage Exposure → APP 8',
+    sourcePatterns: {
+      ruleId: /^VS-IAC-017$/,
+      category: /^Infrastructure as Code$/i,
+    },
+    appPrinciple: 'APP_8',
+    status: 'unknown',
+    confidence: 0.78,
+    rationale: 'Public storage infrastructure can disclose personal information to unauthorised or overseas recipients. APP 8 impact depends on the data stored and recipient locations.',
+    oaicReference: 'APP Guidelines Chapter 8',
+  },
+  {
+    id: 'MAP-050',
+    name: 'IaC Logging Gap → NDB',
+    sourcePatterns: {
+      ruleId: /^VS-IAC-023$/,
+      category: /^Infrastructure as Code$/i,
+    },
+    appPrinciple: 'NDB',
+    status: 'unknown',
+    confidence: 0.70,
+    rationale: 'Missing infrastructure logging can limit the ability to detect, assess, and respond to eligible data breaches.',
+    oaicReference: 'NDB Guidelines s26WE',
   },
   {
     id: 'MAP-036',
@@ -691,7 +894,7 @@ export function mapFindingToAPP(finding: AttestLensFinding): APPMapping[] {
         principle: rule.appPrinciple,
         obligation: APPInfo[rule.appPrinciple].obligation,
         status: rule.status,
-        confidence: rule.confidence,
+        confidence: calculateMappingConfidence(rule.confidence, finding),
         rationale: rule.rationale,
       });
     }
@@ -725,10 +928,13 @@ function matchRule(finding: AttestLensFinding, rule: MappingRule): boolean {
   const severityOk = !sourcePatterns.severity || sourcePatterns.severity.includes(finding.severity);
 
   // Evaluate each defined pattern field
-  const ruleIdMatch = !sourcePatterns.ruleId || sourcePatterns.ruleId.test(finding.sourceRule);
-  const categoryMatch = !sourcePatterns.category || sourcePatterns.category.test(finding.category);
-  const titleMatch = !sourcePatterns.title || sourcePatterns.title.test(finding.title);
-  const descriptionMatch = !sourcePatterns.description || sourcePatterns.description.test(finding.description);
+  const ruleIds = getRuleIdsForMatching(finding);
+  const title = getTitleForMatching(finding);
+  const description = getDescriptionForMatching(finding);
+  const ruleIdMatch = !sourcePatterns.ruleId || ruleIds.some((ruleId) => patternMatches(sourcePatterns.ruleId!, ruleId));
+  const categoryMatch = !sourcePatterns.category || patternMatches(sourcePatterns.category, finding.category);
+  const titleMatch = !sourcePatterns.title || patternMatches(sourcePatterns.title, title);
+  const descriptionMatch = !sourcePatterns.description || patternMatches(sourcePatterns.description, description);
 
   // 'or' mode (legacy): any defined field matches
   // 'and' mode (default for new rules): all defined fields must match
@@ -745,6 +951,42 @@ function matchRule(finding: AttestLensFinding, rule: MappingRule): boolean {
 
   // AND (default): all defined fields must match
   return ruleIdMatch && categoryMatch && titleMatch && descriptionMatch && severityOk;
+}
+
+function getRawOutputObject(finding: AttestLensFinding): Record<string, unknown> {
+  return typeof finding.evidence.rawOutput === 'object' && finding.evidence.rawOutput !== null
+    ? finding.evidence.rawOutput as Record<string, unknown>
+    : {};
+}
+
+function getRuleIdsForMatching(finding: AttestLensFinding): string[] {
+  const rawOutput = getRawOutputObject(finding);
+  const ruleIds = [finding.sourceRule];
+  if (typeof rawOutput.osvSourceRule === 'string' && rawOutput.osvSourceRule.length > 0) {
+    ruleIds.push(rawOutput.osvSourceRule);
+  }
+  return ruleIds;
+}
+
+function getTitleForMatching(finding: AttestLensFinding): string {
+  const rawOutput = getRawOutputObject(finding);
+  return [
+    finding.title,
+    typeof rawOutput.osvFindingTitle === 'string' ? rawOutput.osvFindingTitle : undefined,
+  ].filter(Boolean).join(' ');
+}
+
+function getDescriptionForMatching(finding: AttestLensFinding): string {
+  const rawOutput = getRawOutputObject(finding);
+  return [
+    finding.description,
+    typeof rawOutput.osvFindingDescription === 'string' ? rawOutput.osvFindingDescription : undefined,
+  ].filter(Boolean).join(' ');
+}
+
+function patternMatches(pattern: RegExp, value: string): boolean {
+  pattern.lastIndex = 0;
+  return pattern.test(value);
 }
 
 /**

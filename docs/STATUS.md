@@ -1,9 +1,11 @@
 # AttestLens — Status
 
-**Last Updated:** 2026-04-26
+**Last Updated:** 2026-04-28
 **Purpose:** Near-term source of truth for product status, current milestone, and next actions.
 
-**Current focus:** M3 scanner enhancement is underway. M3.1 (OSV.dev) and M3.2 (dependency provenance) are implemented; next implementation is M3.3 (dynamic confidence) → M3.4 (adapter timeouts/progress).
+**Current focus:** M3 scanner enhancement implementation, local validation, and P0/P1 review-fallout fixes are complete. The next gate is design-partner report review, with P2 URL-corpus hardening tracked before dashboard/SaaS work.
+
+**Sellable roadmap:** See `docs/SELLABLE-TODOS.md` for the prioritized path to a sellable product. Key additions beyond M3: Privacy Act 2026 reform module (P1.1), SMB compliance tier (P1.2), NDB breach penalty calculator (P1.5). Market research at `docs/COMPETITIVE-MARKET-RESEARCH.md`.
 
 ---
 
@@ -78,13 +80,23 @@ In practice, that means:
   - OSV findings emitted as `supply-chain` findings with dynamic `VS-OSV-<OSV_ID>` rule IDs
   - direct production dependency provenance finding `VS-SC-009` for packages without repository or homepage metadata
   - local `node_modules` provenance checks by default, with opt-in npm registry metadata fallback via `--external-enrichment`
+  - `VS-SC-004` typosquat findings disabled by default and available only with explicit `--include-typosquat` / MCP opt-in
+  - dynamic APP mapping confidence for typosquat edit distance, auth-sensitive URL headers, template env files, and OSV/npm audit corroboration
+  - per-adapter scanner timeout and progress callback support, with CLI/MCP timeout overrides and recoverable `SCANNER_TIMEOUT` warnings
+  - behavioral supply-chain adapter for direct production dependencies, default-on for path scans with `--no-behavioral` / MCP `behavioral?: boolean`
+  - opt-in git history secret scanning via gitleaks, with `--include-gitleaks`, `--gitleaks-path`, and matching MCP inputs
+  - SAST-lite compliance-critical source patterns in the GuardVibe/static-rule path
+  - default-on IaC scanning for Dockerfile and Terraform misconfigurations via `iac` source, CLI `--no-iac`, and MCP `iac?: boolean`
+  - canonical cross-scanner deduplication that preserves strongest evidence and adds optional `corroboratedBy?: ScanSource[]` only when findings merge
+  - opt-in package maturity scoring via `--external-enrichment`, emitting `VS-SC-010` for risky maturity signals
 
 ### In Progress
 
 - Design-partner validation and consultant/MSP outreach
 - Design-partner feedback tracking in `docs/validation/DESIGN-PARTNER-VALIDATION.md`
-- External validation remains required; the 2026-04-25 local gate found no local P0/P1 report-shape issue but does not replace design-partner feedback
-- Validation-driven rule cleanup for remaining live-site false positives and CDN/bot-blocked targets
+- External validation remains required; the 2026-04-28 local gate found no remaining P0/P1 M3.8-M3.10 scanner credibility issue after follow-up fixes, but does not replace design-partner feedback
+- P2 URL-corpus hardening for CDN/bot-blocked startup failures and blocked-target report wording
+- Validation-driven rule cleanup for remaining lower-priority false positives, timeout behavior, dedup/report narrative issues, and live-target instability
 
 ### Not Shipped
 
@@ -174,14 +186,16 @@ Full spec: `docs/milestones/M3-SCANNER-ENHANCEMENT.md`
 
 - ✅ M3.1 — OSV.dev vulnerability integration (`--external-enrichment`)
 - ✅ M3.2 — Dependency provenance detection (`VS-SC-009`; registry fallback is opt-in)
-- M3.3 — Dynamic confidence scoring (1 day)
-- M3.4 — Per-adapter timeout + progress reporting (2 days)
-- M3.5 — Behavioral supply-chain analysis (1 week)
-- M3.6 — Git history secret scanning via gitleaks (3 days)
-- M3.7 — SAST lite: compliance-critical patterns (1 week)
-- M3.8 — IaC misconfiguration: Dockerfile + Terraform (1 week)
-- M3.9 — Cross-scanner finding deduplication (1 day)
-- M3.10 — Package maturity scoring (1 day)
+- ✅ M3.3 — Dynamic confidence scoring
+- ✅ M3.4 — Per-adapter timeout + progress reporting
+- ✅ M3.5 — Behavioral supply-chain analysis
+- ✅ M3.6 — Git history secret scanning via gitleaks
+- ✅ M3.7 — SAST lite: compliance-critical patterns
+- ✅ M3.8 — IaC misconfiguration: Dockerfile + Terraform
+- ✅ M3.9 — Cross-scanner finding deduplication
+- ✅ M3.10 — Package maturity scoring (`VS-SC-010`; external enrichment only)
+
+**Current gate:** M3 implementation, local validation, and P0/P1 review-fallout fixes are complete. Do not start M4 until design partners review the refreshed M2/M3 report shape; keep P2 URL-corpus hardening queued for live-site startup failures.
 
 ## M4 — SaaS Wrapper
 
@@ -209,9 +223,9 @@ These are the default operating rules for the project.
 
 ### Next 2 Weeks
 
-1. Implement M3.3 (dynamic confidence) and M3.4 (per-adapter timeouts) — production hardening.
-2. Keep M3.1/M3.2 regression coverage green while scanning real design-partner projects.
-3. Continue design-partner outreach with M2 sample reports.
+1. Continue design-partner outreach with refreshed M2/M3 sample reports.
+2. Run a P2 URL-corpus hardening pass for live-site startup failures and blocked-target notes.
+3. Keep maturity scoring, IaC precision, dedup canonical keys, and corroborated finding wording on the validation-watch list.
 4. Keep `npm test`, `npm run lint`, and `npm run build` green.
 
 ### Explicitly Not Now
@@ -220,8 +234,10 @@ These are the default operating rules for the project.
 - billing
 - broad growth automation
 - additional compliance frameworks beyond APP/NDB
-- SaaS dashboard before M3 scanner enhancements ship
-- behavioral analysis before M3.3 dynamic confidence and M3.4 adapter timeouts
+- SaaS dashboard before design-partner review
+- treating behavioral analysis as sellable until design-partner report feedback is stable
+- typosquatting as a default headline signal (use explicit `--include-typosquat`; see `SELLABLE-TODOS.md`)
+- competing on supply-chain breadth (Socket/Dependency Guardian win that game)
 
 ---
 

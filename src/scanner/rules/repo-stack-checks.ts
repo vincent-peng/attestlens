@@ -3,6 +3,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 
 import type { AttestLensFinding, Severity } from '../../schema/index.js';
+import { scanSastLiteFiles } from './sast-lite.js';
 
 interface RepoFile {
   relativePath: string;
@@ -29,6 +30,12 @@ const EXCLUDE_DIRS = new Set([
   'node_modules',
   '.git',
   '.next',
+  '.strands',
+  '.terraform',
+  '.turbo',
+  '.cache',
+  '.output',
+  '.vercel',
   'dist',
   'build',
   'coverage',
@@ -37,15 +44,39 @@ const EXCLUDE_DIRS = new Set([
   'attestlens-reports',
 ]);
 
-const DOC_PATH_SEGMENTS = new Set([
+const LOW_SIGNAL_PATH_SEGMENTS = new Set([
   'docs',
   'doc',
+  'test',
+  'tests',
+  '__tests__',
+  'spec',
+  'specs',
+  'e2e',
+  'mock',
+  'mocks',
+  '__mocks__',
   'example',
   'examples',
   'fixture',
   'fixtures',
+  '__fixture__',
+  '__fixtures__',
   'sample',
   'samples',
+  'demo',
+  'demos',
+]);
+
+const GENERATED_PATH_SEGMENTS = new Set([
+  '.git',
+  '.next',
+  '.strands',
+  '.terraform',
+  '.turbo',
+  '.cache',
+  '.output',
+  '.vercel',
 ]);
 
 const PUBLIC_SECRET_ENV_PATTERN = /\b(?:NEXT_PUBLIC_|VITE_|PUBLIC_|REACT_APP_|NUXT_PUBLIC_)(?:SUPABASE_SERVICE_ROLE_KEY|STRIPE_SECRET_KEY|STRIPE_WEBHOOK_SECRET|CLERK_SECRET_KEY|CLERK_WEBHOOK_SECRET|AUTH0_CLIENT_SECRET|AUTH0_SECRET|VERCEL_TOKEN|NETLIFY_AUTH_TOKEN|FIREBASE_PRIVATE_KEY|FIREBASE_CLIENT_EMAIL|FIREBASE_PROJECT_ID)\b/i;
@@ -82,6 +113,8 @@ export async function scanRepoStackChecks(
     findings.push(...detectPlatformSecrets(scannerVersion, file));
   }
 
+  findings.push(...scanSastLiteFiles(repoFiles, scannerVersion));
+
   return findings;
 }
 
@@ -93,8 +126,10 @@ async function collectRepoFiles(targetPath: string): Promise<RepoFile[]> {
     const entries = await fs.readdir(dir, { withFileTypes: true });
     for (const entry of entries) {
       if (entry.isDirectory()) {
-        if (!EXCLUDE_DIRS.has(entry.name)) {
-          await walk(path.join(dir, entry.name));
+        const fullPath = path.join(dir, entry.name);
+        const relativePath = path.relative(basePath, fullPath);
+        if (!EXCLUDE_DIRS.has(entry.name) && !shouldSkipRepoScanPath(relativePath)) {
+          await walk(fullPath);
         }
         continue;
       }
@@ -105,7 +140,7 @@ async function collectRepoFiles(targetPath: string): Promise<RepoFile[]> {
 
       const fullPath = path.join(dir, entry.name);
       const relativePath = path.relative(basePath, fullPath);
-      if (isDocumentationOrExamplePath(relativePath)) {
+      if (shouldSkipRepoScanPath(relativePath)) {
         continue;
       }
 
@@ -122,9 +157,21 @@ async function collectRepoFiles(targetPath: string): Promise<RepoFile[]> {
   return files;
 }
 
-function isDocumentationOrExamplePath(relativePath: string): boolean {
-  const segments = relativePath.split(path.sep).map((segment) => segment.toLowerCase());
-  return segments.some((segment) => DOC_PATH_SEGMENTS.has(segment));
+export function shouldSkipRepoScanPath(relativePath: string): boolean {
+  const normalized = relativePath.replace(/\\/g, '/');
+  const segments = normalized.split('/').filter(Boolean).map((segment) => segment.toLowerCase());
+
+  for (let index = 0; index < segments.length; index += 1) {
+    const segment = segments[index] || '';
+    if (LOW_SIGNAL_PATH_SEGMENTS.has(segment) || GENERATED_PATH_SEGMENTS.has(segment)) {
+      return true;
+    }
+  }
+
+  const basename = segments[segments.length - 1] || '';
+  return /\.(?:test|spec)\.[cm]?[jt]sx?$/.test(basename)
+    || /(?:^|[-_.])fixtures?(?:[-_.]|$)/.test(basename)
+    || /(?:^|[-_.])mocks?(?:[-_.]|$)/.test(basename);
 }
 
 function detectMissingSupabaseRls(

@@ -57,6 +57,57 @@ describe('GuardVibeAdapter', { timeout: 20000 }, () => {
     expect(envFindings.length).toBeGreaterThan(0);
   });
 
+  it('does not treat secret resolver identifiers as hardcoded secret literals', async () => {
+    const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'attestlens-secret-resolver-'));
+    try {
+      await fs.mkdir(path.join(tempDir, 'src'), { recursive: true });
+      await fs.writeFile(
+        path.join(tempDir, 'src', 'config.ts'),
+        [
+          'const apiKey = resolveOpenAiApiKey();',
+          'const accessToken = getAccessTokenFromEnv();',
+          'const secret_key = resolveSecretValue;',
+          'const OPENAI_API_KEY = resolveOpenAiApiKey;',
+        ].join('\n'),
+      );
+
+      const result = await new GuardVibeAdapter('__attestlens_missing_guardvibe__').scan(tempDir);
+
+      expect(result.findings.some(finding => finding.sourceRule === 'VS-HARDKEY')).toBe(false);
+    } finally {
+      await fs.rm(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it('keeps hardcoded secret literals while allowing unquoted values only in env files', async () => {
+    const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'attestlens-hardkey-context-'));
+    try {
+      await fs.mkdir(path.join(tempDir, 'src'), { recursive: true });
+      await fs.writeFile(
+        path.join(tempDir, '.env'),
+        'APIKEY=abcdefghijklmnop\n',
+      );
+      await fs.writeFile(
+        path.join(tempDir, 'src', 'config.ts'),
+        [
+          'const secret_key = "abcdefghijklmnop";',
+          'const OPENAI_API_KEY = "abcdefghijklmnop";',
+          'const unquoted_api_key = abcdefghijklmnop;',
+        ].join('\n'),
+      );
+
+      const result = await new GuardVibeAdapter('__attestlens_missing_guardvibe__').scan(tempDir);
+      const hardKeyFindings = result.findings.filter(finding => finding.sourceRule === 'VS-HARDKEY');
+
+      expect(hardKeyFindings).toHaveLength(3);
+      expect(hardKeyFindings.some(finding => finding.file === '.env' && finding.code?.includes('APIKEY'))).toBe(true);
+      expect(hardKeyFindings.filter(finding => finding.file === 'src/config.ts')).toHaveLength(2);
+      expect(hardKeyFindings.some(finding => finding.code?.includes('unquoted_api_key'))).toBe(false);
+    } finally {
+      await fs.rm(tempDir, { recursive: true, force: true });
+    }
+  });
+
   it('should produce findings with required fields', async () => {
     for (const finding of scanResult.findings) {
       expect(finding.id).toBeTruthy();
@@ -191,6 +242,44 @@ describe('GuardVibeAdapter', { timeout: 20000 }, () => {
         message: expect.stringContaining('changed regex pattern or flags'),
       }),
     ]));
+  });
+
+  it('falls back visibly when a cached executable hardkey pattern is older', async () => {
+    const embedded = buildEmbeddedRulePack();
+    const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'attestlens-rules-cache-'));
+    const projectDir = path.join(tempDir, 'project');
+    const sourcePath = path.join(tempDir, 'rules.json');
+    const cacheDir = path.join(tempDir, 'cache');
+    const oldHardkeyPattern = String.raw`(?:\b[A-Z0-9_]*(?:API[_-]KEY|SECRET[_-]KEY|PRIVATE[_-]KEY|ACCESS[_-]TOKEN)[A-Z0-9_]*\s*=\s*['"]?[A-Za-z0-9+/=_-]{16,}['"]?|\b[a-zA-Z0-9_]*(?:api[_-]?key|secret[_-]?key|private[_-]?key|access[_-]?token)[a-zA-Z0-9_]*\s*[:=]\s*['"][A-Za-z0-9+/=_-]{16,}['"])`;
+    const oldRulePack = {
+      ...embedded,
+      version: '2026.04.26',
+      generated: '2026-04-26T00:00:00.000Z',
+      rules: embedded.rules.map((rule) => rule.id === 'VS-HARDKEY'
+        ? { ...rule, pattern: oldHardkeyPattern }
+        : rule),
+    };
+
+    try {
+      await fs.mkdir(projectDir, { recursive: true });
+      await fs.writeFile(path.join(projectDir, '.env'), 'APIKEY=abcdefghijklmnop\n');
+      await fs.writeFile(sourcePath, JSON.stringify(oldRulePack, null, 2));
+      await updateRuleCache({ source: sourcePath, cacheDir });
+      const loaded = await loadRulePack({ cacheDir });
+      const fallbackAdapter = new GuardVibeAdapter('__attestlens_missing_guardvibe__');
+
+      const result = await fallbackAdapter.scan(projectDir, { rulePack: loaded.manifest });
+
+      expect(result.findings.some((finding) => finding.sourceRule === 'VS-HARDKEY' && finding.file === '.env')).toBe(true);
+      expect(result.errors).toEqual(expect.arrayContaining([
+        expect.objectContaining({
+          code: 'RULE_PACK_EXECUTION_FALLBACK',
+          message: expect.stringContaining('VS-HARDKEY changed regex pattern or flags'),
+        }),
+      ]));
+    } finally {
+      await fs.rm(tempDir, { recursive: true, force: true });
+    }
   });
 
   it('falls back visibly when an active pack omits a required migrated rule', async () => {

@@ -143,6 +143,49 @@ describe('mapFindingToAPP', () => {
     expect(mappings.some(m => m.principle === 'APP_11' && m.status === 'fail')).toBe(true);
   });
 
+  it('should boost missing security header confidence on auth-sensitive URLs', () => {
+    const neutral = makeFinding({
+      source: 'url-scan',
+      sourceRule: 'AL-URL-001',
+      severity: 'high',
+      category: 'Security Headers',
+      title: 'Missing Content-Security-Policy Header',
+      url: 'https://example.com/about',
+    });
+    const auth = makeFinding({
+      ...neutral,
+      id: 'FIND-AUTH',
+      url: 'https://example.com/login',
+      evidence: {
+        timestamp: new Date().toISOString(),
+        scannerVersion: '0.2.0',
+        rawOutput: { url: 'https://example.com/login' },
+      },
+    });
+
+    const neutralConfidence = mapFindingToAPP(neutral).find(m => m.principle === 'APP_11')!.confidence;
+    const authConfidence = mapFindingToAPP(auth).find(m => m.principle === 'APP_11')!.confidence;
+    expect(authConfidence).toBeGreaterThan(neutralConfidence);
+  });
+
+  it('should reduce confidence for secrets in template env files', () => {
+    const realEnv = makeFinding({
+      sourceRule: 'VS-ENV',
+      severity: 'critical',
+      title: '.env exposed',
+      file: '.env',
+    });
+    const templateEnv = makeFinding({
+      ...realEnv,
+      id: 'FIND-TEMPLATE',
+      file: '.env.example',
+    });
+
+    const realConfidence = mapFindingToAPP(realEnv).find(m => m.principle === 'APP_11')!.confidence;
+    const templateConfidence = mapFindingToAPP(templateEnv).find(m => m.principle === 'APP_11')!.confidence;
+    expect(templateConfidence).toBeLessThan(realConfidence);
+  });
+
   it('should map unmapped high-severity Security findings to APP_11 as unknown', () => {
     const finding = makeFinding({
       sourceRule: 'CUSTOM-RULE-999',
@@ -180,6 +223,61 @@ describe('mapFindingToAPP', () => {
     expect(app11Mapping!.confidence).toBeGreaterThanOrEqual(0.9);
   });
 
+  it('should preserve OSV-derived mappings after npm audit dedup merge', () => {
+    const finding = makeFinding({
+      source: 'supply-chain',
+      sourceRule: 'VS-SC-006',
+      severity: 'critical',
+      category: 'Security',
+      title: 'Known vulnerability in "pkg": npm advisory',
+      description: 'npm audit found a critical vulnerability in "pkg".',
+      evidence: {
+        timestamp: new Date().toISOString(),
+        scannerVersion: '0.2.0',
+        rawOutput: {
+          packageName: 'pkg',
+          osvSourceRule: 'VS-OSV-GHSA-abcd-1234-wxyz',
+          osvFindingTitle: 'OSV vulnerability in "pkg": Authentication bypass SSRF exfiltration',
+          osvFindingDescription: 'OSV reports GHSA-abcd-1234-wxyz for "pkg" at version 1.0.0.',
+        },
+      },
+    });
+
+    const mappings = mapFindingToAPP(finding);
+    expect(mappings.some(m => m.principle === 'APP_11' && m.status === 'fail')).toBe(true);
+    expect(mappings.some(m => m.principle === 'APP_8' && m.status === 'unknown')).toBe(true);
+    expect(mappings.some(m => m.principle === 'NDB' && m.status === 'unknown')).toBe(true);
+    expect(Math.max(...mappings.map(m => m.confidence))).toBeGreaterThan(0.9);
+  });
+
+  it('should lower typosquat confidence as edit distance increases', () => {
+    const distanceOne = makeFinding({
+      source: 'supply-chain',
+      sourceRule: 'VS-SC-004',
+      severity: 'critical',
+      category: 'Security',
+      title: 'Potential typosquat: "lodas" resembles "lodash"',
+      evidence: {
+        timestamp: new Date().toISOString(),
+        scannerVersion: '0.2.0',
+        rawOutput: { packageName: 'lodas', typosquatTarget: 'lodash', typosquatDistance: 1 },
+      },
+    });
+    const distanceTwo = makeFinding({
+      ...distanceOne,
+      id: 'FIND-DIST-2',
+      evidence: {
+        timestamp: new Date().toISOString(),
+        scannerVersion: '0.2.0',
+        rawOutput: { packageName: 'loash', typosquatTarget: 'lodash', typosquatDistance: 2 },
+      },
+    });
+
+    const confidenceOne = mapFindingToAPP(distanceOne).find(m => m.principle === 'APP_11')!.confidence;
+    const confidenceTwo = mapFindingToAPP(distanceTwo).find(m => m.principle === 'APP_11')!.confidence;
+    expect(confidenceOne).toBeGreaterThan(confidenceTwo);
+  });
+
   it('should map missing dependency provenance to APP_11 and APP_6', () => {
     const finding = makeFinding({
       source: 'supply-chain',
@@ -191,6 +289,108 @@ describe('mapFindingToAPP', () => {
     const mappings = mapFindingToAPP(finding);
     expect(mappings.some(m => m.principle === 'APP_11' && m.status === 'fail')).toBe(true);
     expect(mappings.some(m => m.principle === 'APP_6' && m.status === 'unknown')).toBe(true);
+  });
+
+  it('should map low-maturity dependency findings to APP_11 and boost high-risk maturity confidence', () => {
+    const lowRisk = makeFinding({
+      source: 'supply-chain',
+      sourceRule: 'VS-SC-010',
+      severity: 'medium',
+      category: 'Supply Chain Maturity',
+      title: 'Dependency has weak package maturity signals',
+      evidence: {
+        timestamp: new Date().toISOString(),
+        scannerVersion: '0.2.0',
+        rawOutput: { packageName: 'pkg', maturityRisk: 0.55 },
+      },
+    });
+    const highRisk = makeFinding({
+      ...lowRisk,
+      id: 'FIND-MATURITY-HIGH',
+      evidence: {
+        timestamp: new Date().toISOString(),
+        scannerVersion: '0.2.0',
+        rawOutput: { packageName: 'pkg', maturityRisk: 0.9 },
+      },
+    });
+
+    const lowRiskMapping = mapFindingToAPP(lowRisk).find(m => m.principle === 'APP_11');
+    const highRiskMapping = mapFindingToAPP(highRisk).find(m => m.principle === 'APP_11');
+    expect(lowRiskMapping?.status).toBe('unknown');
+    expect(highRiskMapping!.confidence).toBeGreaterThan(lowRiskMapping!.confidence);
+  });
+
+  it('should map behavioral dependency findings to APP_11 with conditional secondary obligations', () => {
+    const networkFinding = makeFinding({
+      source: 'behavioral',
+      sourceRule: 'VS-BH-002',
+      severity: 'medium',
+      category: 'Behavioral Supply Chain',
+      title: 'Dependency can make network requests',
+      description: 'Network-capable dependency',
+    });
+    const envFinding = makeFinding({
+      source: 'behavioral',
+      sourceRule: 'VS-BH-004',
+      severity: 'medium',
+      category: 'Behavioral Supply Chain',
+      title: 'Dependency reads environment variables',
+      description: 'Secret-adjacent dependency behavior',
+    });
+
+    expect(mapFindingToAPP(networkFinding).map(mapping => mapping.principle)).toEqual(['APP_11', 'APP_8']);
+    expect(mapFindingToAPP(envFinding).map(mapping => mapping.principle)).toEqual(['APP_11', 'NDB']);
+  });
+
+  it('should map gitleaks findings to APP_11 and NDB', () => {
+    const finding = makeFinding({
+      source: 'gitleaks',
+      sourceRule: 'VS-GL-GITHUB-PAT',
+      severity: 'high',
+      category: 'Developer Credentials',
+      title: 'Secret detected in git history',
+      description: 'gitleaks detected a GitHub PAT',
+    });
+
+    expect(mapFindingToAPP(finding).map(mapping => mapping.principle)).toEqual(['APP_11', 'NDB']);
+  });
+
+  it('should map SAST-lite findings to APP/NDB obligations', () => {
+    const ssrf = makeFinding({
+      source: 'guardvibe',
+      sourceRule: 'VS-SAST-006',
+      severity: 'high',
+      category: 'SAST Lite',
+      title: 'Outbound request uses untrusted URL input',
+    });
+    const collection = makeFinding({
+      source: 'guardvibe',
+      sourceRule: 'VS-SAST-019',
+      severity: 'medium',
+      category: 'SAST Lite',
+      title: 'Personal data collected without visible consent check',
+    });
+
+    expect(mapFindingToAPP(ssrf).map(mapping => mapping.principle)).toEqual(['APP_11', 'APP_8']);
+    expect(mapFindingToAPP(collection).map(mapping => mapping.principle)).toEqual(['APP_11', 'APP_3']);
+  });
+
+  it('should increase mapping confidence for corroborated cross-scanner findings', () => {
+    const singleSource = makeFinding({
+      sourceRule: 'VS-XSS',
+      severity: 'medium',
+      category: 'Security',
+      title: 'Potential XSS vector',
+    });
+    const corroborated = makeFinding({
+      ...singleSource,
+      id: 'FIND-CORROBORATED',
+      corroboratedBy: ['url-scan'],
+    });
+
+    const singleConfidence = mapFindingToAPP(singleSource).find(m => m.principle === 'APP_11')!.confidence;
+    const corroboratedConfidence = mapFindingToAPP(corroborated).find(m => m.principle === 'APP_11')!.confidence;
+    expect(corroboratedConfidence).toBeGreaterThan(singleConfidence);
   });
 });
 

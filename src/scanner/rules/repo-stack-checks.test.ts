@@ -79,6 +79,63 @@ describe('repo stack checks', () => {
     });
   });
 
+  it('skips low-signal tests, fixtures, and hidden worktree paths', async () => {
+    await withTempProject({
+      'src/routes.ts': 'router.post("/account/delete", (req, res) => deleteAccount());',
+      'src/routes.test.ts': 'router.post("/account/delete", (req, res) => deleteAccount());',
+      '__tests__/secrets.test.ts': 'export const STRIPE_WEBHOOK_SECRET = "whsec_live_secret_value";',
+      '.strands/worktrees/abc123/src/routes.ts': 'router.post("/account/delete", (req, res) => deleteAccount());',
+      'fixtures/firebase-admin.json': JSON.stringify({
+        type: 'service_account',
+        private_key_id: 'abc123',
+        private_key: '-----BEGIN PRIVATE KEY-----\nsecret\n-----END PRIVATE KEY-----\n',
+        client_email: 'firebase-adminsdk@example.iam.gserviceaccount.com',
+      }, null, 2),
+      '__fixtures__/firebase-admin.json': JSON.stringify({
+        type: 'service_account',
+        private_key_id: 'abc123',
+        private_key: '-----BEGIN PRIVATE KEY-----\nsecret\n-----END PRIVATE KEY-----\n',
+        client_email: 'firebase-adminsdk@example.iam.gserviceaccount.com',
+      }, null, 2),
+    }, async (projectDir) => {
+      const findings = await scanRepoStackChecks(projectDir, '0.1.0');
+      const findingFiles = findings.map((finding) => finding.file || '');
+
+      expect(findings.some((finding) => finding.sourceRule === 'VS-SAST-017' && finding.file === 'src/routes.ts')).toBe(true);
+      expect(findingFiles.some((file) => file.includes('routes.test.ts'))).toBe(false);
+      expect(findingFiles.some((file) => file.includes('__tests__'))).toBe(false);
+      expect(findingFiles.some((file) => file.includes('.strands'))).toBe(false);
+      expect(findingFiles.some((file) => file.includes('fixtures'))).toBe(false);
+      expect(findingFiles.some((file) => file.includes('__fixtures__'))).toBe(false);
+    });
+  });
+
+  it('scans real hidden config paths while skipping generated hidden paths', async () => {
+    const serviceAccount = JSON.stringify({
+      type: 'service_account',
+      private_key_id: 'abc123',
+      private_key: '-----BEGIN PRIVATE KEY-----\nsecret\n-----END PRIVATE KEY-----\n',
+      client_email: 'firebase-adminsdk@example.iam.gserviceaccount.com',
+    }, null, 2);
+
+    await withTempProject({
+      '.firebase/service-account.json': serviceAccount,
+      '.config/.env': 'APIKEY=abcdefghijklmnop\n',
+      '.strands/worktrees/abc123/.config/.env': 'APIKEY=abcdefghijklmnop\n',
+    }, async (projectDir) => {
+      const stackFindings = await scanRepoStackChecks(projectDir, '0.1.0');
+      expect(stackFindings.some((finding) => finding.sourceRule === 'VS-FB-SERVICE-ACCOUNT' && finding.file === '.firebase/service-account.json')).toBe(true);
+
+      const fallbackResult = await new GuardVibeAdapter('__attestlens_missing_guardvibe__').scan(projectDir);
+      const hardKeyFiles = fallbackResult.findings
+        .filter((finding) => finding.sourceRule === 'VS-HARDKEY')
+        .map((finding) => finding.file);
+
+      expect(hardKeyFiles).toContain('.config/.env');
+      expect(hardKeyFiles.some((file) => file?.includes('.strands'))).toBe(false);
+    });
+  });
+
   it('detects public secret env prefixes and ignores safe public keys', async () => {
     await withTempProject({
       '.env': [
@@ -120,6 +177,47 @@ describe('repo stack checks', () => {
       expect(relevant.some((finding) => finding.sourceRule === 'VS-PUBLIC-SECRET-ENV')).toBe(true);
       expect(relevant.some((finding) => finding.sourceRule === 'VS-HARDKEY')).toBe(false);
       expect(relevant.some((finding) => finding.sourceRule === 'VS-ENV')).toBe(false);
+    });
+  });
+
+  it('includes SAST-lite findings in GuardVibe fallback output', async () => {
+    await withTempProject({
+      'src/routes.ts': 'router.post("/api/user", async (req, res) => db.query("select * from users where id=" + req.params.id));',
+    }, async (projectDir) => {
+      const result = await new GuardVibeAdapter().scan(projectDir);
+
+      expect(result.findings.some((finding) => finding.sourceRule === 'VS-SAST-004')).toBe(true);
+    });
+  });
+
+  it('keeps static fallback focused on production source paths', async () => {
+    await withTempProject({
+      'src/App.tsx': 'return <div dangerouslySetInnerHTML={{ __html: html }} />;',
+      'src/App.test.tsx': 'document.body.innerHTML = "";',
+      '.strands/worktrees/abc123/src/App.tsx': 'return <div dangerouslySetInnerHTML={{ __html: html }} />;',
+      'examples/Example.tsx': 'return <div dangerouslySetInnerHTML={{ __html: html }} />;',
+    }, async (projectDir) => {
+      const result = await new GuardVibeAdapter().scan(projectDir);
+      const xssFiles = result.findings
+        .filter((finding) => finding.sourceRule === 'VS-XSS')
+        .map((finding) => finding.file);
+
+      expect(xssFiles).toEqual(['src/App.tsx']);
+    });
+  });
+
+  it('does not flag safe ORM tagged templates as SQL injection', async () => {
+    await withTempProject({
+      'src/db.ts': [
+        'const safe = sql`${table.status} <> "dismissed"`;',
+        'db.query("select * from users where id=" + req.params.id);',
+      ].join('\n'),
+    }, async (projectDir) => {
+      const result = await new GuardVibeAdapter().scan(projectDir);
+      const sqlFindings = result.findings.filter((finding) => finding.sourceRule === 'VS-SQLI');
+
+      expect(sqlFindings).toHaveLength(1);
+      expect(sqlFindings[0]?.code).toContain('req.params.id');
     });
   });
 });

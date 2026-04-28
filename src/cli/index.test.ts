@@ -5,7 +5,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import {
   buildFindingsHash,
@@ -15,8 +15,9 @@ import {
   loadScanSnapshot,
   type AttestationPromptRunner,
 } from '../questionnaire/index.js';
+import { OSV_QUERY_BATCH_URL } from '../scanner/osv.js';
 import { buildEmbeddedRulePack } from '../scanner/rules/index.js';
-import { executeAttestCommand } from './index.js';
+import { buildScannerOrchestratorOptions, executeAttestCommand } from './index.js';
 
 const execFileAsync = promisify(execFile);
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
@@ -98,6 +99,50 @@ function makePromptRunner(options: {
   };
 }
 
+async function createCliPackageProject(dependencyName: string): Promise<string> {
+  const projectDir = await fs.mkdtemp(path.join(os.tmpdir(), 'attestlens-cli-project-'));
+  await fs.writeFile(path.join(projectDir, 'package.json'), JSON.stringify({
+    name: 'cli-enrichment-test',
+    version: '1.0.0',
+    dependencies: {
+      [dependencyName]: '1.0.0',
+    },
+  }, null, 2));
+  return projectDir;
+}
+
+async function createCliBehavioralProject(): Promise<string> {
+  const projectDir = await fs.mkdtemp(path.join(os.tmpdir(), 'attestlens-cli-behavioral-'));
+  await fs.writeFile(path.join(projectDir, 'package.json'), JSON.stringify({
+    name: 'cli-behavioral-test',
+    version: '1.0.0',
+    dependencies: {
+      'behavior-pkg': '1.0.0',
+    },
+  }, null, 2));
+  await fs.mkdir(path.join(projectDir, 'node_modules', 'behavior-pkg'), { recursive: true });
+  await fs.writeFile(path.join(projectDir, 'node_modules', 'behavior-pkg', 'package.json'), JSON.stringify({
+    name: 'behavior-pkg',
+    version: '1.0.0',
+  }, null, 2));
+  await fs.writeFile(path.join(projectDir, 'node_modules', 'behavior-pkg', 'index.js'), 'export const run = (code) => eval(code);');
+  return projectDir;
+}
+
+async function createCliIacProject(): Promise<string> {
+  const projectDir = await fs.mkdtemp(path.join(os.tmpdir(), 'attestlens-cli-iac-'));
+  await fs.writeFile(
+    path.join(projectDir, 'Dockerfile'),
+    [
+      'FROM node:latest',
+      'RUN apt-get update && apt-get install -y curl',
+      'EXPOSE 80',
+      'CMD ["node", "server.js"]',
+    ].join('\n'),
+  );
+  return projectDir;
+}
+
 describe('CLI URL handling', () => {
   it('fails URL scans when the target is blocked or unreachable', async () => {
     const result = await runCli(['scan', 'http://localhost:3000']);
@@ -165,6 +210,217 @@ describe('CLI external enrichment option', () => {
     expect(scanHelp.stdout).toContain('--external-enrichment');
     expect(auditHelp.stdout).toContain('--external-enrichment');
     expect(attestHelp.stdout).toContain('--external-enrichment');
+    expect(scanHelp.stdout).toContain('--include-typosquat');
+    expect(auditHelp.stdout).toContain('--include-typosquat');
+    expect(attestHelp.stdout).toContain('--include-typosquat');
+    expect(scanHelp.stdout).toContain('--scanner-timeout');
+    expect(auditHelp.stdout).toContain('--scanner-timeout');
+    expect(attestHelp.stdout).toContain('--scanner-timeout');
+    expect(scanHelp.stdout).toContain('--no-behavioral');
+    expect(auditHelp.stdout).toContain('--no-behavioral');
+    expect(attestHelp.stdout).toContain('--no-behavioral');
+    expect(scanHelp.stdout).toContain('--no-iac');
+    expect(auditHelp.stdout).toContain('--no-iac');
+    expect(attestHelp.stdout).toContain('--no-iac');
+    expect(scanHelp.stdout).toContain('--include-gitleaks');
+    expect(auditHelp.stdout).toContain('--include-gitleaks');
+    expect(attestHelp.stdout).toContain('--include-gitleaks');
+    expect(scanHelp.stdout).toContain('--gitleaks-path');
+    expect(auditHelp.stdout).toContain('--gitleaks-path');
+    expect(attestHelp.stdout).toContain('--gitleaks-path');
+  });
+
+  it('keeps external enrichment disabled by default in shared scanner options', () => {
+    for (const options of [{}, { externalEnrichment: false }]) {
+      expect(buildScannerOrchestratorOptions(options)).toEqual({
+        supplyChain: {
+          typosquat: { enabled: false },
+          osv: { enabled: false },
+          registry: { enabled: false },
+        },
+        behavioral: {
+          enabled: true,
+        },
+        iac: {
+          enabled: true,
+        },
+        gitleaks: {
+          enabled: false,
+          path: 'gitleaks',
+        },
+      });
+    }
+  });
+
+  it('enables OSV and registry enrichment only when explicitly requested', () => {
+    expect(buildScannerOrchestratorOptions({ externalEnrichment: true })).toEqual({
+      supplyChain: {
+        typosquat: { enabled: false },
+        osv: { enabled: true },
+        registry: { enabled: true },
+      },
+      behavioral: {
+        enabled: true,
+      },
+      iac: {
+        enabled: true,
+      },
+      gitleaks: {
+        enabled: false,
+        path: 'gitleaks',
+      },
+    });
+  });
+
+  it('enables typosquat and scanner timeout only when explicitly requested', () => {
+    expect(buildScannerOrchestratorOptions({
+      includeTyposquat: true,
+      scannerTimeout: '1234',
+    })).toEqual({
+      adapterTimeoutMs: 1234,
+      supplyChain: {
+        typosquat: { enabled: true },
+        osv: { enabled: false },
+        registry: { enabled: false },
+      },
+      behavioral: {
+        enabled: true,
+      },
+      iac: {
+        enabled: true,
+      },
+      gitleaks: {
+        enabled: false,
+        path: 'gitleaks',
+      },
+    });
+  });
+
+  it('enables gitleaks only when explicitly requested', () => {
+    expect(buildScannerOrchestratorOptions({
+      includeGitleaks: true,
+      gitleaksPath: '/usr/local/bin/gitleaks',
+    })).toEqual({
+      supplyChain: {
+        typosquat: { enabled: false },
+        osv: { enabled: false },
+        registry: { enabled: false },
+      },
+      behavioral: {
+        enabled: true,
+      },
+      iac: {
+        enabled: true,
+      },
+      gitleaks: {
+        enabled: true,
+        path: '/usr/local/bin/gitleaks',
+      },
+    });
+  });
+
+  it('disables behavioral findings from CLI scans when requested', async () => {
+    const projectDir = await createCliBehavioralProject();
+
+    try {
+      const enabled = await runCli(['scan', projectDir, '--no-guardvibe', '--no-mcp-scan', '--no-supply-chain']);
+      expect(`${enabled.stdout}\n${enabled.stderr}`).toContain('VS-BH-001');
+
+      const disabled = await runCli(['scan', projectDir, '--no-guardvibe', '--no-mcp-scan', '--no-supply-chain', '--no-behavioral']);
+      expect(`${disabled.stdout}\n${disabled.stderr}`).not.toContain('VS-BH-001');
+      expect(disabled.code).toBe(0);
+    } finally {
+      await fs.rm(projectDir, { recursive: true, force: true });
+    }
+  });
+
+  it('disables IaC findings from CLI scans when requested', async () => {
+    const projectDir = await createCliIacProject();
+
+    try {
+      const enabled = await runCli(['scan', projectDir, '--no-guardvibe', '--no-mcp-scan', '--no-supply-chain', '--no-behavioral']);
+      expect(`${enabled.stdout}\n${enabled.stderr}`).toContain('VS-IAC-007');
+
+      const disabled = await runCli(['scan', projectDir, '--no-guardvibe', '--no-mcp-scan', '--no-supply-chain', '--no-behavioral', '--no-iac']);
+      expect(`${disabled.stdout}\n${disabled.stderr}`).not.toContain('VS-IAC-007');
+      expect(disabled.code).toBe(0);
+    } finally {
+      await fs.rm(projectDir, { recursive: true, force: true });
+    }
+  });
+
+  it('rejects invalid scanner timeout values', () => {
+    expect(() => buildScannerOrchestratorOptions({ scannerTimeout: 'abc' }))
+      .toThrow('Unsupported scanner timeout');
+    expect(() => buildScannerOrchestratorOptions({ scannerTimeout: '0' }))
+      .toThrow('Unsupported scanner timeout');
+  });
+
+  it('does not call OSV or npm registry during default attest scans', async () => {
+    const projectDir = await createCliPackageProject('external-only');
+    const outputDir = await fs.mkdtemp(path.join(os.tmpdir(), 'attestlens-cli-enrichment-'));
+    const fetchMock = vi.fn(async () => {
+      throw new Error('external enrichment should be disabled');
+    });
+
+    try {
+      vi.stubGlobal('fetch', fetchMock);
+
+      const result = await executeAttestCommand(projectDir, {
+        output: outputDir,
+        format: 'json',
+        strict: false,
+      }, makePromptRunner({ saveAfter: 0 }));
+
+      expect(result.status).toBe('saved');
+      expect(fetchMock).not.toHaveBeenCalled();
+    } finally {
+      vi.unstubAllGlobals();
+      await fs.rm(projectDir, { recursive: true, force: true });
+      await fs.rm(outputDir, { recursive: true, force: true });
+    }
+  });
+
+  it('passes explicit external enrichment into attest scans', async () => {
+    const projectDir = await createCliPackageProject('external-only');
+    const outputDir = await fs.mkdtemp(path.join(os.tmpdir(), 'attestlens-cli-enrichment-'));
+    const calls: string[] = [];
+    const fetchMock = vi.fn(async (input: string | URL) => {
+      const url = String(input);
+      calls.push(url);
+      if (url === 'https://registry.npmjs.org/external-only') {
+        return new Response(JSON.stringify({ name: 'external-only', version: '1.0.0' }), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        });
+      }
+      if (url === OSV_QUERY_BATCH_URL) {
+        return new Response(JSON.stringify({ results: [{}] }), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        });
+      }
+      return new Response('{}', { status: 404 });
+    });
+
+    try {
+      vi.stubGlobal('fetch', fetchMock);
+
+      const result = await executeAttestCommand(projectDir, {
+        output: outputDir,
+        format: 'json',
+        strict: false,
+        externalEnrichment: true,
+      }, makePromptRunner({ saveAfter: 0 }));
+
+      expect(result.status).toBe('saved');
+      expect(calls).toContain('https://registry.npmjs.org/external-only/1.0.0');
+      expect(calls).toContain(OSV_QUERY_BATCH_URL);
+    } finally {
+      vi.unstubAllGlobals();
+      await fs.rm(projectDir, { recursive: true, force: true });
+      await fs.rm(outputDir, { recursive: true, force: true });
+    }
   });
 });
 

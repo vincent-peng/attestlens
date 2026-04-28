@@ -15,7 +15,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 
-import { ScannerOrchestrator } from '../scanner/orchestrator.js';
+import { ScannerOrchestrator, type ScannerOrchestratorOptions } from '../scanner/orchestrator.js';
 import { mapAllFindings } from '../mapping/engine.js';
 import {
   buildComplianceReport,
@@ -68,7 +68,13 @@ program
   .option('--no-guardvibe', 'Disable GuardVibe scanner')
   .option('--no-mcp-scan', 'Disable mcp-scan')
   .option('--no-supply-chain', 'Disable supply chain scanner')
+  .option('--no-behavioral', 'Disable behavioral supply-chain analysis')
+  .option('--no-iac', 'Disable infrastructure-as-code misconfiguration scanning')
+  .option('--include-gitleaks', 'Enable opt-in git history secret scanning via gitleaks')
+  .option('--gitleaks-path <path>', 'Path to gitleaks binary', 'gitleaks')
+  .option('--include-typosquat', 'Enable experimental typosquatting detection (VS-SC-004)')
   .option('--external-enrichment', 'Enable external OSV.dev and npm registry dependency enrichment')
+  .option('--scanner-timeout <ms>', 'Per-scanner timeout in milliseconds')
   .option('--auto-update', 'Refresh the cached rule pack from ATTESTLENS_RULE_SOURCE before scanning')
   .action(async (targetInput: string, options: any) => {
     console.log(chalk.bold.cyan('\n🔍 AttestLens — Privacy Act Compliance Scanner\n'));
@@ -130,7 +136,13 @@ program
   .option('--no-guardvibe', 'Disable GuardVibe scanner')
   .option('--no-mcp-scan', 'Disable mcp-scan')
   .option('--no-supply-chain', 'Disable supply chain scanner')
+  .option('--no-behavioral', 'Disable behavioral supply-chain analysis')
+  .option('--no-iac', 'Disable infrastructure-as-code misconfiguration scanning')
+  .option('--include-gitleaks', 'Enable opt-in git history secret scanning via gitleaks')
+  .option('--gitleaks-path <path>', 'Path to gitleaks binary', 'gitleaks')
+  .option('--include-typosquat', 'Enable experimental typosquatting detection (VS-SC-004)')
   .option('--external-enrichment', 'Enable external OSV.dev and npm registry dependency enrichment')
+  .option('--scanner-timeout <ms>', 'Per-scanner timeout in milliseconds')
   .option('--auto-update', 'Refresh the cached rule pack from ATTESTLENS_RULE_SOURCE before scanning')
   .action(async (targetInput: string, options: any) => {
     console.log(chalk.bold.cyan('\n🔍 AttestLens — Privacy Act Compliance Audit\n'));
@@ -230,7 +242,13 @@ program
   .option('--no-guardvibe', 'Disable GuardVibe scanner')
   .option('--no-mcp-scan', 'Disable mcp-scan')
   .option('--no-supply-chain', 'Disable supply chain scanner')
+  .option('--no-behavioral', 'Disable behavioral supply-chain analysis')
+  .option('--no-iac', 'Disable infrastructure-as-code misconfiguration scanning')
+  .option('--include-gitleaks', 'Enable opt-in git history secret scanning via gitleaks')
+  .option('--gitleaks-path <path>', 'Path to gitleaks binary', 'gitleaks')
+  .option('--include-typosquat', 'Enable experimental typosquatting detection (VS-SC-004)')
   .option('--external-enrichment', 'Enable external OSV.dev and npm registry dependency enrichment')
+  .option('--scanner-timeout <ms>', 'Per-scanner timeout in milliseconds')
   .option('--auto-update', 'Refresh the cached rule pack from ATTESTLENS_RULE_SOURCE before scanning')
   .action(async (targetInput: string | undefined, options: any) => {
     console.log(chalk.bold.cyan('\n📝 AttestLens — Privacy Act Attestation\n'));
@@ -408,14 +426,46 @@ function formatRuleFreshnessForCli(ruleFreshness: RuleFreshnessMetadata): string
   return `${ruleFreshness.version} (${ruleFreshness.source}, ${ruleFreshness.ruleCount} rules, ${age}, ${state})`;
 }
 
-function createOrchestrator(targetKind: CliTarget['kind'], options: any): ScannerOrchestrator {
+export function buildScannerOrchestratorOptions(options: any): ScannerOrchestratorOptions {
   const externalEnrichment = options.externalEnrichment === true;
-  const orchestrator = new ScannerOrchestrator({
+  const scannerTimeoutMs = parseScannerTimeoutOption(options.scannerTimeout);
+  return {
+    ...(scannerTimeoutMs !== undefined ? { adapterTimeoutMs: scannerTimeoutMs } : {}),
     supplyChain: {
+      typosquat: { enabled: options.includeTyposquat === true },
       osv: { enabled: externalEnrichment },
       registry: { enabled: externalEnrichment },
     },
-  });
+    behavioral: {
+      enabled: options.behavioral !== false,
+    },
+    iac: {
+      enabled: options.iac !== false,
+    },
+    gitleaks: {
+      enabled: options.includeGitleaks === true,
+      path: options.gitleaksPath || 'gitleaks',
+    },
+  };
+}
+
+function parseScannerTimeoutOption(rawValue: unknown): number | undefined {
+  if (rawValue === undefined || rawValue === null || rawValue === '') {
+    return undefined;
+  }
+
+  if (typeof rawValue === 'string' && !/^\d+$/.test(rawValue.trim())) {
+    throw new Error(`Unsupported scanner timeout: ${rawValue}. Provide a positive integer number of milliseconds.`);
+  }
+  const value = typeof rawValue === 'number' ? rawValue : Number.parseInt(String(rawValue), 10);
+  if (!Number.isFinite(value) || !Number.isInteger(value) || value <= 0) {
+    throw new Error(`Unsupported scanner timeout: ${rawValue}. Provide a positive integer number of milliseconds.`);
+  }
+  return value;
+}
+
+function createOrchestrator(targetKind: CliTarget['kind'], options: any): ScannerOrchestrator {
+  const orchestrator = new ScannerOrchestrator(buildScannerOrchestratorOptions(options));
 
   if (targetKind === 'url') {
     orchestrator.disable('guardvibe');
@@ -427,6 +477,9 @@ function createOrchestrator(targetKind: CliTarget['kind'], options: any): Scanne
   if (options.guardvibe === false) orchestrator.disable('guardvibe');
   if (options.mcpScan === false) orchestrator.disable('mcp-scan');
   if (options.supplyChain === false) orchestrator.disable('supply-chain');
+  if (options.behavioral === false) orchestrator.disable('behavioral');
+  if (options.iac === false) orchestrator.disable('iac');
+  if (options.includeGitleaks === true) orchestrator.enable('gitleaks');
   return orchestrator;
 }
 

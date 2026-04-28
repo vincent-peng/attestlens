@@ -34,6 +34,7 @@ export interface OsvScanOptions {
   fetchImpl?: FetchLike;
   timeoutMs?: number;
   maxBytes?: number;
+  signal?: AbortSignal;
 }
 
 export interface OsvScanResult {
@@ -136,6 +137,7 @@ export async function scanOsvVulnerabilities(
       },
       timeoutMs,
       maxBytes,
+      options.signal,
     );
   } catch (error) {
     return {
@@ -189,6 +191,7 @@ export async function scanOsvVulnerabilities(
         { method: 'GET' },
         timeoutMs,
         maxBytes,
+        options.signal,
       );
       if (detail?.id) {
         details.set(id, detail);
@@ -218,9 +221,12 @@ export async function fetchJsonWithLimit<T>(
   init: RequestInit,
   timeoutMs: number,
   maxBytes: number,
+  signal?: AbortSignal,
 ): Promise<T> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
+  const abort = () => controller.abort();
+  signal?.addEventListener('abort', abort, { once: true });
 
   try {
     const response = await fetchImpl(url, {
@@ -241,6 +247,7 @@ export async function fetchJsonWithLimit<T>(
     throw error;
   } finally {
     clearTimeout(timeout);
+    signal?.removeEventListener('abort', abort);
   }
 }
 
@@ -360,34 +367,114 @@ function getFixedVersions(detail: OsvVulnerabilityDetail | undefined, packageNam
 }
 
 function mapOsvSeverity(detail: OsvVulnerabilityDetail | undefined): Severity {
+  const candidates: Severity[] = [];
   const databaseSeverity = detail?.database_specific?.severity?.toLowerCase();
-  if (databaseSeverity) {
-    return mapSeverityLabel(databaseSeverity);
+  const mappedDatabaseSeverity = databaseSeverity ? mapSeverityLabel(databaseSeverity) : null;
+  if (mappedDatabaseSeverity) {
+    candidates.push(mappedDatabaseSeverity);
   }
 
   for (const severity of detail?.severity ?? []) {
     const score = severity.score ?? '';
     const numeric = Number.parseFloat(score);
     if (Number.isFinite(numeric)) {
-      if (numeric >= 9) return 'critical';
-      if (numeric >= 7) return 'high';
-      if (numeric >= 4) return 'medium';
-      if (numeric > 0) return 'low';
+      candidates.push(mapNumericCvssScore(numeric));
+      continue;
     }
 
-    const upperScore = score.toUpperCase();
-    if (upperScore.includes('/C:')) return 'high';
+    const cvssScore = parseCvssV3Vector(score);
+    if (cvssScore !== null) {
+      candidates.push(mapNumericCvssScore(cvssScore));
+    }
   }
 
-  return 'medium';
+  if (candidates.length === 0) {
+    return 'medium';
+  }
+
+  return candidates.reduce((highest, severity) => (
+    SEVERITY_RANK[severity] > SEVERITY_RANK[highest] ? severity : highest
+  ));
 }
 
-function mapSeverityLabel(label: string): Severity {
+const SEVERITY_RANK: Record<Severity, number> = {
+  critical: 5,
+  high: 4,
+  medium: 3,
+  low: 2,
+  info: 1,
+};
+
+function mapSeverityLabel(label: string): Severity | null {
   if (label.includes('critical')) return 'critical';
   if (label.includes('high')) return 'high';
   if (label.includes('moderate') || label.includes('medium')) return 'medium';
   if (label.includes('low')) return 'low';
-  return 'medium';
+  return null;
+}
+
+function mapNumericCvssScore(score: number): Severity {
+  if (score >= 9) return 'critical';
+  if (score >= 7) return 'high';
+  if (score >= 4) return 'medium';
+  return 'low';
+}
+
+function parseCvssV3Vector(vector: string): number | null {
+  const trimmed = vector.trim().toUpperCase();
+  if (!trimmed.startsWith('CVSS:3.0/') && !trimmed.startsWith('CVSS:3.1/')) {
+    return null;
+  }
+
+  const metrics = new Map<string, string>();
+  for (const segment of trimmed.split('/').slice(1)) {
+    const [key, value] = segment.split(':');
+    if (key && value) {
+      metrics.set(key, value);
+    }
+  }
+
+  const scope = metrics.get('S');
+  if (scope !== 'U' && scope !== 'C') return null;
+
+  const av = lookupMetric(metrics, 'AV', { N: 0.85, A: 0.62, L: 0.55, P: 0.2 });
+  const ac = lookupMetric(metrics, 'AC', { L: 0.77, H: 0.44 });
+  const ui = lookupMetric(metrics, 'UI', { N: 0.85, R: 0.62 });
+  const c = lookupMetric(metrics, 'C', { H: 0.56, L: 0.22, N: 0 });
+  const i = lookupMetric(metrics, 'I', { H: 0.56, L: 0.22, N: 0 });
+  const a = lookupMetric(metrics, 'A', { H: 0.56, L: 0.22, N: 0 });
+  const pr = lookupMetric(metrics, 'PR', scope === 'C'
+    ? { N: 0.85, L: 0.68, H: 0.5 }
+    : { N: 0.85, L: 0.62, H: 0.27 });
+
+  if ([av, ac, ui, c, i, a, pr].some((value) => value === null)) {
+    return null;
+  }
+
+  const impactSubScore = 1 - ((1 - c!) * (1 - i!) * (1 - a!));
+  const impact = scope === 'C'
+    ? 7.52 * (impactSubScore - 0.029) - 3.25 * Math.pow(impactSubScore - 0.02, 15)
+    : 6.42 * impactSubScore;
+  if (impact <= 0) return 0;
+
+  const exploitability = 8.22 * av! * ac! * pr! * ui!;
+  const rawScore = scope === 'C'
+    ? Math.min(1.08 * (impact + exploitability), 10)
+    : Math.min(impact + exploitability, 10);
+  return roundUpCvss(rawScore);
+}
+
+function lookupMetric(
+  metrics: Map<string, string>,
+  key: string,
+  weights: Record<string, number>,
+): number | null {
+  const value = metrics.get(key);
+  return value && value in weights ? weights[value] : null;
+}
+
+function roundUpCvss(score: number): number {
+  return Math.ceil((score - Number.EPSILON) * 10) / 10;
 }
 
 function makeOsvError(code: string, message: string): ScannerError {

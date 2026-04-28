@@ -17,8 +17,8 @@
 import crypto from 'node:crypto';
 import path from 'node:path';
 import fs from 'node:fs/promises';
-import type { AttestLensFinding, ScanSource } from '../schema/index.js';
-import type { ScannerAdapter, ScannerResult, ScannerError } from './types.js';
+import type { AttestLensFinding, ScanSource, Severity } from '../schema/index.js';
+import type { ScannerAdapter, ScannerContext, ScannerResult, ScannerError } from './types.js';
 import {
   fetchJsonWithLimit,
   scanOsvVulnerabilities,
@@ -56,23 +56,35 @@ const TOP_NPM_PACKAGES = new Set([
 
 // Known legitimate packages that are NOT typosquats
 const TYPOSQUAT_ALLOWLIST = new Set([
+  'alex',    // Legitimate accessibility linter, not a typosquat of 'knex'
   'ora',     // Not a typosquat of 'cors' — it's a legitimate terminal spinner
+  'chai',    // Legitimate test assertion library, not a typosquat of 'chalk'
+  'cypress', // Legitimate end-to-end test framework, not a typosquat of 'express'
   'zod',     // Legitimate validation library
   'got',     // Legitimate HTTP client, not a typosquat
   'ws',      // Legitimate WebSocket library
+  'qs',      // Legitimate query string parser, not a typosquat of 'ws'
+  'ky',      // Legitimate HTTP client, not a typosquat of 'ws'
+  'swr',     // Legitimate data fetching library, not a typosquat of 'ws'
+  'hbs',     // Legitimate handlebars view engine, not a typosquat of 'ws'
   'ejs',     // Legitimate template engine
   'pug',     // Legitimate template engine
   'ajv',     // Legitimate JSON schema validator
   'joi',     // Legitimate validation library
   'yup',     // Legitimate validation library (not a typosquat of 'vue')
+  'gulp',    // Legitimate build tool, not a typosquat of 'yup'
   'glob',    // Legitimate file globbing library (not a typosquat of 'got')
   'sass',    // Legitimate CSS preprocessor
+  'tsx',     // Legitimate TypeScript runtime, not a typosquat of 'ws'
+  'tsup',    // Legitimate TypeScript bundler, not a typosquat of 'yup'
+  'vitest',  // Vite test runner, not a typosquat of 'vite'
   'nps',     // Legitimate npm-publish shortcut (not a typosquat of 'ws')
   'stylis',  // Legitimate CSS preprocessor used by emotion
   'cors',    // Legitimate Express middleware (not unused — used in server setup)
   'pg',      // Legitimate PostgreSQL client (not a typosquat of 'ws')
   'tslint',  // Legitimate (deprecated) linter, not a typosquat of 'eslint'
   'ncp',      // Legitimate file copy utility, not a typosquat of 'yup'
+  'oxlint',   // Legitimate linter, not a typosquat of 'eslint'
 ]);
 
 // Typosquatting distance threshold (Levenshtein distance)
@@ -98,24 +110,26 @@ function levenshteinDistance(a: string, b: string): number {
   return matrix[b.length][a.length];
 }
 
-function isTyposquat(depName: string): string | null {
+interface TyposquatMatch {
+  target: string;
+  distance: number;
+}
+
+function isTyposquat(depName: string): TyposquatMatch | null {
+  // Scoped-package namespace confusion is a separate signal; comparing
+  // @org/package names to top unscoped packages created noisy false positives.
+  if (depName.startsWith('@')) {
+    return null;
+  }
+
   // Check allowlist first
   const name = depName.startsWith('@') ? depName.split('/')[1] : depName;
   if (TYPOSQUAT_ALLOWLIST.has(name) || TYPOSQUAT_ALLOWLIST.has(depName)) {
     return null;
   }
-  
-  // Scoped packages from well-known orgs are not typosquats
-  if (depName.startsWith('@')) {
-    const scope = depName.split('/')[0].slice(1); // Remove @
-    const wellKnownScopes = new Set([
-      'supabase', 'clerk', 'stripe', 'paypal', 'sendgrid', 'prisma',
-      'playwright', 'types', 'emotion', 'next', 'react', 'vue',
-      'angular', 'svelte', 'tailwindcss', 'babel', 'typescript-eslint',
-      'nestjs', 'trpc', 'tanstack', 'dnd-kit', 'radix', 'headlessui',
-      'chakra-ui', 'mantine', 'shadcn',
-    ]);
-    if (wellKnownScopes.has(scope)) return null;
+
+  if (name.length < 4) {
+    return null;
   }
   
   // If the dependency IS a popular package, it's not a typosquat
@@ -126,7 +140,7 @@ function isTyposquat(depName: string): string | null {
     if (Math.abs(name.length - popular.length) > TYPOSQUAT_DISTANCE) continue;
     const dist = levenshteinDistance(name, popular);
     if (dist > 0 && dist <= TYPOSQUAT_DISTANCE) {
-      return popular;
+      return { target: popular, distance: dist };
     }
   }
   return null;
@@ -160,9 +174,41 @@ interface PackageMetadata {
   homepage?: unknown;
 }
 
+interface NpmPackageDocument extends PackageMetadata {
+  time?: Record<string, string>;
+  versions?: Record<string, PackageMetadata & {
+    readme?: unknown;
+    scripts?: Record<string, string>;
+    directories?: Record<string, string>;
+  }>;
+  maintainers?: unknown[];
+  readme?: unknown;
+  scripts?: Record<string, string>;
+  directories?: Record<string, string>;
+}
+
+interface NpmDownloadsDocument {
+  downloads?: number;
+}
+
+interface PackageMaturity {
+  name: string;
+  weeklyDownloads: number;
+  maintainerCount: number;
+  hasReadme: boolean;
+  hasTests: boolean;
+  hasRepository: boolean;
+  ageDays: number;
+  versionCount: number;
+  risk: number;
+}
+
 type NpmAuditRunner = (safePath: string) => Promise<string | Record<string, any>>;
 
 export interface SupplyChainAdapterOptions {
+  typosquat?: {
+    enabled?: boolean;
+  };
   osv?: {
     enabled?: boolean;
     fetchImpl?: FetchLike;
@@ -182,7 +228,28 @@ export interface SupplyChainAdapterOptions {
 }
 
 const NPM_REGISTRY_TIMEOUT_MS = 10_000;
-const NPM_REGISTRY_MAX_RESPONSE_BYTES = 1_000_000;
+const NPM_REGISTRY_MAX_RESPONSE_BYTES = 5_000_000;
+const NPM_REGISTRY_ACCEPT_HEADER = 'application/vnd.npm.install-v1+json, application/json';
+const NPM_MATURITY_CACHE_TTL_MS = 60 * 60 * 1000;
+const NPM_REGISTRY_MIN_REQUEST_INTERVAL_MS = 100;
+const ALTERNATE_LOCKFILES = [
+  'npm-shrinkwrap.json',
+  'pnpm-lock.yaml',
+  'yarn.lock',
+  'bun.lock',
+  'bun.lockb',
+];
+const TEXT_ADVISORY_ID_PATTERN = /\b(?:GHSA-[A-Z0-9]{4}-[A-Z0-9]{4}-[A-Z0-9]{4}|CVE-\d{4}-\d{4,}|OSV-[A-Z0-9._-]+|PYSEC-\d{4}-\d+|RUSTSEC-\d{4}-\d+|GO-\d{4}-\d+)\b/gi;
+const STRUCTURED_ADVISORY_ID_PATTERN = /^[A-Z0-9][A-Z0-9._-]{1,127}$/;
+const SEVERITY_RANK: Record<Severity, number> = {
+  critical: 5,
+  high: 4,
+  medium: 3,
+  low: 2,
+  info: 1,
+};
+const PACKAGE_MATURITY_CACHE = new Map<string, { expiresAt: number; maturity: PackageMaturity }>();
+let nextNpmRegistryRequestAt = 0;
 
 async function readJsonFileWithLimit<T>(filePath: string, maxBytes: number): Promise<T> {
   const stat = await fs.stat(filePath);
@@ -195,6 +262,95 @@ async function readJsonFileWithLimit<T>(filePath: string, maxBytes: number): Pro
     throw new Error(`file exceeds ${maxBytes} bytes`);
   }
   return JSON.parse(content) as T;
+}
+
+function parseNpmAuditPayload(payload: string | Record<string, any>): Record<string, any> {
+  return typeof payload === 'string' ? JSON.parse(payload) : payload;
+}
+
+function parseNpmAuditStdoutFromError(error: unknown): Record<string, any> | null {
+  const stdout = (error as { stdout?: unknown })?.stdout;
+  const payload = Buffer.isBuffer(stdout) ? stdout.toString('utf-8') : stdout;
+  if (typeof payload !== 'string' || payload.trim().length === 0) {
+    return null;
+  }
+
+  try {
+    return JSON.parse(payload);
+  } catch {
+    return null;
+  }
+}
+
+function normalizeStructuredAdvisoryId(value: unknown): string | null {
+  if (typeof value !== 'string' && typeof value !== 'number') {
+    return null;
+  }
+  const normalized = String(value).trim().toUpperCase();
+  return STRUCTURED_ADVISORY_ID_PATTERN.test(normalized) ? normalized : null;
+}
+
+function extractTextAdvisoryIds(value: unknown): string[] {
+  if (typeof value !== 'string' && typeof value !== 'number') {
+    return [];
+  }
+
+  const text = String(value).toUpperCase();
+  const ids = new Set<string>();
+  for (const match of text.matchAll(TEXT_ADVISORY_ID_PATTERN)) {
+    const id = normalizeStructuredAdvisoryId(match[0]);
+    if (id) ids.add(id);
+  }
+  return Array.from(ids);
+}
+
+function collectAdvisoryIds(values: unknown[], includeStructured = true): string[] {
+  const ids = new Set<string>();
+  for (const value of values) {
+    if (Array.isArray(value)) {
+      for (const nested of collectAdvisoryIds(value, includeStructured)) {
+        ids.add(nested);
+      }
+      continue;
+    }
+
+    if (includeStructured) {
+      const structured = normalizeStructuredAdvisoryId(value);
+      if (structured) ids.add(structured);
+    }
+
+    for (const textId of extractTextAdvisoryIds(value)) {
+      ids.add(textId);
+    }
+  }
+  return Array.from(ids);
+}
+
+function getNpmAuditAdvisoryIds(vulnerability: Record<string, any>): string[] {
+  const structuredValues: unknown[] = [vulnerability.source];
+  const textValues: unknown[] = [
+    vulnerability.url,
+    vulnerability.name,
+    vulnerability.title,
+  ];
+
+  for (const via of Array.isArray(vulnerability.via) ? vulnerability.via : []) {
+    if (typeof via === 'string' || typeof via === 'number') {
+      structuredValues.push(via);
+      continue;
+    }
+
+    if (via && typeof via === 'object') {
+      const advisory = via as Record<string, unknown>;
+      structuredValues.push(advisory.source);
+      textValues.push(advisory.url, advisory.name, advisory.title);
+    }
+  }
+
+  return Array.from(new Set([
+    ...collectAdvisoryIds(structuredValues),
+    ...collectAdvisoryIds(textValues, false),
+  ]));
 }
 
 function hasRepository(metadata: PackageMetadata): boolean {
@@ -228,6 +384,95 @@ function isExactNpmVersion(version: string): boolean {
   return /^\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?$/.test(version);
 }
 
+function buildNpmRegistryMetadataUrl(depName: string, version: string | null): string {
+  const encodedName = encodeURIComponent(depName);
+  const encodedVersion = version ? encodeURIComponent(version) : 'latest';
+  return `https://registry.npmjs.org/${encodedName}/${encodedVersion}`;
+}
+
+function buildNpmRegistryPackumentUrl(depName: string): string {
+  return `https://registry.npmjs.org/${encodeURIComponent(depName)}`;
+}
+
+function buildNpmDownloadsUrl(depName: string): string {
+  return `https://api.npmjs.org/downloads/point/last-week/${encodeURIComponent(depName)}`;
+}
+
+async function hasAlternateLockfile(safePath: string): Promise<boolean> {
+  for (const filename of ALTERNATE_LOCKFILES) {
+    const exists = await fs.access(path.join(safePath, filename))
+      .then(() => true)
+      .catch(() => false);
+    if (exists) return true;
+  }
+  return false;
+}
+
+async function rateLimitNpmRegistryRequest(): Promise<void> {
+  const now = Date.now();
+  const waitMs = Math.max(0, nextNpmRegistryRequestAt - now);
+  nextNpmRegistryRequestAt = Math.max(now, nextNpmRegistryRequestAt) + NPM_REGISTRY_MIN_REQUEST_INTERVAL_MS;
+  if (waitMs > 0) {
+    await new Promise(resolve => setTimeout(resolve, waitMs));
+  }
+}
+
+function calculateMaturityRisk(maturity: Omit<PackageMaturity, 'risk'>): number {
+  let risk = 0;
+  if (maturity.weeklyDownloads < 100) risk += 0.30;
+  else if (maturity.weeklyDownloads < 1000) risk += 0.15;
+  if (maturity.maintainerCount <= 1) risk += 0.20;
+  if (!maturity.hasReadme) risk += 0.10;
+  if (!maturity.hasTests) risk += 0.10;
+  if (!maturity.hasRepository) risk += 0.15;
+  if (maturity.ageDays < 30) risk += 0.15;
+  if (maturity.versionCount <= 1) risk += 0.05;
+  return Math.round(Math.min(1, risk) * 100) / 100;
+}
+
+function getPackageAgeDays(document: NpmPackageDocument): number {
+  const created = document.time?.created;
+  if (!created) return Number.POSITIVE_INFINITY;
+  const createdTime = Date.parse(created);
+  if (!Number.isFinite(createdTime)) return Number.POSITIVE_INFINITY;
+  return Math.max(0, Math.floor((Date.now() - createdTime) / (24 * 60 * 60 * 1000)));
+}
+
+function getVersionMetadata(document: NpmPackageDocument, version: string | null): PackageMetadata & {
+  readme?: unknown;
+  scripts?: Record<string, string>;
+  directories?: Record<string, string>;
+} {
+  if (version && document.versions?.[version]) {
+    return document.versions[version]!;
+  }
+  const distTags = (document as { 'dist-tags'?: { latest?: unknown } })['dist-tags'];
+  const latest = typeof distTags?.latest === 'string' ? distTags.latest : undefined;
+  return latest && document.versions?.[latest]
+    ? document.versions[latest]!
+    : document;
+}
+
+function hasReadme(document: NpmPackageDocument, versionMetadata: { readme?: unknown }): boolean {
+  return isNonEmptyString(document.readme) || isNonEmptyString(versionMetadata.readme);
+}
+
+function hasTests(
+  versionMetadata: { scripts?: Record<string, string>; directories?: Record<string, string> },
+  document: NpmPackageDocument,
+): boolean {
+  return Boolean(
+    versionMetadata.scripts?.test ||
+    document.scripts?.test ||
+    versionMetadata.directories?.test ||
+    document.directories?.test,
+  );
+}
+
+function isNonEmptyString(value: unknown): boolean {
+  return typeof value === 'string' && value.trim().length > 0;
+}
+
 export class SupplyChainAdapter implements ScannerAdapter {
   readonly name: ScanSource = 'supply-chain';
   readonly version = '0.2.0';
@@ -245,7 +490,7 @@ export class SupplyChainAdapter implements ScannerAdapter {
     return this.version;
   }
 
-  async scan(targetPath: string): Promise<ScannerResult> {
+  async scan(targetPath: string, context?: ScannerContext): Promise<ScannerResult> {
     // Validate and resolve path
     const resolvedPath = path.resolve(targetPath);
     let pathStat;
@@ -276,6 +521,7 @@ export class SupplyChainAdapter implements ScannerAdapter {
     const errors: ScannerError[] = [];
     const findings: AttestLensFinding[] = [];
     const safePath = resolvedPath;
+    let emittedExperimentalTyposquat = false;
 
     // ─── 1. Parse package.json ────────────────────────────────────────────
     let pkgJson: PackageJson | null = null;
@@ -307,16 +553,24 @@ export class SupplyChainAdapter implements ScannerAdapter {
     try {
       const lockContent = await fs.readFile(path.join(safePath, 'package-lock.json'), 'utf-8');
       lockfile = JSON.parse(lockContent);
-    } catch {
-      findings.push(this.makeFinding(
-        'VS-SC-005',
-        'critical',
-        'Security',
-        'Missing or invalid lockfile',
-        'No package-lock.json found. Without a lockfile, dependency resolution is non-deterministic, increasing supply chain risk. npm ci cannot be used for reproducible builds.',
-        'Run npm install to generate package-lock.json. Commit it to version control. Use npm ci in CI/CD.',
-        safePath,
-      ));
+    } catch (error) {
+      const isMissingPackageLock = (error as NodeJS.ErrnoException).code === 'ENOENT';
+      const alternateLockfileExists = isMissingPackageLock ? await hasAlternateLockfile(safePath) : false;
+      if (!alternateLockfileExists) {
+        findings.push(this.makeFinding(
+          'VS-SC-005',
+          'critical',
+          'Security',
+          'Missing or invalid lockfile',
+          isMissingPackageLock
+            ? 'No npm, pnpm, Yarn, or Bun lockfile found. Without a lockfile, dependency resolution is non-deterministic, increasing supply chain risk.'
+            : 'package-lock.json exists but could not be parsed. Invalid lockfiles make dependency resolution unreliable and can break reproducible builds.',
+          isMissingPackageLock
+            ? 'Generate and commit the lockfile for the package manager used by this project. Use npm ci, pnpm install --frozen-lockfile, yarn --immutable, or the equivalent in CI/CD.'
+            : 'Regenerate package-lock.json and commit the corrected lockfile. Use npm ci in CI/CD.',
+          safePath,
+        ));
+      }
     }
 
     // ─── 4. Analyze each dependency ──────────────────────────────────────
@@ -335,18 +589,19 @@ export class SupplyChainAdapter implements ScannerAdapter {
       // Will be implemented with npm registry API integration
       
       // VS-SC-004: Typosquatting
-      const typosquatTarget = isTyposquat(depName);
-      if (typosquatTarget) {
+      const typosquatMatch = this.options.typosquat?.enabled === true ? isTyposquat(depName) : null;
+      if (typosquatMatch) {
         findings.push(this.makeFinding(
           'VS-SC-004',
           'critical',
           'Security',
-          `Potential typosquat: "${depName}" resembles "${typosquatTarget}"`,
-          `Dependency "${depName}" appears to be a typosquat of the popular package "${typosquatTarget}". Typosquatting is a common supply chain attack vector where malicious packages mimic popular ones to trick developers into installing them.`,
-          `Verify this is the correct package. If intentional, add to an allowlist. Consider replacing with "${typosquatTarget}" if this was unintentional.`,
+          `Potential typosquat: "${depName}" resembles "${typosquatMatch.target}"`,
+          `Dependency "${depName}" appears to be a typosquat of the popular package "${typosquatMatch.target}". Typosquatting is a common supply chain attack vector where malicious packages mimic popular ones to trick developers into installing them.`,
+          `Verify this is the correct package. If intentional, add to an allowlist. Consider replacing with "${typosquatMatch.target}" if this was unintentional.`,
           safePath,
-          { typosquatTarget, packageName: depName },
+          { typosquatTarget: typosquatMatch.target, typosquatDistance: typosquatMatch.distance, packageName: depName },
         ));
+        emittedExperimentalTyposquat = true;
       }
       
       // VS-SC-007: No repository field
@@ -364,8 +619,17 @@ export class SupplyChainAdapter implements ScannerAdapter {
       }
     }
 
+    if (emittedExperimentalTyposquat) {
+      errors.push({
+        source: this.name,
+        code: 'EXPERIMENTAL_TYPOSQUAT',
+        message: 'Typosquatting detection is experimental and disabled by default. Validate VS-SC-004 findings manually or with a dedicated package-intelligence tool.',
+        recoverable: true,
+      });
+    }
+
     // ─── 4b. Check direct production dependency provenance ────────────────
-    await this.checkDependencyProvenance(pkg, lockPackages, safePath, findings, errors);
+    await this.checkDependencyProvenance(pkg, lockPackages, safePath, findings, errors, context);
 
     // ─── 5. Check for manifest-only changes ─────────────────────────────
     // Compare package.json dependencies against actual imports in source code
@@ -391,10 +655,13 @@ export class SupplyChainAdapter implements ScannerAdapter {
     }
 
     // ─── 7. Run npm audit ────────────────────────────────────────────────
-    await this.runNpmAudit(safePath, findings, errors);
+    await this.runNpmAudit(safePath, findings, errors, context);
 
     // ─── 7b. Enrich known vulnerabilities with OSV.dev ───────────────────
-    await this.runOsvScan(pkg, lockPackages, safePath, findings, errors);
+    await this.runOsvScan(pkg, lockPackages, safePath, findings, errors, context);
+
+    // ─── 7c. Enrich direct dependencies with package maturity signals ────
+    await this.runPackageMaturityScan(pkg, lockPackages, safePath, findings, errors, context);
 
     // ─── 8. Check lockfile integrity ─────────────────────────────────────
     // (Already handled by VS-SC-005 above for missing lockfile)
@@ -478,12 +745,13 @@ export class SupplyChainAdapter implements ScannerAdapter {
     safePath: string,
     findings: AttestLensFinding[],
     errors: ScannerError[],
+    context?: ScannerContext,
   ): Promise<void> {
     const productionDeps = pkgJson.dependencies || {};
     const metadataCache = new Map<string, PackageMetadata | null>();
 
-    for (const depName of Object.keys(productionDeps)) {
-      const metadataResult = await this.getDependencyMetadata(depName, lockPackages, safePath, metadataCache);
+    for (const [depName, requestedVersion] of Object.entries(productionDeps)) {
+      const metadataResult = await this.getDependencyMetadata(depName, requestedVersion, lockPackages, safePath, metadataCache, context);
 
       if (metadataResult.error) {
         errors.push(metadataResult.error);
@@ -516,12 +784,16 @@ export class SupplyChainAdapter implements ScannerAdapter {
 
   private async getDependencyMetadata(
     depName: string,
+    requestedVersion: string | undefined,
     lockPackages: Record<string, LockfileEntry>,
     safePath: string,
     metadataCache: Map<string, PackageMetadata | null>,
+    context?: ScannerContext,
   ): Promise<{ metadata: PackageMetadata | null; source?: 'local' | 'registry'; error?: ScannerError }> {
-    if (metadataCache.has(depName)) {
-      return { metadata: metadataCache.get(depName) ?? null };
+    const resolvedVersion = resolveDependencyVersion(depName, requestedVersion, lockPackages);
+    const metadataCacheKey = `${depName}@${resolvedVersion ?? 'latest'}`;
+    if (metadataCache.has(metadataCacheKey)) {
+      return { metadata: metadataCache.get(metadataCacheKey) ?? null };
     }
 
     const localPath = path.join(safePath, 'node_modules', depName, 'package.json');
@@ -530,34 +802,32 @@ export class SupplyChainAdapter implements ScannerAdapter {
       .catch(() => null);
 
     if (localMetadata) {
-      metadataCache.set(depName, localMetadata.metadata);
+      metadataCache.set(metadataCacheKey, localMetadata.metadata);
       return localMetadata;
     }
 
-    const registryFallbackEnabled = this.options.registry?.enabled === true || Boolean(this.options.registry?.fetchImpl);
+    const registryFallbackEnabled = this.options.registry?.enabled === true;
     if (!registryFallbackEnabled) {
-      metadataCache.set(depName, null);
+      metadataCache.set(metadataCacheKey, null);
       return { metadata: null };
     }
 
     const fetchImpl = this.options.registry?.fetchImpl ?? globalThis.fetch?.bind(globalThis);
     if (!fetchImpl) {
-      metadataCache.set(depName, null);
+      metadataCache.set(metadataCacheKey, null);
       return { metadata: null };
     }
 
     try {
-      const metadata = await fetchJsonWithLimit<PackageMetadata>(
+      const metadata = await this.fetchRegistryJson<PackageMetadata>(
         fetchImpl,
-        `https://registry.npmjs.org/${encodeURIComponent(depName)}`,
-        { method: 'GET' },
-        this.options.registry?.timeoutMs ?? NPM_REGISTRY_TIMEOUT_MS,
-        this.options.registry?.maxBytes ?? NPM_REGISTRY_MAX_RESPONSE_BYTES,
+        buildNpmRegistryMetadataUrl(depName, resolvedVersion),
+        context,
       );
-      metadataCache.set(depName, metadata);
+      metadataCache.set(metadataCacheKey, metadata);
       return { metadata, source: 'registry' };
     } catch (error) {
-      metadataCache.set(depName, null);
+      metadataCache.set(metadataCacheKey, null);
       return {
         metadata: null,
         error: {
@@ -570,14 +840,36 @@ export class SupplyChainAdapter implements ScannerAdapter {
     }
   }
 
+  private async fetchRegistryJson<T>(
+    fetchImpl: FetchLike,
+    url: string,
+    context?: ScannerContext,
+  ): Promise<T> {
+    await rateLimitNpmRegistryRequest();
+    return fetchJsonWithLimit<T>(
+      fetchImpl,
+      url,
+      {
+        method: 'GET',
+        headers: {
+          accept: NPM_REGISTRY_ACCEPT_HEADER,
+        },
+      },
+      this.options.registry?.timeoutMs ?? NPM_REGISTRY_TIMEOUT_MS,
+      this.options.registry?.maxBytes ?? NPM_REGISTRY_MAX_RESPONSE_BYTES,
+      context?.signal,
+    );
+  }
+
   private async runOsvScan(
     pkgJson: PackageJson,
     lockPackages: Record<string, LockfileEntry>,
     safePath: string,
     findings: AttestLensFinding[],
     errors: ScannerError[],
+    context?: ScannerContext,
   ): Promise<void> {
-    const osvEnabled = this.options.osv?.enabled === true || Boolean(this.options.osv?.fetchImpl);
+    const osvEnabled = this.options.osv?.enabled === true;
     if (!osvEnabled) return;
 
     const queries = this.buildOsvQueries(pkgJson, lockPackages);
@@ -591,14 +883,137 @@ export class SupplyChainAdapter implements ScannerAdapter {
         fetchImpl: this.options.osv?.fetchImpl,
         timeoutMs: this.options.osv?.timeoutMs ?? OSV_FETCH_TIMEOUT_MS,
         maxBytes: this.options.osv?.maxBytes ?? OSV_MAX_RESPONSE_BYTES,
+        signal: context?.signal,
       },
     );
 
     errors.push(...result.errors);
     for (const finding of result.findings) {
-      if (!this.duplicatesNpmAuditFinding(finding, findings)) {
+      if (!this.mergeDuplicateOsvFinding(finding, findings)) {
         findings.push(finding);
       }
+    }
+  }
+
+  private async runPackageMaturityScan(
+    pkgJson: PackageJson,
+    lockPackages: Record<string, LockfileEntry>,
+    safePath: string,
+    findings: AttestLensFinding[],
+    errors: ScannerError[],
+    context?: ScannerContext,
+  ): Promise<void> {
+    if (this.options.registry?.enabled !== true) return;
+
+    const productionDeps = pkgJson.dependencies || {};
+    for (const [depName, requestedVersion] of Object.entries(productionDeps)) {
+      const maturityResult = await this.getPackageMaturity(depName, requestedVersion, lockPackages, context);
+      if (maturityResult.error) {
+        errors.push(maturityResult.error);
+        continue;
+      }
+      const maturity = maturityResult.maturity;
+      if (!maturity) continue;
+
+      this.enrichFindingsWithMaturity(findings, depName, maturity);
+      if (maturity.risk <= 0.5) continue;
+
+      findings.push(this.makeFinding(
+        'VS-SC-010',
+        maturity.risk >= 0.8 ? 'high' : 'medium',
+        'Supply Chain Maturity',
+        `Dependency "${depName}" has weak package maturity signals`,
+        `Direct production dependency "${depName}" has a maturity risk score of ${maturity.risk.toFixed(2)} based on npm registry signals including weekly downloads, maintainers, README/tests, source repository metadata, age, and version history.`,
+        `Review whether "${depName}" is appropriate for production use. Prefer mature packages with active maintainers, public source, tests, and clear documentation, or vendor/pin with compensating controls.`,
+        path.join(safePath, 'package.json'),
+        {
+          packageName: depName,
+          version: resolveDependencyVersion(depName, requestedVersion, lockPackages),
+          maturity,
+          maturityRisk: maturity.risk,
+        },
+      ));
+    }
+  }
+
+  private async getPackageMaturity(
+    depName: string,
+    requestedVersion: string | undefined,
+    lockPackages: Record<string, LockfileEntry>,
+    context?: ScannerContext,
+  ): Promise<{ maturity: PackageMaturity | null; error?: ScannerError }> {
+    const fetchImpl = this.options.registry?.fetchImpl ?? globalThis.fetch?.bind(globalThis);
+    if (!fetchImpl) return { maturity: null };
+
+    const cacheKey = depName;
+    const cached = PACKAGE_MATURITY_CACHE.get(cacheKey);
+    if (cached && cached.expiresAt > Date.now()) {
+      return { maturity: cached.maturity };
+    }
+
+    const resolvedVersion = resolveDependencyVersion(depName, requestedVersion, lockPackages);
+    try {
+      const [packument, downloads] = await Promise.all([
+        this.fetchRegistryJson<NpmPackageDocument>(fetchImpl, buildNpmRegistryPackumentUrl(depName), context),
+        this.fetchRegistryJson<NpmDownloadsDocument>(fetchImpl, buildNpmDownloadsUrl(depName), context),
+      ]);
+      if (typeof downloads.downloads !== 'number') {
+        throw new Error('npm downloads response did not include a downloads number');
+      }
+
+      const versionMetadata = getVersionMetadata(packument, resolvedVersion);
+      const maturityBase = {
+        name: depName,
+        weeklyDownloads: downloads.downloads,
+        maintainerCount: Array.isArray(packument.maintainers) ? packument.maintainers.length : 0,
+        hasReadme: hasReadme(packument, versionMetadata),
+        hasTests: hasTests(versionMetadata, packument),
+        hasRepository: hasRepository(versionMetadata) || hasRepository(packument),
+        ageDays: getPackageAgeDays(packument),
+        versionCount: packument.versions ? Object.keys(packument.versions).length : 0,
+      };
+      const maturity = {
+        ...maturityBase,
+        risk: calculateMaturityRisk(maturityBase),
+      };
+
+      PACKAGE_MATURITY_CACHE.set(cacheKey, {
+        maturity,
+        expiresAt: Date.now() + NPM_MATURITY_CACHE_TTL_MS,
+      });
+      return { maturity };
+    } catch (error) {
+      return {
+        maturity: null,
+        error: {
+          source: this.name,
+          code: 'NPM_MATURITY_ERROR',
+          message: `npm package maturity lookup failed for "${depName}": ${error instanceof Error ? error.message : String(error)}`,
+          recoverable: true,
+        },
+      };
+    }
+  }
+
+  private enrichFindingsWithMaturity(
+    findings: AttestLensFinding[],
+    packageName: string,
+    maturity: PackageMaturity,
+  ): void {
+    for (const finding of findings) {
+      const rawOutput = typeof finding.evidence.rawOutput === 'object' && finding.evidence.rawOutput !== null
+        ? finding.evidence.rawOutput as Record<string, unknown>
+        : {};
+      if (rawOutput.packageName !== packageName) continue;
+
+      finding.evidence = {
+        ...finding.evidence,
+        rawOutput: {
+          ...rawOutput,
+          maturity,
+          maturityRisk: maturity.risk,
+        },
+      };
     }
   }
 
@@ -618,7 +1033,7 @@ export class SupplyChainAdapter implements ScannerAdapter {
     return queries;
   }
 
-  private duplicatesNpmAuditFinding(osvFinding: AttestLensFinding, findings: AttestLensFinding[]): boolean {
+  private mergeDuplicateOsvFinding(osvFinding: AttestLensFinding, findings: AttestLensFinding[]): boolean {
     const raw = osvFinding.evidence.rawOutput as {
       packageName?: string;
       vulnerabilityId?: string;
@@ -626,19 +1041,47 @@ export class SupplyChainAdapter implements ScannerAdapter {
     };
     if (!raw.packageName) return false;
 
-    const advisoryIds = [raw.vulnerabilityId, ...(raw.aliases ?? [])]
-      .filter((value): value is string => Boolean(value))
-      .map((value) => value.toLowerCase());
+    const advisoryIds = collectAdvisoryIds([raw.vulnerabilityId, ...(raw.aliases ?? [])]);
     if (advisoryIds.length === 0) return false;
+    const osvAdvisoryIds = new Set(advisoryIds);
 
-    return findings.some((finding) => {
+    const duplicate = findings.find((finding) => {
       if (finding.sourceRule !== 'VS-SC-006') return false;
-      const auditRaw = finding.evidence.rawOutput as { packageName?: string; url?: string };
+      const auditRaw = finding.evidence.rawOutput as {
+        packageName?: string;
+        url?: string;
+        advisoryId?: string | number;
+        advisoryIds?: string[];
+      };
       if (auditRaw.packageName !== raw.packageName) return false;
 
-      const haystack = `${finding.title} ${finding.description} ${auditRaw.url ?? ''}`.toLowerCase();
-      return advisoryIds.some((id) => haystack.includes(id));
+      const auditAdvisoryIds = [
+        ...collectAdvisoryIds([auditRaw.advisoryIds, auditRaw.advisoryId]),
+        ...collectAdvisoryIds([auditRaw.url, finding.title, finding.description], false),
+      ];
+      return auditAdvisoryIds.some((id) => osvAdvisoryIds.has(id));
     });
+
+    if (!duplicate) return false;
+
+    if (SEVERITY_RANK[osvFinding.severity] > SEVERITY_RANK[duplicate.severity]) {
+      duplicate.severity = osvFinding.severity;
+    }
+
+    const existingRaw = typeof duplicate.evidence.rawOutput === 'object' && duplicate.evidence.rawOutput !== null
+      ? duplicate.evidence.rawOutput as Record<string, unknown>
+      : {};
+    duplicate.evidence = {
+      ...duplicate.evidence,
+      rawOutput: {
+        ...existingRaw,
+        osv: osvFinding.evidence.rawOutput,
+        osvSourceRule: osvFinding.sourceRule,
+        osvFindingTitle: osvFinding.title,
+        osvFindingDescription: osvFinding.description,
+      },
+    };
+    return true;
   }
 
   /**
@@ -683,8 +1126,8 @@ export class SupplyChainAdapter implements ScannerAdapter {
     for (const file of sourceFiles) {
       try {
         const content = await fs.readFile(file, 'utf-8');
-        // Match import/require patterns
-        const importRegex = /(?:import\s+.*from\s+['"]([^'"]+)['"]|require\s*\(\s*['"]([^'"]+)['"]\s*\))/g;
+        // Match static imports, including multiline named imports, and require calls.
+        const importRegex = /(?:import\s+(?:[\s\S]*?\s+from\s+)?['"]([^'"]+)['"]|require\s*\(\s*['"]([^'"]+)['"]\s*\))/g;
         let match;
         while ((match = importRegex.exec(content)) !== null) {
           const pkg = (match[1] || match[2] || '').split('/')[0];
@@ -731,6 +1174,7 @@ export class SupplyChainAdapter implements ScannerAdapter {
     safePath: string,
     findings: AttestLensFinding[],
     errors: ScannerError[],
+    context?: ScannerContext,
   ): Promise<void> {
     if (this.options.audit?.enabled === false) {
       return;
@@ -749,13 +1193,17 @@ export class SupplyChainAdapter implements ScannerAdapter {
     }
 
     try {
-      const audit = await this.readNpmAudit(safePath);
+      const audit = await this.readNpmAudit(safePath, context?.signal);
       
       // Process vulnerabilities
       const vulns = audit.vulnerabilities || {};
       for (const [pkgName, vuln] of Object.entries(vulns)) {
         const v = vuln as any;
         const severity = this.mapAuditSeverity(v.severity);
+        const advisoryIds = getNpmAuditAdvisoryIds(v);
+        const advisoryId = typeof v.via?.[0]?.source === 'string'
+          ? v.via[0].source
+          : advisoryIds[0];
         findings.push(this.makeFinding(
           'VS-SC-006',
           severity,
@@ -764,7 +1212,13 @@ export class SupplyChainAdapter implements ScannerAdapter {
           `npm audit found a ${v.severity} severity vulnerability in "${pkgName}" (${v.range || 'affected versions'}). ${v.title || ''}`,
           `Update "${pkgName}" to a patched version. Run: npm audit fix`,
           safePath,
-          { packageName: pkgName, severity: v.severity, url: v.url, advisoryId: v.via?.[0]?.source },
+          {
+            packageName: pkgName,
+            severity: v.severity,
+            url: v.url,
+            advisoryId,
+            advisoryIds,
+          },
         ));
       }
     } catch (error: any) {
@@ -781,10 +1235,16 @@ export class SupplyChainAdapter implements ScannerAdapter {
     }
   }
 
-  private async readNpmAudit(safePath: string): Promise<Record<string, any>> {
+  private async readNpmAudit(safePath: string, signal?: AbortSignal): Promise<Record<string, any>> {
     if (this.options.audit?.run) {
-      const result = await this.options.audit.run(safePath);
-      return typeof result === 'string' ? JSON.parse(result) : result;
+      try {
+        const result = await this.options.audit.run(safePath);
+        return parseNpmAuditPayload(result);
+      } catch (error) {
+        const parsed = parseNpmAuditStdoutFromError(error);
+        if (parsed) return parsed;
+        throw error;
+      }
     }
 
     const { execFile: execFileCb } = await import('node:child_process');
@@ -792,6 +1252,8 @@ export class SupplyChainAdapter implements ScannerAdapter {
     const execFileAsync = promisify(execFileCb);
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 30000);
+    const abort = () => controller.abort();
+    signal?.addEventListener('abort', abort, { once: true });
 
     try {
       const { stdout } = await execFileAsync('npm', ['audit', '--json'], {
@@ -799,9 +1261,14 @@ export class SupplyChainAdapter implements ScannerAdapter {
         signal: controller.signal,
         maxBuffer: 10 * 1024 * 1024, // 10MB buffer for large projects
       });
-      return JSON.parse(stdout);
+      return parseNpmAuditPayload(stdout);
+    } catch (error) {
+      const parsed = parseNpmAuditStdoutFromError(error);
+      if (parsed) return parsed;
+      throw error;
     } finally {
       clearTimeout(timeout);
+      signal?.removeEventListener('abort', abort);
     }
   }
 
@@ -880,12 +1347,16 @@ export class SupplyChainAdapter implements ScannerAdapter {
       extra?.packageName,
       extra?.vulnerabilityId,
       extra?.advisoryId,
+      Array.isArray(extra?.advisoryIds) ? extra.advisoryIds.join(',') : undefined,
       extra?.url,
       extra?.scriptName,
       Array.isArray(extra?.scriptNames) ? extra.scriptNames.join(',') : undefined,
       extra?.typosquatTarget,
     ].filter((value): value is string => typeof value === 'string' && value.length > 0);
-    const payload = `supply-chain:${rule}:${file}:${identityParts.join(':')}`;
+    const basePayload = `supply-chain:${rule}:${file}`;
+    const payload = identityParts.length > 0
+      ? `${basePayload}:${identityParts.join(':')}`
+      : basePayload;
     return crypto.createHash('sha256').update(payload).digest('hex').substring(0, 12);
   }
 }

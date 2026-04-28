@@ -1,6 +1,6 @@
 # AttestLens — Master Development Roadmap
 
-**Last Updated:** 2026-04-26
+**Last Updated:** 2026-04-28
 **Status:** Living document — update as we ship
 
 ---
@@ -10,7 +10,7 @@
 **What's built:**
 - ✅ Core scanner schema + mapping engine
 - ✅ GuardVibe adapter (9 static regex + MCP fallback)
-- ✅ Supply chain scanner (9 static rules: VS-SC-001→009, plus dynamic OSV findings)
+- ✅ Supply chain scanner (10 static rules: VS-SC-001→010, plus dynamic OSV findings)
 - ✅ URL scanner with headers, JS, infra, cookies, and source-map checks
 - ✅ Scanner orchestrator (parallel, dedup, disable flags)
 - ✅ CLI: `scan`, `audit`, `report` commands
@@ -30,18 +30,23 @@
 - ✅ Consultant-facing deterministic narrative report sections
 - ✅ GuardVibe fallback test recovery and `AL-INFRA-006` rule-noise cleanup
 - ✅ M2.5 rule-pack foundation with typed manifests, embedded rules, cache fallback, explicit update command, opt-in auto-update, and rule freshness metadata
+- ✅ M3.3 dynamic confidence scoring for APP mappings
+- ✅ M3.4 per-adapter timeout and progress plumbing
+- ✅ M3.5 behavioral supply-chain analysis
+- ✅ M3.6 opt-in gitleaks git history secret scanning
+- ✅ M3.7 SAST-lite compliance patterns
+- ✅ M3.8 IaC misconfiguration scanning for Dockerfile and Terraform via default-on `iac` source
+- ✅ M3.9 cross-scanner finding deduplication with optional `corroboratedBy`
+- ✅ M3.10 package maturity scoring via `VS-SC-010` behind `--external-enrichment`
 
-**What's NOT built yet:**
+**Still deferred or validation-gated:**
 - ❌ Advisory-monitoring rule update pipeline
 - ❌ Executable remote rule migration for all scanner checks
-- ✅ OSV.dev vulnerability integration inside supply-chain scanner (M3.1)
-- ❌ Behavioral supply-chain analysis (M3.5)
-- ❌ Git history secret scanning (M3.6)
-- ❌ SAST lite compliance patterns (M3.7)
-- ❌ IaC misconfiguration detection (M3.8)
 - ❌ Web dashboard (M4 — not until M3 + design-partner validation)
+- ⏳ Design-partner report review before M4
+- ⏳ P2 URL-corpus hardening for blocked live targets
 
-**Current focus:** M3 scanner enhancement (spec at `docs/milestones/M3-SCANNER-ENHANCEMENT.md`). M3.1/M3.2 are implemented; next up are M3.3 dynamic confidence and M3.4 adapter timeout/progress. Design-partner review continues in parallel. Dashboard is explicitly deferred to M4 — we need validated scanner output and consultant feedback before investing in UI.
+**Current focus:** M3 scanner enhancement implementation, local validation, and P0/P1 review-fallout fixes are complete. Dashboard remains deferred to M4 until design partners validate scanner output and consultant report shape.
 
 ---
 
@@ -51,7 +56,7 @@
 Phase 1.5 — Scanner Credibility Release    ✅
 Phase 2   — Compliance Differentiation      ✅
 Phase 2.5 — Rule Update Pipeline (foundation) ✅
-Phase 3   — Scanner Enhancement              ← NOW
+Phase 3   — Scanner Enhancement              ✅ implementation + local validation complete
 Phase 3.5 — Rule Update Pipeline (full)
 Phase 4   — Platform, Dashboard & AI Integration
 Phase 5   — Launch & Growth
@@ -164,58 +169,62 @@ Full spec: `docs/milestones/M3-SCANNER-ENHANCEMENT.md`
 - Local `node_modules/<dep>/package.json` metadata is used by default; npm registry fallback is opt-in via `--external-enrichment` and has recoverable warnings
 - Maps to APP_11 and APP_6
 
-### M3.3 — Dynamic Confidence Scoring (1 day)
+### M3.3 — Dynamic Confidence Scoring ✅
 - Replace hardcoded confidence with context-aware calculation
 - Typosquat distance, auth endpoints, multi-source confirmation, file type
 - Makes reports defensible for consultant use
 
-### M3.4 — Per-Adapter Timeout & Progress Reporting (2 days)
+### M3.4 — Per-Adapter Timeout & Progress Reporting ✅
 - AbortSignal per adapter, configurable timeouts
 - Progress callbacks for CLI feedback
 - Partial results on timeout, not hard failure
 
-### M3.5 — Behavioral Supply-Chain Analysis (1 week)
+### M3.5 — Behavioral Supply-Chain Analysis (shipped)
 - 6 signals: eval/Function, network access, shell access, env access, obfuscation, high-entropy strings
 - No compliance tool does this — highest differentiation opportunity
 - Maps to APP_11 + APP_8 + NDB
 
-### M3.6 — Git History Secret Scanning (3 days)
+### M3.6 — Git History Secret Scanning (shipped)
 - Gitleaks integration as opt-in adapter (like mcp-scan)
 - 150+ secret detectors covering git history
 - Maps to APP_11 + NDB — the #1 gap consultants flag
 
-### M3.7 — SAST Lite: Compliance-Critical Patterns (1 week)
+### M3.7 — SAST Lite: Compliance-Critical Patterns (shipped)
 - 20 patterns: hardcoded creds, SQL injection, SSRF, CORS wildcard, prototype pollution, path traversal, etc.
 - Regex-based, no AST parsing needed
 - Direct APP/NDB mappings for each pattern
 
-### M3.8 — IaC Misconfiguration: Dockerfile + Terraform (1 week)
-- 15 Dockerfile checks + 10 Terraform checks
-- All map to APP_11 + conditional NDB
-- Pure TypeScript, no Go runtime needed
+### M3.8 — IaC Misconfiguration: Dockerfile + Terraform ✅
+- Adds a default-on `iac` scan source for path scans
+- Covers conservative Dockerfile and Terraform misconfigurations
+- CLI can disable it with `--no-iac`; MCP path/audit tools accept `iac?: boolean`
+- Findings map through APP/NDB and respect orchestrator timeout/progress
 
-### M3.9 — Cross-Scanner Finding Deduplication (1 day)
-- Canonical key generation across scanners
-- Multi-source findings get confidence boost
-- No triple-counting in reports
+### M3.9 — Cross-Scanner Finding Deduplication ✅
+- Canonical key generation across overlapping scanner findings
+- Preserves strongest evidence, highest severity, and adjusted confidence
+- Adds optional `corroboratedBy?: ScanSource[]` only when findings merge
+- Avoids duplicate consultant-report findings for the same root issue
 
-### M3.10 — Package Maturity Scoring (1 day)
-- Weekly downloads, maintainer count, README/tests presence
-- Enriches supply-chain findings, strengthens confidence
+### M3.10 — Package Maturity Scoring ✅
+- Reuses the existing external-enrichment opt-in; no default network calls
+- Emits `VS-SC-010` for risky maturity signals
+- Treats registry/rate-limit failures as recoverable warnings
 
 ### Implementation Timeline
 
 ```
-Week 1-2:  M3.1 ✅ + M3.2 ✅ + M3.3 + M3.4  (quick wins + production hardening)
+Week 1-2:  M3.1 ✅ + M3.2 ✅ + M3.3 ✅ + M3.4 ✅  (quick wins + production hardening)
 Week 3-4:  M3.5 + M3.6                  (differentiation + consultant value)
-Week 5-6:  M3.7 + M3.8                  (extended coverage)
-Week 7:    M3.9 + M3.10                 (quality + enrichment)
+Week 5-6:  M3.7 ✅ + M3.8 ✅             (extended coverage)
+Week 7:    M3.9 ✅ + M3.10 ✅            (quality + enrichment)
 ```
 
 **Exit criteria:**
-- All 10 enhancements shipped and tested
-- 223+ existing tests still green
+- All 10 enhancements shipped and tested ✅
+- Full verification green as of the M3.10 milestone commit ✅
 - Total detection surface > 250 compliance-relevant rules
+- M3.8–M3.10 local validation gate documented before M4 ✅
 - npm audit plus opt-in OSV.dev dual-source CVE coverage
 - Behavioral analysis producing findings with APP_11 mappings
 - Gitleaks integration working as opt-in adapter
