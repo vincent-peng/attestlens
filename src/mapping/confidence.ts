@@ -21,6 +21,11 @@ export function calculateMappingConfidence(baseConfidence: number, finding: Atte
     confidence *= 1.1;
   }
 
+  const maturityRisk = getMaturityRisk(rawOutput);
+  if (maturityRisk !== undefined && maturityRisk > 0.5) {
+    confidence += maturityRisk >= 0.8 ? 0.08 : 0.05;
+  }
+
   const corroboratingSourceCount = getCorroboratingSourceCount(finding, rawOutput);
   if (corroboratingSourceCount > 0) {
     confidence += Math.min(0.15, corroboratingSourceCount * 0.05);
@@ -72,6 +77,17 @@ function isTemplateEnvironmentFile(file: string | undefined): boolean {
 
 function hasCorroboratedAdvisoryEvidence(rawOutput: Record<string, unknown>): boolean {
   return Boolean(rawOutput.osvSourceRule || rawOutput.osv);
+}
+
+function getMaturityRisk(rawOutput: Record<string, unknown>): number | undefined {
+  const direct = getNumber(rawOutput.maturityRisk);
+  if (direct !== undefined) return direct;
+
+  const maturity = rawOutput.maturity;
+  if (typeof maturity === 'object' && maturity !== null) {
+    return getNumber((maturity as Record<string, unknown>).risk);
+  }
+  return undefined;
 }
 
 function getCorroboratingSourceCount(

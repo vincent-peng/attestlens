@@ -291,6 +291,35 @@ describe('mapFindingToAPP', () => {
     expect(mappings.some(m => m.principle === 'APP_6' && m.status === 'unknown')).toBe(true);
   });
 
+  it('should map low-maturity dependency findings to APP_11 and boost high-risk maturity confidence', () => {
+    const lowRisk = makeFinding({
+      source: 'supply-chain',
+      sourceRule: 'VS-SC-010',
+      severity: 'medium',
+      category: 'Supply Chain Maturity',
+      title: 'Dependency has weak package maturity signals',
+      evidence: {
+        timestamp: new Date().toISOString(),
+        scannerVersion: '0.2.0',
+        rawOutput: { packageName: 'pkg', maturityRisk: 0.55 },
+      },
+    });
+    const highRisk = makeFinding({
+      ...lowRisk,
+      id: 'FIND-MATURITY-HIGH',
+      evidence: {
+        timestamp: new Date().toISOString(),
+        scannerVersion: '0.2.0',
+        rawOutput: { packageName: 'pkg', maturityRisk: 0.9 },
+      },
+    });
+
+    const lowRiskMapping = mapFindingToAPP(lowRisk).find(m => m.principle === 'APP_11');
+    const highRiskMapping = mapFindingToAPP(highRisk).find(m => m.principle === 'APP_11');
+    expect(lowRiskMapping?.status).toBe('unknown');
+    expect(highRiskMapping!.confidence).toBeGreaterThan(lowRiskMapping!.confidence);
+  });
+
   it('should map behavioral dependency findings to APP_11 with conditional secondary obligations', () => {
     const networkFinding = makeFinding({
       source: 'behavioral',

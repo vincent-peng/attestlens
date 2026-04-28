@@ -174,6 +174,35 @@ interface PackageMetadata {
   homepage?: unknown;
 }
 
+interface NpmPackageDocument extends PackageMetadata {
+  time?: Record<string, string>;
+  versions?: Record<string, PackageMetadata & {
+    readme?: unknown;
+    scripts?: Record<string, string>;
+    directories?: Record<string, string>;
+  }>;
+  maintainers?: unknown[];
+  readme?: unknown;
+  scripts?: Record<string, string>;
+  directories?: Record<string, string>;
+}
+
+interface NpmDownloadsDocument {
+  downloads?: number;
+}
+
+interface PackageMaturity {
+  name: string;
+  weeklyDownloads: number;
+  maintainerCount: number;
+  hasReadme: boolean;
+  hasTests: boolean;
+  hasRepository: boolean;
+  ageDays: number;
+  versionCount: number;
+  risk: number;
+}
+
 type NpmAuditRunner = (safePath: string) => Promise<string | Record<string, any>>;
 
 export interface SupplyChainAdapterOptions {
@@ -200,6 +229,8 @@ export interface SupplyChainAdapterOptions {
 
 const NPM_REGISTRY_TIMEOUT_MS = 10_000;
 const NPM_REGISTRY_MAX_RESPONSE_BYTES = 1_000_000;
+const NPM_MATURITY_CACHE_TTL_MS = 60 * 60 * 1000;
+const NPM_REGISTRY_MIN_REQUEST_INTERVAL_MS = 100;
 const ALTERNATE_LOCKFILES = [
   'npm-shrinkwrap.json',
   'pnpm-lock.yaml',
@@ -216,6 +247,8 @@ const SEVERITY_RANK: Record<Severity, number> = {
   low: 2,
   info: 1,
 };
+const PACKAGE_MATURITY_CACHE = new Map<string, { expiresAt: number; maturity: PackageMaturity }>();
+let nextNpmRegistryRequestAt = 0;
 
 async function readJsonFileWithLimit<T>(filePath: string, maxBytes: number): Promise<T> {
   const stat = await fs.stat(filePath);
@@ -356,6 +389,14 @@ function buildNpmRegistryMetadataUrl(depName: string, version: string | null): s
   return `https://registry.npmjs.org/${encodedName}/${encodedVersion}`;
 }
 
+function buildNpmRegistryPackumentUrl(depName: string): string {
+  return `https://registry.npmjs.org/${encodeURIComponent(depName)}`;
+}
+
+function buildNpmDownloadsUrl(depName: string): string {
+  return `https://api.npmjs.org/downloads/point/last-week/${encodeURIComponent(depName)}`;
+}
+
 async function hasAlternateLockfile(safePath: string): Promise<boolean> {
   for (const filename of ALTERNATE_LOCKFILES) {
     const exists = await fs.access(path.join(safePath, filename))
@@ -364,6 +405,71 @@ async function hasAlternateLockfile(safePath: string): Promise<boolean> {
     if (exists) return true;
   }
   return false;
+}
+
+async function rateLimitNpmRegistryRequest(): Promise<void> {
+  const now = Date.now();
+  const waitMs = Math.max(0, nextNpmRegistryRequestAt - now);
+  nextNpmRegistryRequestAt = Math.max(now, nextNpmRegistryRequestAt) + NPM_REGISTRY_MIN_REQUEST_INTERVAL_MS;
+  if (waitMs > 0) {
+    await new Promise(resolve => setTimeout(resolve, waitMs));
+  }
+}
+
+function calculateMaturityRisk(maturity: Omit<PackageMaturity, 'risk'>): number {
+  let risk = 0;
+  if (maturity.weeklyDownloads < 100) risk += 0.30;
+  else if (maturity.weeklyDownloads < 1000) risk += 0.15;
+  if (maturity.maintainerCount <= 1) risk += 0.20;
+  if (!maturity.hasReadme) risk += 0.10;
+  if (!maturity.hasTests) risk += 0.10;
+  if (!maturity.hasRepository) risk += 0.15;
+  if (maturity.ageDays < 30) risk += 0.15;
+  if (maturity.versionCount <= 1) risk += 0.05;
+  return Math.round(Math.min(1, risk) * 100) / 100;
+}
+
+function getPackageAgeDays(document: NpmPackageDocument): number {
+  const created = document.time?.created;
+  if (!created) return Number.POSITIVE_INFINITY;
+  const createdTime = Date.parse(created);
+  if (!Number.isFinite(createdTime)) return Number.POSITIVE_INFINITY;
+  return Math.max(0, Math.floor((Date.now() - createdTime) / (24 * 60 * 60 * 1000)));
+}
+
+function getVersionMetadata(document: NpmPackageDocument, version: string | null): PackageMetadata & {
+  readme?: unknown;
+  scripts?: Record<string, string>;
+  directories?: Record<string, string>;
+} {
+  if (version && document.versions?.[version]) {
+    return document.versions[version]!;
+  }
+  const distTags = (document as { 'dist-tags'?: { latest?: unknown } })['dist-tags'];
+  const latest = typeof distTags?.latest === 'string' ? distTags.latest : undefined;
+  return latest && document.versions?.[latest]
+    ? document.versions[latest]!
+    : document;
+}
+
+function hasReadme(document: NpmPackageDocument, versionMetadata: { readme?: unknown }): boolean {
+  return isNonEmptyString(document.readme) || isNonEmptyString(versionMetadata.readme);
+}
+
+function hasTests(
+  versionMetadata: { scripts?: Record<string, string>; directories?: Record<string, string> },
+  document: NpmPackageDocument,
+): boolean {
+  return Boolean(
+    versionMetadata.scripts?.test ||
+    document.scripts?.test ||
+    versionMetadata.directories?.test ||
+    document.directories?.test,
+  );
+}
+
+function isNonEmptyString(value: unknown): boolean {
+  return typeof value === 'string' && value.trim().length > 0;
 }
 
 export class SupplyChainAdapter implements ScannerAdapter {
@@ -553,6 +659,9 @@ export class SupplyChainAdapter implements ScannerAdapter {
     // ─── 7b. Enrich known vulnerabilities with OSV.dev ───────────────────
     await this.runOsvScan(pkg, lockPackages, safePath, findings, errors, context);
 
+    // ─── 7c. Enrich direct dependencies with package maturity signals ────
+    await this.runPackageMaturityScan(pkg, lockPackages, safePath, findings, errors, context);
+
     // ─── 8. Check lockfile integrity ─────────────────────────────────────
     // (Already handled by VS-SC-005 above for missing lockfile)
 
@@ -709,13 +818,10 @@ export class SupplyChainAdapter implements ScannerAdapter {
     }
 
     try {
-      const metadata = await fetchJsonWithLimit<PackageMetadata>(
+      const metadata = await this.fetchRegistryJson<PackageMetadata>(
         fetchImpl,
         buildNpmRegistryMetadataUrl(depName, resolvedVersion),
-        { method: 'GET' },
-        this.options.registry?.timeoutMs ?? NPM_REGISTRY_TIMEOUT_MS,
-        this.options.registry?.maxBytes ?? NPM_REGISTRY_MAX_RESPONSE_BYTES,
-        context?.signal,
+        context,
       );
       metadataCache.set(metadataCacheKey, metadata);
       return { metadata, source: 'registry' };
@@ -731,6 +837,22 @@ export class SupplyChainAdapter implements ScannerAdapter {
         },
       };
     }
+  }
+
+  private async fetchRegistryJson<T>(
+    fetchImpl: FetchLike,
+    url: string,
+    context?: ScannerContext,
+  ): Promise<T> {
+    await rateLimitNpmRegistryRequest();
+    return fetchJsonWithLimit<T>(
+      fetchImpl,
+      url,
+      { method: 'GET' },
+      this.options.registry?.timeoutMs ?? NPM_REGISTRY_TIMEOUT_MS,
+      this.options.registry?.maxBytes ?? NPM_REGISTRY_MAX_RESPONSE_BYTES,
+      context?.signal,
+    );
   }
 
   private async runOsvScan(
@@ -764,6 +886,128 @@ export class SupplyChainAdapter implements ScannerAdapter {
       if (!this.mergeDuplicateOsvFinding(finding, findings)) {
         findings.push(finding);
       }
+    }
+  }
+
+  private async runPackageMaturityScan(
+    pkgJson: PackageJson,
+    lockPackages: Record<string, LockfileEntry>,
+    safePath: string,
+    findings: AttestLensFinding[],
+    errors: ScannerError[],
+    context?: ScannerContext,
+  ): Promise<void> {
+    if (this.options.registry?.enabled !== true) return;
+
+    const productionDeps = pkgJson.dependencies || {};
+    for (const [depName, requestedVersion] of Object.entries(productionDeps)) {
+      const maturityResult = await this.getPackageMaturity(depName, requestedVersion, lockPackages, context);
+      if (maturityResult.error) {
+        errors.push(maturityResult.error);
+        continue;
+      }
+      const maturity = maturityResult.maturity;
+      if (!maturity) continue;
+
+      this.enrichFindingsWithMaturity(findings, depName, maturity);
+      if (maturity.risk <= 0.5) continue;
+
+      findings.push(this.makeFinding(
+        'VS-SC-010',
+        maturity.risk >= 0.8 ? 'high' : 'medium',
+        'Supply Chain Maturity',
+        `Dependency "${depName}" has weak package maturity signals`,
+        `Direct production dependency "${depName}" has a maturity risk score of ${maturity.risk.toFixed(2)} based on npm registry signals including weekly downloads, maintainers, README/tests, source repository metadata, age, and version history.`,
+        `Review whether "${depName}" is appropriate for production use. Prefer mature packages with active maintainers, public source, tests, and clear documentation, or vendor/pin with compensating controls.`,
+        path.join(safePath, 'package.json'),
+        {
+          packageName: depName,
+          version: resolveDependencyVersion(depName, requestedVersion, lockPackages),
+          maturity,
+          maturityRisk: maturity.risk,
+        },
+      ));
+    }
+  }
+
+  private async getPackageMaturity(
+    depName: string,
+    requestedVersion: string | undefined,
+    lockPackages: Record<string, LockfileEntry>,
+    context?: ScannerContext,
+  ): Promise<{ maturity: PackageMaturity | null; error?: ScannerError }> {
+    const fetchImpl = this.options.registry?.fetchImpl ?? globalThis.fetch?.bind(globalThis);
+    if (!fetchImpl) return { maturity: null };
+
+    const cacheKey = depName;
+    const cached = PACKAGE_MATURITY_CACHE.get(cacheKey);
+    if (cached && cached.expiresAt > Date.now()) {
+      return { maturity: cached.maturity };
+    }
+
+    const resolvedVersion = resolveDependencyVersion(depName, requestedVersion, lockPackages);
+    try {
+      const [packument, downloads] = await Promise.all([
+        this.fetchRegistryJson<NpmPackageDocument>(fetchImpl, buildNpmRegistryPackumentUrl(depName), context),
+        this.fetchRegistryJson<NpmDownloadsDocument>(fetchImpl, buildNpmDownloadsUrl(depName), context),
+      ]);
+      if (typeof downloads.downloads !== 'number') {
+        throw new Error('npm downloads response did not include a downloads number');
+      }
+
+      const versionMetadata = getVersionMetadata(packument, resolvedVersion);
+      const maturityBase = {
+        name: depName,
+        weeklyDownloads: downloads.downloads,
+        maintainerCount: Array.isArray(packument.maintainers) ? packument.maintainers.length : 0,
+        hasReadme: hasReadme(packument, versionMetadata),
+        hasTests: hasTests(versionMetadata, packument),
+        hasRepository: hasRepository(versionMetadata) || hasRepository(packument),
+        ageDays: getPackageAgeDays(packument),
+        versionCount: packument.versions ? Object.keys(packument.versions).length : 0,
+      };
+      const maturity = {
+        ...maturityBase,
+        risk: calculateMaturityRisk(maturityBase),
+      };
+
+      PACKAGE_MATURITY_CACHE.set(cacheKey, {
+        maturity,
+        expiresAt: Date.now() + NPM_MATURITY_CACHE_TTL_MS,
+      });
+      return { maturity };
+    } catch (error) {
+      return {
+        maturity: null,
+        error: {
+          source: this.name,
+          code: 'NPM_MATURITY_ERROR',
+          message: `npm package maturity lookup failed for "${depName}": ${error instanceof Error ? error.message : String(error)}`,
+          recoverable: true,
+        },
+      };
+    }
+  }
+
+  private enrichFindingsWithMaturity(
+    findings: AttestLensFinding[],
+    packageName: string,
+    maturity: PackageMaturity,
+  ): void {
+    for (const finding of findings) {
+      const rawOutput = typeof finding.evidence.rawOutput === 'object' && finding.evidence.rawOutput !== null
+        ? finding.evidence.rawOutput as Record<string, unknown>
+        : {};
+      if (rawOutput.packageName !== packageName) continue;
+
+      finding.evidence = {
+        ...finding.evidence,
+        rawOutput: {
+          ...rawOutput,
+          maturity,
+          maturityRisk: maturity.risk,
+        },
+      };
     }
   }
 

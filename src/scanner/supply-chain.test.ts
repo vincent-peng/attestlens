@@ -406,7 +406,7 @@ describe('SupplyChainAdapter', { timeout: 20000 }, () => {
       packageName: 'remote-no-repo',
       metadataSource: 'registry',
     });
-    expect(calls).toEqual(['https://registry.npmjs.org/remote-no-repo/1.0.0']);
+    expect(calls).toContain('https://registry.npmjs.org/remote-no-repo/1.0.0');
 
     await fs.rm(provenanceDir, { recursive: true }).catch(() => {});
   });
@@ -438,7 +438,7 @@ describe('SupplyChainAdapter', { timeout: 20000 }, () => {
     });
     const result = await localAdapter.scan(provenanceDir);
 
-    expect(calls).toEqual(['https://registry.npmjs.org/range-only-package/latest']);
+    expect(calls).toContain('https://registry.npmjs.org/range-only-package/latest');
     expect(result.findings.some(f => f.sourceRule === 'VS-SC-009')).toBe(false);
 
     await fs.rm(provenanceDir, { recursive: true }).catch(() => {});
@@ -484,6 +484,161 @@ describe('SupplyChainAdapter', { timeout: 20000 }, () => {
     expect(result.findings.some(f => f.sourceRule === 'VS-SC-009')).toBe(false);
 
     await fs.rm(provenanceDir, { recursive: true }).catch(() => {});
+  });
+
+  it('should emit VS-SC-010 for low-maturity dependencies when registry enrichment is enabled', async () => {
+    const dependencyName = uniquePackageName('low-maturity');
+    const maturityDir = await createPackageProject({
+      dependencyName,
+      dependencyPackageJson: null,
+      installDependency: false,
+    });
+    const calls: string[] = [];
+    const fetchImpl = makeMaturityFetch(calls, dependencyName, {
+      weeklyDownloads: 42,
+      maintainerCount: 1,
+      hasRepository: false,
+      hasReadme: false,
+      hasTests: false,
+      created: '2026-04-20T00:00:00.000Z',
+      versionCount: 1,
+    });
+
+    const localAdapter = new SupplyChainAdapter({
+      osv: { enabled: false },
+      registry: { enabled: true, fetchImpl },
+      audit: { enabled: false },
+    });
+    const result = await localAdapter.scan(maturityDir);
+
+    const maturityFindings = result.findings.filter(f => f.sourceRule === 'VS-SC-010');
+    expect(maturityFindings).toHaveLength(1);
+    expect(maturityFindings[0].severity).toBe('high');
+    expect(maturityFindings[0].evidence.rawOutput).toMatchObject({
+      packageName: dependencyName,
+      maturity: expect.objectContaining({
+        weeklyDownloads: 42,
+        maintainerCount: 1,
+        hasRepository: false,
+        risk: expect.any(Number),
+      }),
+    });
+    expect((maturityFindings[0].evidence.rawOutput as any).maturity.risk).toBeGreaterThan(0.5);
+    const provenanceFinding = result.findings.find(f => f.sourceRule === 'VS-SC-009');
+    expect(provenanceFinding?.evidence.rawOutput).toMatchObject({
+      packageName: dependencyName,
+      maturityRisk: expect.any(Number),
+    });
+    expect(calls).toContain(`https://registry.npmjs.org/${dependencyName}/1.0.0`);
+    expect(calls).toContain(`https://registry.npmjs.org/${dependencyName}`);
+    expect(calls).toContain(`https://api.npmjs.org/downloads/point/last-week/${dependencyName}`);
+
+    await fs.rm(maturityDir, { recursive: true }).catch(() => {});
+  });
+
+  it('should not emit VS-SC-010 for healthy package maturity signals', async () => {
+    const dependencyName = uniquePackageName('healthy-maturity');
+    const maturityDir = await createPackageProject({
+      dependencyName,
+      dependencyPackageJson: null,
+      installDependency: false,
+    });
+    await fs.writeFile(path.join(maturityDir, 'index.js'), `import pkg from '${dependencyName}';\nexport default pkg;\n`);
+    const calls: string[] = [];
+    const fetchImpl = makeMaturityFetch(calls, dependencyName, {
+      weeklyDownloads: 50_000,
+      maintainerCount: 4,
+      hasRepository: true,
+      hasReadme: true,
+      hasTests: true,
+      created: '2020-01-01T00:00:00.000Z',
+      versionCount: 20,
+    });
+
+    const localAdapter = new SupplyChainAdapter({
+      osv: { enabled: false },
+      registry: { enabled: true, fetchImpl },
+      audit: { enabled: false },
+    });
+    const result = await localAdapter.scan(maturityDir);
+
+    expect(result.findings.some(f => f.sourceRule === 'VS-SC-010')).toBe(false);
+    expect(result.errors.some(error => error.code === 'NPM_MATURITY_ERROR')).toBe(false);
+
+    await fs.rm(maturityDir, { recursive: true }).catch(() => {});
+  });
+
+  it('should treat package maturity lookup failures as recoverable warnings', async () => {
+    const dependencyName = uniquePackageName('maturity-fails');
+    const maturityDir = await createPackageProject({
+      dependencyName,
+      dependencyPackageJson: null,
+      installDependency: false,
+    });
+    const fetchImpl: FetchLike = async (input) => {
+      const url = String(input);
+      if (url === `https://registry.npmjs.org/${dependencyName}/1.0.0`) {
+        return new Response(JSON.stringify({
+          name: dependencyName,
+          version: '1.0.0',
+          repository: { type: 'git', url: `https://github.com/example/${dependencyName}.git` },
+        }), { status: 200, headers: { 'content-type': 'application/json' } });
+      }
+      if (url === `https://api.npmjs.org/downloads/point/last-week/${dependencyName}`) {
+        return new Response(JSON.stringify({ downloads: 10 }), { status: 200, headers: { 'content-type': 'application/json' } });
+      }
+      return new Response('rate limited', { status: 429 });
+    };
+
+    const localAdapter = new SupplyChainAdapter({
+      osv: { enabled: false },
+      registry: { enabled: true, fetchImpl },
+      audit: { enabled: false },
+    });
+    const result = await localAdapter.scan(maturityDir);
+
+    expect(result.findings.some(f => f.sourceRule === 'VS-SC-010')).toBe(false);
+    expect(result.errors.some(error => error.code === 'NPM_MATURITY_ERROR' && error.recoverable)).toBe(true);
+
+    await fs.rm(maturityDir, { recursive: true }).catch(() => {});
+  });
+
+  it('should cache package maturity data for repeated scans', async () => {
+    const dependencyName = uniquePackageName('cached-maturity');
+    const firstDir = await createPackageProject({
+      dependencyName,
+      dependencyPackageJson: null,
+      installDependency: false,
+    });
+    const secondDir = await createPackageProject({
+      dependencyName,
+      dependencyPackageJson: null,
+      installDependency: false,
+    });
+    const calls: string[] = [];
+    const fetchImpl = makeMaturityFetch(calls, dependencyName, {
+      weeklyDownloads: 10,
+      maintainerCount: 1,
+      hasRepository: false,
+      hasReadme: false,
+      hasTests: false,
+      created: '2026-04-20T00:00:00.000Z',
+      versionCount: 1,
+    });
+
+    const localAdapter = new SupplyChainAdapter({
+      osv: { enabled: false },
+      registry: { enabled: true, fetchImpl },
+      audit: { enabled: false },
+    });
+    await localAdapter.scan(firstDir);
+    await localAdapter.scan(secondDir);
+
+    expect(calls.filter(url => url === `https://registry.npmjs.org/${dependencyName}`).length).toBe(1);
+    expect(calls.filter(url => url === `https://api.npmjs.org/downloads/point/last-week/${dependencyName}`).length).toBe(1);
+
+    await fs.rm(firstDir, { recursive: true }).catch(() => {});
+    await fs.rm(secondDir, { recursive: true }).catch(() => {});
   });
 
   it('should parse npm audit vulnerability stdout from non-zero exits', async () => {
@@ -687,6 +842,73 @@ describe('SupplyChainAdapter', { timeout: 20000 }, () => {
     await fs.rm(osvDir, { recursive: true }).catch(() => {});
   });
 });
+
+function uniquePackageName(prefix: string): string {
+  return `${prefix}-${crypto.randomBytes(4).toString('hex')}`;
+}
+
+function makeMaturityFetch(
+  calls: string[],
+  dependencyName: string,
+  options: {
+    weeklyDownloads: number;
+    maintainerCount: number;
+    hasRepository: boolean;
+    hasReadme: boolean;
+    hasTests: boolean;
+    created: string;
+    versionCount: number;
+  },
+): FetchLike {
+  return async (input) => {
+    const url = String(input);
+    calls.push(url);
+
+    if (url === `https://registry.npmjs.org/${dependencyName}/1.0.0`) {
+      return new Response(JSON.stringify({
+        name: dependencyName,
+        version: '1.0.0',
+        repository: options.hasRepository
+          ? { type: 'git', url: `https://github.com/example/${dependencyName}.git` }
+          : undefined,
+      }), { status: 200, headers: { 'content-type': 'application/json' } });
+    }
+
+    if (url === `https://registry.npmjs.org/${dependencyName}`) {
+      const versions = Object.fromEntries(
+        Array.from({ length: options.versionCount }, (_, index) => {
+          const version = index === 0 ? '1.0.0' : `1.0.${index}`;
+          return [version, {
+            name: dependencyName,
+            version,
+            repository: options.hasRepository
+              ? { type: 'git', url: `https://github.com/example/${dependencyName}.git` }
+              : undefined,
+            readme: options.hasReadme ? '# package\n' : '',
+            scripts: options.hasTests ? { test: 'vitest run' } : {},
+          }];
+        }),
+      );
+      return new Response(JSON.stringify({
+        name: dependencyName,
+        'dist-tags': { latest: '1.0.0' },
+        time: { created: options.created },
+        versions,
+        maintainers: Array.from({ length: options.maintainerCount }, (_, index) => ({ name: `maintainer-${index}` })),
+        readme: options.hasReadme ? '# package\n' : '',
+      }), { status: 200, headers: { 'content-type': 'application/json' } });
+    }
+
+    if (url === `https://api.npmjs.org/downloads/point/last-week/${dependencyName}`) {
+      return new Response(JSON.stringify({ downloads: options.weeklyDownloads }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      });
+    }
+
+    return new Response('{}', { status: 404 });
+  };
+}
 
 async function createPackageProject(options: {
   dependencyName: string;

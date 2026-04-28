@@ -544,6 +544,20 @@ const NDB_RULES: MappingRule[] = [
     oaicReference: 'APP Guidelines Chapter 11.1',
   },
   {
+    id: 'MAP-051',
+    name: 'Low-Maturity Dependency → APP 11.1',
+    sourcePatterns: {
+      ruleId: /^VS-SC-010$/,
+      category: /^Supply Chain Maturity$/i,
+      severity: ['medium', 'high', 'critical'],
+    },
+    appPrinciple: 'APP_11',
+    status: 'unknown',
+    confidence: 0.74,
+    rationale: 'Low package maturity is a supply-chain risk indicator. Manual review is required to determine whether the dependency is appropriate for production systems handling personal information.',
+    oaicReference: 'APP Guidelines Chapter 11.1',
+  },
+  {
     id: 'MAP-025',
     name: 'Missing Lockfile → APP 11.1',
     sourcePatterns: {
