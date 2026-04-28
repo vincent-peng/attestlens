@@ -1,9 +1,9 @@
 # AttestLens — Status
 
-**Last Updated:** 2026-04-27
+**Last Updated:** 2026-04-28
 **Purpose:** Near-term source of truth for product status, current milestone, and next actions.
 
-**Current focus:** M3 scanner enhancement is underway. M3.1–M3.7 are implemented; next implementation is M3.8 IaC misconfiguration detection.
+**Current focus:** M3 scanner enhancement implementation is complete through M3.10. The next gate is M3 closeout validation across real local projects before any dashboard/SaaS work.
 
 **Sellable roadmap:** See `docs/SELLABLE-TODOS.md` for the prioritized path to a sellable product. Key additions beyond M3: Privacy Act 2026 reform module (P1.1), SMB compliance tier (P1.2), NDB breach penalty calculator (P1.5). Market research at `docs/COMPETITIVE-MARKET-RESEARCH.md`.
 
@@ -83,13 +83,20 @@ In practice, that means:
   - `VS-SC-004` typosquat findings disabled by default and available only with explicit `--include-typosquat` / MCP opt-in
   - dynamic APP mapping confidence for typosquat edit distance, auth-sensitive URL headers, template env files, and OSV/npm audit corroboration
   - per-adapter scanner timeout and progress callback support, with CLI/MCP timeout overrides and recoverable `SCANNER_TIMEOUT` warnings
+  - behavioral supply-chain adapter for direct production dependencies, default-on for path scans with `--no-behavioral` / MCP `behavioral?: boolean`
+  - opt-in git history secret scanning via gitleaks, with `--include-gitleaks`, `--gitleaks-path`, and matching MCP inputs
+  - SAST-lite compliance-critical source patterns in the GuardVibe/static-rule path
+  - default-on IaC scanning for Dockerfile and Terraform misconfigurations via `iac` source, CLI `--no-iac`, and MCP `iac?: boolean`
+  - canonical cross-scanner deduplication that preserves strongest evidence and adds optional `corroboratedBy?: ScanSource[]` only when findings merge
+  - opt-in package maturity scoring via `--external-enrichment`, emitting `VS-SC-010` for risky maturity signals
 
 ### In Progress
 
 - Design-partner validation and consultant/MSP outreach
 - Design-partner feedback tracking in `docs/validation/DESIGN-PARTNER-VALIDATION.md`
 - External validation remains required; the 2026-04-25 local gate found no local P0/P1 report-shape issue but does not replace design-partner feedback
-- Validation-driven rule cleanup for remaining live-site false positives and CDN/bot-blocked targets
+- M3.8–M3.10 validation gate across real local projects before starting M4
+- Validation-driven rule cleanup for remaining false positives, timeout behavior, dedup/report narrative issues, and CDN/bot-blocked targets
 
 ### Not Shipped
 
@@ -184,9 +191,11 @@ Full spec: `docs/milestones/M3-SCANNER-ENHANCEMENT.md`
 - ✅ M3.5 — Behavioral supply-chain analysis
 - ✅ M3.6 — Git history secret scanning via gitleaks
 - ✅ M3.7 — SAST lite: compliance-critical patterns
-- M3.8 — IaC misconfiguration: Dockerfile + Terraform (1 week)
-- M3.9 — Cross-scanner finding deduplication (1 day)
-- M3.10 — Package maturity scoring (1 day)
+- ✅ M3.8 — IaC misconfiguration: Dockerfile + Terraform
+- ✅ M3.9 — Cross-scanner finding deduplication
+- ✅ M3.10 — Package maturity scoring (`VS-SC-010`; external enrichment only)
+
+**Current gate:** Run the M3.8–M3.10 validation sweep across local projects, document false positives and report-shape issues, and fix any P0/P1 credibility problems before M4.
 
 ## M4 — SaaS Wrapper
 
@@ -214,9 +223,9 @@ These are the default operating rules for the project.
 
 ### Next 2 Weeks
 
-1. Keep M3.1–M3.5 regression coverage green while scanning real design-partner projects.
-2. Validate behavioral dependency findings with design partners before treating them as sellable.
-3. Continue design-partner outreach with M2 sample reports.
+1. Close M3 docs and run the M3.8–M3.10 validation gate across AttestLens, Strands, bgm-cafe, Paperclip, and Multica.
+2. Fix any P0/P1 credibility issues before M4; likely areas are IaC precision, maturity scoring noise, dedup canonical keys, and report wording for corroborated findings.
+3. Continue design-partner outreach with refreshed M2/M3 sample reports.
 4. Keep `npm test`, `npm run lint`, and `npm run build` green.
 
 ### Explicitly Not Now
@@ -225,7 +234,7 @@ These are the default operating rules for the project.
 - billing
 - broad growth automation
 - additional compliance frameworks beyond APP/NDB
-- SaaS dashboard before M3 scanner enhancements ship
+- SaaS dashboard before M3 scanner validation and design-partner review
 - treating behavioral analysis as sellable until design-partner report feedback is stable
 - typosquatting as a default headline signal (use explicit `--include-typosquat`; see `SELLABLE-TODOS.md`)
 - competing on supply-chain breadth (Socket/Dependency Guardian win that game)
