@@ -57,6 +57,26 @@ describe('GuardVibeAdapter', { timeout: 20000 }, () => {
     expect(envFindings.length).toBeGreaterThan(0);
   });
 
+  it('does not treat secret resolver identifiers as hardcoded secret literals', async () => {
+    const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'attestlens-secret-resolver-'));
+    try {
+      await fs.mkdir(path.join(tempDir, 'src'), { recursive: true });
+      await fs.writeFile(
+        path.join(tempDir, 'src', 'config.ts'),
+        [
+          'const apiKey = resolveOpenAiApiKey();',
+          'const accessToken = getAccessTokenFromEnv();',
+        ].join('\n'),
+      );
+
+      const result = await new GuardVibeAdapter('__attestlens_missing_guardvibe__').scan(tempDir);
+
+      expect(result.findings.some(finding => finding.sourceRule === 'VS-HARDKEY')).toBe(false);
+    } finally {
+      await fs.rm(tempDir, { recursive: true, force: true });
+    }
+  });
+
   it('should produce findings with required fields', async () => {
     for (const finding of scanResult.findings) {
       expect(finding.id).toBeTruthy();

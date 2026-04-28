@@ -56,7 +56,7 @@ const guardVibeStaticRules: RuleDefinition[] = [
     severity: 'critical',
     title: 'Hardcoded secret key',
     description: 'A hardcoded secret key was found in source code. Secrets should never be committed.',
-    pattern: String.raw`(?:api[_-]?key|secret[_-]?key|private[_-]?key|access[_-]?token)\s*[:=]\s*['"]?[A-Za-z0-9+/=_-]{16,}['"]?`,
+    pattern: String.raw`(?:\b[A-Z0-9_]*(?:API[_-]KEY|SECRET[_-]KEY|PRIVATE[_-]KEY|ACCESS[_-]TOKEN)[A-Z0-9_]*\s*=\s*['"]?[A-Za-z0-9+/=_-]{16,}['"]?|\b[a-zA-Z0-9_]*(?:api[_-]?key|secret[_-]?key|private[_-]?key|access[_-]?token)[a-zA-Z0-9_]*\s*[:=]\s*['"][A-Za-z0-9+/=_-]{16,}['"])`,
     flags: 'gi',
     fixPrompt: 'Move secrets to environment variables (.env.local, not committed). Add to .gitignore.',
     appMappings: [app11Mapping],

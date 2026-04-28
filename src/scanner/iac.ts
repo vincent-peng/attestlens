@@ -10,6 +10,7 @@ import path from 'node:path';
 
 import type { AttestLensFinding, ScanSource, Severity } from '../schema/index.js';
 import type { ScannerAdapter, ScannerContext, ScannerError, ScannerResult } from './types.js';
+import { shouldSkipRepoScanPath } from './rules/repo-stack-checks.js';
 
 export interface IacAdapterOptions {
   enabled?: boolean;
@@ -357,13 +358,15 @@ async function collectIacFiles(root: string, context?: ScannerContext): Promise<
     const entries = await fs.readdir(dir, { withFileTypes: true }).catch(() => []);
     for (const entry of entries) {
       const fullPath = path.join(dir, entry.name);
+      const relativePath = path.relative(root, fullPath);
       if (entry.isDirectory()) {
-        if (!EXCLUDED_DIRS.has(entry.name)) {
+        if (!EXCLUDED_DIRS.has(entry.name) && !shouldSkipRepoScanPath(relativePath)) {
           await walk(fullPath);
         }
         continue;
       }
       if (!entry.isFile()) continue;
+      if (shouldSkipRepoScanPath(relativePath)) continue;
       if (isDockerfile(fullPath) || fullPath.endsWith('.tf')) {
         files.push(fullPath);
       }

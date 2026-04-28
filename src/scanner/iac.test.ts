@@ -48,6 +48,36 @@ describe('IacAdapter', () => {
     expect(result.errors).toHaveLength(0);
   });
 
+  it('skips low-signal hidden worktree and fixture IaC files', async () => {
+    await fs.mkdir(path.join(tempDir, '.strands', 'worktrees', 'abc123'), { recursive: true });
+    await fs.mkdir(path.join(tempDir, 'fixtures'), { recursive: true });
+    await fs.writeFile(
+      path.join(tempDir, '.strands', 'worktrees', 'abc123', 'Dockerfile'),
+      'FROM node:latest\nCMD ["node", "server.js"]\n',
+    );
+    await fs.writeFile(
+      path.join(tempDir, 'fixtures', 'main.tf'),
+      'resource "aws_security_group" "open" { ingress { cidr_blocks = ["0.0.0.0/0"] } }\n',
+    );
+
+    const result = await new IacAdapter().scan(tempDir);
+
+    expect(result.findings).toHaveLength(0);
+    expect(result.errors).toHaveLength(0);
+  });
+
+  it('still scans production IaC files after low-signal path filtering', async () => {
+    await fs.writeFile(
+      path.join(tempDir, 'Dockerfile'),
+      'FROM node:latest\nCMD ["node", "server.js"]\n',
+    );
+
+    const result = await new IacAdapter().scan(tempDir);
+
+    expect(result.findings.some(finding => finding.sourceRule === 'VS-IAC-006')).toBe(true);
+    expect(result.findings.some(finding => finding.sourceRule === 'VS-IAC-007')).toBe(true);
+  });
+
   it('maps IaC findings to APP/NDB obligations', async () => {
     await writePositiveFixture(tempDir);
 
