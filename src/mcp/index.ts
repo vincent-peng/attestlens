@@ -293,6 +293,7 @@ function serializeFindings(findings: AttestLensFinding[]) {
     url: finding.url,
     fix: finding.fix,
     fixPrompt: finding.fixPrompt,
+    corroboratedBy: finding.corroboratedBy,
     appMappings: finding.appMappings.map((mapping) => ({
       principle: mapping.principle,
       obligation: mapping.obligation,

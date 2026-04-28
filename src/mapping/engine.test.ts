@@ -345,6 +345,24 @@ describe('mapFindingToAPP', () => {
     expect(mapFindingToAPP(ssrf).map(mapping => mapping.principle)).toEqual(['APP_11', 'APP_8']);
     expect(mapFindingToAPP(collection).map(mapping => mapping.principle)).toEqual(['APP_11', 'APP_3']);
   });
+
+  it('should increase mapping confidence for corroborated cross-scanner findings', () => {
+    const singleSource = makeFinding({
+      sourceRule: 'VS-XSS',
+      severity: 'medium',
+      category: 'Security',
+      title: 'Potential XSS vector',
+    });
+    const corroborated = makeFinding({
+      ...singleSource,
+      id: 'FIND-CORROBORATED',
+      corroboratedBy: ['url-scan'],
+    });
+
+    const singleConfidence = mapFindingToAPP(singleSource).find(m => m.principle === 'APP_11')!.confidence;
+    const corroboratedConfidence = mapFindingToAPP(corroborated).find(m => m.principle === 'APP_11')!.confidence;
+    expect(corroboratedConfidence).toBeGreaterThan(singleConfidence);
+  });
 });
 
 // ─── mapAllFindings Tests ─────────────────────────────────────────────────────

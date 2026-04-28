@@ -21,6 +21,11 @@ export function calculateMappingConfidence(baseConfidence: number, finding: Atte
     confidence *= 1.1;
   }
 
+  const corroboratingSourceCount = getCorroboratingSourceCount(finding, rawOutput);
+  if (corroboratingSourceCount > 0) {
+    confidence += Math.min(0.15, corroboratingSourceCount * 0.05);
+  }
+
   return roundConfidence(Math.max(0.5, Math.min(1, confidence)));
 }
 
@@ -67,6 +72,15 @@ function isTemplateEnvironmentFile(file: string | undefined): boolean {
 
 function hasCorroboratedAdvisoryEvidence(rawOutput: Record<string, unknown>): boolean {
   return Boolean(rawOutput.osvSourceRule || rawOutput.osv);
+}
+
+function getCorroboratingSourceCount(
+  finding: AttestLensFinding,
+  rawOutput: Record<string, unknown>,
+): number {
+  const topLevel = Array.isArray(finding.corroboratedBy) ? finding.corroboratedBy.length : 0;
+  const raw = Array.isArray(rawOutput.corroboratedBy) ? rawOutput.corroboratedBy.length : 0;
+  return Math.max(topLevel, raw);
 }
 
 function roundConfidence(confidence: number): number {

@@ -5,6 +5,7 @@ import path from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { ScannerOrchestrator } from './orchestrator.js';
 import type { ScannerAdapter, ScannerContext, ScannerProgressEvent, ScannerResult } from './types.js';
+import type { AttestLensFinding, ScanSource } from '../schema/index.js';
 
 describe('ScannerOrchestrator', { timeout: 20000 }, () => {
   let scanResult: Awaited<ReturnType<ScannerOrchestrator['scan']>>;
@@ -94,6 +95,112 @@ describe('ScannerOrchestrator', { timeout: 20000 }, () => {
     } finally {
       await fs.rm(projectDir, { recursive: true, force: true });
     }
+  });
+
+  it('deduplicates cross-scanner findings with a canonical vulnerability key', async () => {
+    const orchestrator = new ScannerOrchestrator();
+    orchestrator.register(makeFindingAdapter('manual', [
+      makeFinding({
+        id: 'manual-xss',
+        source: 'manual',
+        sourceRule: 'VS-XSS',
+        severity: 'high',
+        file: 'src/App.tsx',
+        line: 10,
+        code: '<div dangerouslySetInnerHTML={{ __html: html }} />',
+        title: 'XSS vector',
+      }),
+    ]));
+    orchestrator.register(makeFindingAdapter('questionnaire', [
+      makeFinding({
+        id: 'questionnaire-xss',
+        source: 'questionnaire',
+        sourceRule: 'AL-JS-001',
+        severity: 'medium',
+        file: 'src/App.tsx',
+        line: 10,
+        code: '<div dangerouslySetInnerHTML={{ __html: html }} />',
+        title: 'dangerouslySetInnerHTML Usage Detected',
+      }),
+    ]));
+
+    const result = await orchestrator.scan(fixtureDir, ['manual', 'questionnaire']);
+
+    expect(result.findings).toHaveLength(1);
+    expect(result.findings[0]).toMatchObject({
+      id: 'manual-xss',
+      source: 'manual',
+      sourceRule: 'VS-XSS',
+      severity: 'high',
+      corroboratedBy: ['questionnaire'],
+    });
+    expect((result.findings[0]!.evidence.rawOutput as any).corroboratingFindings).toEqual([
+      expect.objectContaining({ source: 'questionnaire', sourceRule: 'AL-JS-001' }),
+    ]);
+  });
+
+  it('keeps the highest severity finding when cross-scanner duplicates merge', async () => {
+    const orchestrator = new ScannerOrchestrator();
+    orchestrator.register(makeFindingAdapter('manual', [
+      makeFinding({
+        id: 'manual-xss',
+        source: 'manual',
+        sourceRule: 'VS-XSS',
+        severity: 'medium',
+        file: 'src/App.tsx',
+        line: 10,
+        title: 'XSS vector',
+      }),
+    ]));
+    orchestrator.register(makeFindingAdapter('questionnaire', [
+      makeFinding({
+        id: 'questionnaire-xss',
+        source: 'questionnaire',
+        sourceRule: 'AL-JS-001',
+        severity: 'critical',
+        file: 'src/App.tsx',
+        line: 10,
+        title: 'dangerouslySetInnerHTML Usage Detected',
+      }),
+    ]));
+
+    const result = await orchestrator.scan(fixtureDir, ['manual', 'questionnaire']);
+
+    expect(result.findings).toHaveLength(1);
+    expect(result.findings[0]).toMatchObject({
+      id: 'questionnaire-xss',
+      source: 'questionnaire',
+      severity: 'critical',
+      corroboratedBy: ['manual'],
+    });
+  });
+
+  it('does not merge different vulnerability classes at the same location', async () => {
+    const orchestrator = new ScannerOrchestrator();
+    orchestrator.register(makeFindingAdapter('manual', [
+      makeFinding({
+        id: 'manual-xss',
+        source: 'manual',
+        sourceRule: 'VS-XSS',
+        file: 'src/App.tsx',
+        line: 10,
+        title: 'XSS vector',
+      }),
+    ]));
+    orchestrator.register(makeFindingAdapter('questionnaire', [
+      makeFinding({
+        id: 'questionnaire-sqli',
+        source: 'questionnaire',
+        sourceRule: 'VS-SAST-004',
+        file: 'src/App.tsx',
+        line: 10,
+        title: 'SQL query built from request input',
+      }),
+    ]));
+
+    const result = await orchestrator.scan(fixtureDir, ['manual', 'questionnaire']);
+
+    expect(result.findings.map(finding => finding.id).sort()).toEqual(['manual-xss', 'questionnaire-sqli']);
   });
 
   it('returns completed adapter results when another adapter times out', async () => {
@@ -197,6 +304,51 @@ function makeFakeAdapter(source: 'manual' | 'questionnaire', delayMs: number): S
         durationMs: delayMs,
       };
     },
+  };
+}
+
+function makeFindingAdapter(source: ScanSource, findings: AttestLensFinding[]): ScannerAdapter {
+  return {
+    name: source,
+    version: 'test',
+    async isAvailable() {
+      return true;
+    },
+    async getVersion() {
+      return 'test';
+    },
+    async scan(): Promise<ScannerResult> {
+      return {
+        source,
+        version: 'test',
+        timestamp: new Date().toISOString(),
+        findings,
+        errors: [],
+        durationMs: 1,
+      };
+    },
+  };
+}
+
+function makeFinding(overrides: Partial<AttestLensFinding>): AttestLensFinding {
+  return {
+    id: overrides.id || 'finding',
+    source: overrides.source || 'manual',
+    sourceRule: overrides.sourceRule || 'TEST-001',
+    severity: overrides.severity || 'high',
+    category: overrides.category || 'Security',
+    title: overrides.title || 'Test finding',
+    description: overrides.description || 'Test finding',
+    file: overrides.file,
+    line: overrides.line,
+    code: overrides.code,
+    appMappings: [],
+    evidence: {
+      timestamp: new Date().toISOString(),
+      scannerVersion: 'test',
+      rawOutput: {},
+    },
+    ...overrides,
   };
 }
 
