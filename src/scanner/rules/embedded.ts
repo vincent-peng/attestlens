@@ -70,7 +70,7 @@ const guardVibeStaticRules: RuleDefinition[] = [
     severity: 'high',
     title: 'Potential SQL injection vector',
     description: 'Dynamic query construction detected that may allow SQL injection through user input.',
-    pattern: String.raw`(?:\.from\(|\.raw\(|sql\`|\.query\().*(?:\$\{|\`|\+\s*(?:req\.|params|query))`,
+    pattern: String.raw`(?:\.raw\(|\.query\(|sql\`).*(?:\+\s*(?:req\.|params\.|query\.|body\.)|\$\{\s*(?:req\.|params\.|query\.|body\.))`,
     flags: 'gi',
     fixPrompt: 'Use parameterized queries. Supabase client .from().select() is parameterized; avoid raw SQL with string interpolation.',
     appMappings: [app11Mapping],

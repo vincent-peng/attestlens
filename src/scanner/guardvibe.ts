@@ -13,7 +13,7 @@ import path from 'node:path';
 import type { AttestLensFinding, ScanSource } from '../schema/index.js';
 import type { ScannerAdapter, ScannerContext, ScannerResult, ScannerError, GuardVibeFinding, GuardVibeAuditResult } from './types.js';
 import { getExecutableGuardVibeStaticRuleSet } from './rules/executable.js';
-import { scanRepoStackChecks } from './rules/repo-stack-checks.js';
+import { scanRepoStackChecks, shouldSkipRepoScanPath } from './rules/repo-stack-checks.js';
 
 export class GuardVibeAdapter implements ScannerAdapter {
   readonly name: ScanSource = 'guardvibe';
@@ -242,11 +242,12 @@ export class GuardVibeAdapter implements ScannerAdapter {
       const entries = await fs.readdir(dir, { withFileTypes: true });
       for (const entry of entries) {
         const fullPath = pathModule.join(dir, entry.name);
+        const relativePath = pathModule.relative(targetPath, fullPath);
         if (entry.isDirectory()) {
-          if (!excludeDirs.includes(entry.name)) {
+          if (!excludeDirs.includes(entry.name) && !shouldSkipRepoScanPath(relativePath)) {
             await walk(fullPath);
           }
-        } else if (extensions.some(ext => entry.name.endsWith(ext))) {
+        } else if (extensions.some(ext => entry.name.endsWith(ext)) && !shouldSkipRepoScanPath(relativePath)) {
           files.push(fullPath);
         }
       }
