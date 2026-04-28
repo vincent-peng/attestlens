@@ -48,6 +48,7 @@ import type { ReportFormat, ReportOptions } from '../report/generator.js';
 import type { ScannerError, ScannerResult } from '../scanner/types.js';
 import type { AttestationPromptRunner, AttestationScanSnapshot, SessionTarget } from '../questionnaire/index.js';
 import { getHostnameFromTargetUrl } from '../utils/target.js';
+import { registerMonitorCommands } from '../monitor/cli.js';
 
 const program = new Command();
 
@@ -55,6 +56,8 @@ program
   .name('attestlens')
   .description('AI Compliance Scanner & Privacy Act Attestation Tool')
   .version('0.2.0');
+
+registerMonitorCommands(program);
 
 // ─── Scan Command ─────────────────────────────────────────────────────────────
 
