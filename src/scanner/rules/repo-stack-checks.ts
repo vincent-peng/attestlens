@@ -30,6 +30,8 @@ const EXCLUDE_DIRS = new Set([
   'node_modules',
   '.git',
   '.next',
+  '.strands',
+  '.terraform',
   '.turbo',
   '.cache',
   '.output',
@@ -58,10 +60,23 @@ const LOW_SIGNAL_PATH_SEGMENTS = new Set([
   'examples',
   'fixture',
   'fixtures',
+  '__fixture__',
+  '__fixtures__',
   'sample',
   'samples',
   'demo',
   'demos',
+]);
+
+const GENERATED_PATH_SEGMENTS = new Set([
+  '.git',
+  '.next',
+  '.strands',
+  '.terraform',
+  '.turbo',
+  '.cache',
+  '.output',
+  '.vercel',
 ]);
 
 const PUBLIC_SECRET_ENV_PATTERN = /\b(?:NEXT_PUBLIC_|VITE_|PUBLIC_|REACT_APP_|NUXT_PUBLIC_)(?:SUPABASE_SERVICE_ROLE_KEY|STRIPE_SECRET_KEY|STRIPE_WEBHOOK_SECRET|CLERK_SECRET_KEY|CLERK_WEBHOOK_SECRET|AUTH0_CLIENT_SECRET|AUTH0_SECRET|VERCEL_TOKEN|NETLIFY_AUTH_TOKEN|FIREBASE_PRIVATE_KEY|FIREBASE_CLIENT_EMAIL|FIREBASE_PROJECT_ID)\b/i;
@@ -148,19 +163,15 @@ export function shouldSkipRepoScanPath(relativePath: string): boolean {
 
   for (let index = 0; index < segments.length; index += 1) {
     const segment = segments[index] || '';
-    if (LOW_SIGNAL_PATH_SEGMENTS.has(segment)) {
-      return true;
-    }
-    const isFileBasename = index === segments.length - 1;
-    if (segment.startsWith('.') && segment !== '.github' && !(isFileBasename && segment.startsWith('.env'))) {
+    if (LOW_SIGNAL_PATH_SEGMENTS.has(segment) || GENERATED_PATH_SEGMENTS.has(segment)) {
       return true;
     }
   }
 
   const basename = segments[segments.length - 1] || '';
   return /\.(?:test|spec)\.[cm]?[jt]sx?$/.test(basename)
-    || /(?:^|[-_.])fixture[-_.]/.test(basename)
-    || /(?:^|[-_.])mock[-_.]/.test(basename);
+    || /(?:^|[-_.])fixtures?(?:[-_.]|$)/.test(basename)
+    || /(?:^|[-_.])mocks?(?:[-_.]|$)/.test(basename);
 }
 
 function detectMissingSupabaseRls(

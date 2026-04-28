@@ -91,6 +91,12 @@ describe('repo stack checks', () => {
         private_key: '-----BEGIN PRIVATE KEY-----\nsecret\n-----END PRIVATE KEY-----\n',
         client_email: 'firebase-adminsdk@example.iam.gserviceaccount.com',
       }, null, 2),
+      '__fixtures__/firebase-admin.json': JSON.stringify({
+        type: 'service_account',
+        private_key_id: 'abc123',
+        private_key: '-----BEGIN PRIVATE KEY-----\nsecret\n-----END PRIVATE KEY-----\n',
+        client_email: 'firebase-adminsdk@example.iam.gserviceaccount.com',
+      }, null, 2),
     }, async (projectDir) => {
       const findings = await scanRepoStackChecks(projectDir, '0.1.0');
       const findingFiles = findings.map((finding) => finding.file || '');
@@ -100,6 +106,33 @@ describe('repo stack checks', () => {
       expect(findingFiles.some((file) => file.includes('__tests__'))).toBe(false);
       expect(findingFiles.some((file) => file.includes('.strands'))).toBe(false);
       expect(findingFiles.some((file) => file.includes('fixtures'))).toBe(false);
+      expect(findingFiles.some((file) => file.includes('__fixtures__'))).toBe(false);
+    });
+  });
+
+  it('scans real hidden config paths while skipping generated hidden paths', async () => {
+    const serviceAccount = JSON.stringify({
+      type: 'service_account',
+      private_key_id: 'abc123',
+      private_key: '-----BEGIN PRIVATE KEY-----\nsecret\n-----END PRIVATE KEY-----\n',
+      client_email: 'firebase-adminsdk@example.iam.gserviceaccount.com',
+    }, null, 2);
+
+    await withTempProject({
+      '.firebase/service-account.json': serviceAccount,
+      '.config/.env': 'APIKEY=abcdefghijklmnop\n',
+      '.strands/worktrees/abc123/.config/.env': 'APIKEY=abcdefghijklmnop\n',
+    }, async (projectDir) => {
+      const stackFindings = await scanRepoStackChecks(projectDir, '0.1.0');
+      expect(stackFindings.some((finding) => finding.sourceRule === 'VS-FB-SERVICE-ACCOUNT' && finding.file === '.firebase/service-account.json')).toBe(true);
+
+      const fallbackResult = await new GuardVibeAdapter('__attestlens_missing_guardvibe__').scan(projectDir);
+      const hardKeyFiles = fallbackResult.findings
+        .filter((finding) => finding.sourceRule === 'VS-HARDKEY')
+        .map((finding) => finding.file);
+
+      expect(hardKeyFiles).toContain('.config/.env');
+      expect(hardKeyFiles.some((file) => file?.includes('.strands'))).toBe(false);
     });
   });
 

@@ -182,7 +182,7 @@ export class GuardVibeAdapter implements ScannerAdapter {
             for (let i = 0; i < lines.length; i++) {
               pattern.regex.lastIndex = 0;
               const match = pattern.regex.exec(lines[i]);
-              if (match) {
+              if (match && this.shouldKeepStaticMatch(pattern.rule, relativePath, match[0])) {
                 findings.push({
                   id: this.generateId('guardvibe', pattern.rule, relativePath, i + 1),
                   source: 'guardvibe',
@@ -257,6 +257,21 @@ export class GuardVibeAdapter implements ScannerAdapter {
     return files;
   }
 
+  private shouldKeepStaticMatch(rule: string, relativePath: string, matchText: string): boolean {
+    if (rule !== 'VS-HARDKEY') {
+      return true;
+    }
+
+    const assignment = /[:=]\s*(?<value>['"]?[A-Za-z0-9+/=_-]{16,}['"]?)/.exec(matchText);
+    const value = assignment?.groups?.value;
+    if (!value) {
+      return false;
+    }
+
+    const quoted = value.startsWith('"') || value.startsWith("'");
+    return isEnvLikePath(relativePath) || quoted;
+  }
+
   private mapSeverity(severity: string): 'critical' | 'high' | 'medium' | 'low' | 'info' {
     const map: Record<string, 'critical' | 'high' | 'medium' | 'low' | 'info'> = {
       'critical': 'critical',
@@ -292,6 +307,11 @@ export class GuardVibeAdapter implements ScannerAdapter {
       return !specificLocations.has(`${finding.file || ''}:${finding.line || ''}`);
     });
   }
+}
+
+function isEnvLikePath(relativePath: string): boolean {
+  const basename = relativePath.replace(/\\/g, '/').split('/').pop()?.toLowerCase() || '';
+  return basename === '.env' || basename.startsWith('.env.');
 }
 
 export default GuardVibeAdapter;

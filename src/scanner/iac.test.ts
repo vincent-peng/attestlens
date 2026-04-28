@@ -67,8 +67,13 @@ describe('IacAdapter', () => {
   });
 
   it('still scans production IaC files after low-signal path filtering', async () => {
+    await fs.mkdir(path.join(tempDir, '.devcontainer'), { recursive: true });
     await fs.writeFile(
       path.join(tempDir, 'Dockerfile'),
+      'FROM node:latest\nCMD ["node", "server.js"]\n',
+    );
+    await fs.writeFile(
+      path.join(tempDir, '.devcontainer', 'Dockerfile'),
       'FROM node:latest\nCMD ["node", "server.js"]\n',
     );
 
@@ -76,6 +81,7 @@ describe('IacAdapter', () => {
 
     expect(result.findings.some(finding => finding.sourceRule === 'VS-IAC-006')).toBe(true);
     expect(result.findings.some(finding => finding.sourceRule === 'VS-IAC-007')).toBe(true);
+    expect(result.findings.some(finding => finding.file === '.devcontainer/Dockerfile' && finding.sourceRule === 'VS-IAC-006')).toBe(true);
   });
 
   it('maps IaC findings to APP/NDB obligations', async () => {
