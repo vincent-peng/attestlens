@@ -1,7 +1,9 @@
 # AttestLens Competitive Gap Analysis
 
-**Date:** 2026-04-18
-**Purpose:** Deep research on closing gaps vs CheckVibe + the broader vibe-coding security scanner market
+**Date:** 2026-04-18 (updated 2026-04-29)
+**Purpose:** Competitive landscape reference data. For current product positioning, see `docs/YC-RFS-EVOLUTION.md`.
+
+> **Note:** This doc was written pre-YC-RFS positioning. The competitive landscape data is still valid. The product strategy has shifted from "compete with vibe scanners" to "AI compliance service positioned at 3 YC RFS categories." See `docs/YC-RFS-EVOLUTION.md`.
 
 ---
 
