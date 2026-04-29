@@ -5,12 +5,16 @@ import path from 'node:path';
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { McpError } from '@modelcontextprotocol/sdk/types.js';
+import {
+  ListResourcesRequestSchema as ResourcesListSchema,
+  McpError,
+  ReadResourceRequestSchema as ResourcesReadSchema,
+} from '@modelcontextprotocol/sdk/types.js';
 
 import { GuardVibeAdapter } from '../scanner/guardvibe.js';
 import { McpScanAdapter } from '../scanner/mcp-scan.js';
 import { ScannerOrchestrator } from '../scanner/orchestrator.js';
-import { TOOL_DEFINITIONS, handleToolCall, validatePath, validateUrl } from '../mcp/index.js';
+import { TOOL_DEFINITIONS, createServer, handleToolCall, validatePath, validateUrl } from '../mcp/index.js';
 
 function makeRuleFreshness() {
   return {
@@ -92,6 +96,49 @@ function expectAuditStructuredEnvelope(
       scannerVersions: expect.any(Object),
     }),
   });
+}
+
+type RegisteredRequestHandler = (
+  request: { method: string; params?: Record<string, unknown> },
+  extra?: unknown,
+) => Promise<unknown>;
+
+type ResourceListResponse = {
+  resources: Array<{
+    uri: string;
+    name: string;
+    description: string;
+  }>;
+};
+
+type ResourceReadResponse = {
+  contents: Array<{
+    uri: string;
+    mimeType: string;
+    text: string;
+  }>;
+};
+
+function getRegisteredRequestHandler(
+  mcpServer: ReturnType<typeof createServer>,
+  schema: unknown,
+  method: string,
+): RegisteredRequestHandler {
+  const innerServer = mcpServer.server as unknown as {
+    getRequestHandler?: (schema: unknown) => RegisteredRequestHandler | undefined;
+    requestHandlers?: Map<string, RegisteredRequestHandler>;
+    _requestHandlers?: Map<string, RegisteredRequestHandler>;
+  };
+
+  const handler = innerServer.getRequestHandler?.(schema)
+    ?? innerServer.requestHandlers?.get(method)
+    ?? innerServer._requestHandlers?.get(method);
+
+  if (!handler) {
+    throw new Error(`No MCP request handler registered for ${method}`);
+  }
+
+  return handler;
 }
 
 describe('MCP Server', () => {
@@ -933,6 +980,51 @@ describe('MCP Contract Tests', () => {
         }));
       }
     }
+  });
+
+  it('resources handler lists allowed roots as file:// URIs', async () => {
+    process.env.ATTESTLENS_ALLOWED_ROOTS = tempDir;
+    const mcpServer = createServer();
+    const listResources = getRegisteredRequestHandler(mcpServer, ResourcesListSchema, 'resources/list');
+
+    const response = await listResources({ method: 'resources/list' }) as ResourceListResponse;
+
+    expect(response.resources.length).toBeGreaterThan(0);
+    for (const resource of response.resources) {
+      expect(resource.uri).toMatch(/^file:\/\//);
+      expect(resource.name).toBeTruthy();
+      expect(resource.description).toBeTruthy();
+    }
+    expect(response.resources).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        name: path.basename(tempDir),
+      }),
+    ]));
+  });
+
+  it('resources read handler returns metadata without directory contents', async () => {
+    process.env.ATTESTLENS_ALLOWED_ROOTS = tempDir;
+    await fs.writeFile(path.join(tempDir, 'directory-content-sentinel.txt'), 'SHOULD_NOT_APPEAR');
+    const mcpServer = createServer();
+    const listResources = getRegisteredRequestHandler(mcpServer, ResourcesListSchema, 'resources/list');
+    const readResource = getRegisteredRequestHandler(mcpServer, ResourcesReadSchema, 'resources/read');
+    const listResponse = await listResources({ method: 'resources/list' }) as ResourceListResponse;
+    const resourceUri = listResponse.resources[0]?.uri;
+
+    expect(resourceUri).toBeTruthy();
+
+    const response = await readResource({
+      method: 'resources/read',
+      params: { uri: resourceUri },
+    }) as ResourceReadResponse;
+
+    expect(response.contents).toHaveLength(1);
+    expect(response.contents[0]).toEqual(expect.objectContaining({
+      uri: resourceUri,
+      mimeType: 'text/plain',
+      text: expect.stringContaining('scan'),
+    }));
+    expect(response.contents[0]?.text).not.toContain('SHOULD_NOT_APPEAR');
   });
 
   it('blocks symlink escapes without leaking the symlink target path', async () => {
