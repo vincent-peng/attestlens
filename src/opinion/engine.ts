@@ -8,6 +8,9 @@ import type {
 } from '../schema/index.js';
 import { APPInfo } from '../schema/index.js';
 
+// Keep in sync with package.json and src/report/generator.ts
+const OPINION_VERSION = '0.2.0';
+
 // ─── Options ─────────────────────────────────────────────────────────────────
 
 export interface OpinionOptions {
@@ -22,6 +25,21 @@ export function buildComplianceOpinion(
   options: OpinionOptions = {},
 ): ComplianceOpinion {
   const { strictMode = false } = options;
+
+  // Guard: empty appControls → no basis for an opinion
+  if (report.appControls.length === 0) {
+    return {
+      overallVerdict: 'PARTIALLY_COMPLIANT',
+      overallConfidence: 'LOW',
+      signedBy: `AttestLens v${OPINION_VERSION}`,
+      signedAt: new Date().toISOString(),
+      principles: [],
+      riskLevel: report.riskLevel,
+      score: report.overallScore,
+      disclaimer:
+        "This compliance opinion is generated deterministically from automated scanning and optional questionnaire data. It does not constitute legal advice. An organisation's compliance posture depends on factors beyond automated detection. Consult a qualified privacy professional for formal compliance assessment.",
+    };
+  }
 
   const principleOpinions: PrincipleOpinion[] = report.appControls.map(
     (control) => {
@@ -49,7 +67,7 @@ export function buildComplianceOpinion(
   return {
     overallVerdict,
     overallConfidence,
-    signedBy: `AttestLens v0.3.0`,
+    signedBy: `AttestLens v${OPINION_VERSION}`,
     signedAt: new Date().toISOString(),
     principles: principleOpinions,
     riskLevel: report.riskLevel,

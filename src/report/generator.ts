@@ -979,9 +979,9 @@ function generateHTMLOpinionSection(report: ComplianceReport): string {
     <h2>Compliance Opinion</h2>
     <div style="margin-bottom: 24px;">
       <div style="display: inline-block; background: ${verdictColor[opinion.overallVerdict] || '#6b7280'}; color: white; padding: 8px 20px; border-radius: 6px; font-size: 18px; font-weight: 700; letter-spacing: 0.5px;">
-        ${opinion.overallVerdict.replace(/_/g, ' ')}
+        ${escapeHtml(opinion.overallVerdict.replace(/_/g, ' '))}
       </div>
-      <span style="margin-left: 12px; color: #64748b;">Confidence: ${confidenceLabel[opinion.overallConfidence]}</span>
+      <span style="margin-left: 12px; color: #64748b;">Confidence: ${escapeHtml(confidenceLabel[opinion.overallConfidence])}</span>
       <span style="margin-left: 12px; color: #64748b;">Score: ${opinion.score}/100</span>
     </div>
     <table class="checklist">
@@ -998,9 +998,9 @@ function generateHTMLOpinionSection(report: ComplianceReport): string {
       <tbody>
         ${opinion.principles.map(p => `
           <tr>
-            <td><strong>${p.principle}</strong></td>
-            <td><span style="color: ${verdictColor[p.verdict] || '#6b7280'}; font-weight: 600;">${p.verdict.replace(/_/g, ' ')}</span></td>
-            <td>${confidenceLabel[p.confidence]}</td>
+            <td><strong>${escapeHtml(p.principle)}</strong></td>
+            <td><span style="color: ${verdictColor[p.verdict] || '#6b7280'}; font-weight: 600;">${escapeHtml(p.verdict.replace(/_/g, ' '))}</span></td>
+            <td>${escapeHtml(confidenceLabel[p.confidence])}</td>
             <td>${p.score}/100</td>
             <td>${p.evidenceCount} (${p.corroboratedCount} corroborated)</td>
             <td style="font-size: 0.85em;">${escapeHtml(p.summary)}</td>
@@ -1009,7 +1009,7 @@ function generateHTMLOpinionSection(report: ComplianceReport): string {
       </tbody>
     </table>
     <div style="margin-top: 16px; padding: 12px 16px; background: #f1f5f9; border-radius: 6px; font-size: 0.85em; color: #475569;">
-      <strong>Signed:</strong> ${escapeHtml(opinion.signedBy)} @ ${opinion.signedAt}<br>
+      <strong>Signed:</strong> ${escapeHtml(opinion.signedBy)} @ ${escapeHtml(opinion.signedAt)}<br>
       <strong>Disclaimer:</strong> ${escapeHtml(opinion.disclaimer)}
     </div>
   `;

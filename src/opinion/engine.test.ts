@@ -197,7 +197,7 @@ describe('buildComplianceOpinion', () => {
     const report = makeReport(controls);
     const opinion = buildComplianceOpinion(report);
 
-    expect(opinion.signedBy).toBe('AttestLens v0.3.0');
+    expect(opinion.signedBy).toBe('AttestLens v0.2.0');
     expect(opinion.signedAt).toBeTruthy();
     expect(opinion.disclaimer).toContain('deterministically');
     expect(opinion.disclaimer).toContain('legal advice');
@@ -237,5 +237,15 @@ describe('buildComplianceOpinion', () => {
     expect(app11?.confidence).toBe('LOW');
     // Overall should also be LOW because high-risk principle has LOW confidence
     expect(opinion.overallConfidence).toBe('LOW');
+  });
+
+  it('returns PARTIALLY_COMPLIANT with LOW confidence for empty appControls', () => {
+    const report = makeReport([]);
+    const opinion = buildComplianceOpinion(report);
+
+    expect(opinion.overallVerdict).toBe('PARTIALLY_COMPLIANT');
+    expect(opinion.overallConfidence).toBe('LOW');
+    expect(opinion.principles).toEqual([]);
+    expect(opinion.signedBy).toContain('AttestLens');
   });
 });
