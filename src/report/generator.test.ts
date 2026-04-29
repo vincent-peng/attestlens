@@ -355,6 +355,19 @@ describe('generateAgentReport', () => {
     expect(parsed.schema).toBe('attestlens-agent-v1');
   });
 
+  it('returns no actions when all controls pass', () => {
+    const report = buildComplianceReport([], defaultOptions, 1000);
+    report.appControls = report.appControls.map((control) => ({
+      ...control,
+      status: 'pass',
+      score: 100,
+      findings: [],
+    }));
+    const parsed = JSON.parse(generateAgentReport(report));
+
+    expect(parsed.actions).toEqual([]);
+  });
+
   it('includes actions only for non-compliant controls', () => {
     const report = buildComplianceReport([
       makeFinding({ id: 'F-APP11-001', severity: 'critical', sourceRule: 'VS-HARDKEY' }),
