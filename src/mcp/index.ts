@@ -32,7 +32,7 @@ import type { ReportFormat, ReportOptions } from '../report/generator.js';
 import { ScannerOrchestrator, type ScannerOrchestratorOptions } from '../scanner/orchestrator.js';
 import type { ScannerError, ScannerResult } from '../scanner/types.js';
 import { APPInfo, RuleFreshness as RuleFreshnessSchema } from '../schema/index.js';
-import type { APPPrinciple, AttestLensFinding } from '../schema/index.js';
+import type { APPPrinciple, AttestLensFinding, ReformImpactAssessment } from '../schema/index.js';
 import { sanitizeTargetPathForOutput, sanitizeTargetUrlForOutput } from '../utils/target.js';
 
 const ATTESTLENS_VERSION = '0.2.0';
@@ -202,6 +202,18 @@ export const MCP_TOOLS = [
         strict: { type: 'boolean', description: 'Treat UNKNOWN as NON_COMPLIANT', default: false },
       },
       required: ['path', 'principle'],
+    },
+  },
+  {
+    name: 'attestlens_reform',
+    description: 'Run a Privacy Act 2026 reform impact assessment. Scans the project for reform-relevant patterns (statutory tort, children\'s privacy code, automated decision-making, AML/CTF) and returns a structured impact assessment with per-provision status, action items with deadlines, and overall impact rating.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        path: { type: 'string', description: 'Path to the project directory to assess' },
+        strict: { type: 'boolean', description: 'Treat UNKNOWN controls as FAIL', default: false },
+      },
+      required: ['path'],
     },
   },
 ] as const;
@@ -689,6 +701,42 @@ export async function handleToolCall(name: string, args: Record<string, unknown>
               .map((finding) => finding.fix)
               .filter((fix): fix is string => typeof fix === 'string' && fix.length > 0),
           }, null, 2),
+        }],
+      };
+    }
+
+    case 'attestlens_reform': {
+      const targetPath = await validatePath(args?.path as string);
+      const strict = args?.strict === true;
+
+      const orchestrator = createOrchestrator('path', {});
+      const startTime = Date.now();
+      const scanResult = await orchestrator.scan(targetPath);
+      const duration = Date.now() - startTime;
+
+      const reportOptions: ReportOptions = {
+        targetName: path.basename(targetPath) || 'project',
+        targetPath,
+        formats: ['json'],
+        outputDir: '/tmp/attestlens-mcp',
+        strictMode: strict,
+        includeReform: true,
+        ruleFreshness: scanResult.ruleFreshness,
+      };
+      const report = buildComplianceReport(scanResult.findings, reportOptions, duration);
+      report.metadata.scannerVersions = Object.fromEntries(
+        scanResult.results.map((scannerResult) => [scannerResult.source, scannerResult.version]),
+      );
+
+      const assessment: ReformImpactAssessment | undefined = report.reformImpactAssessment;
+      if (!assessment) {
+        throw new McpError(ErrorCode.InternalError, 'Reform impact assessment generation failed');
+      }
+
+      return {
+        content: [{
+          type: 'text',
+          text: JSON.stringify(assessment, null, 2),
         }],
       };
     }
