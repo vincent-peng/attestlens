@@ -27,6 +27,7 @@ export const ScanSource = z.enum([
   'url-scan',
   'manual',
   'questionnaire',
+  'reform-2026',
 ]);
 export type ScanSource = z.infer<typeof ScanSource>;
 
@@ -520,3 +521,6 @@ export function calculateRiskLevel(findings: AttestLensFinding[]): 'low' | 'medi
   if (highs >= 1) return 'medium';
   return 'low';
 }
+
+export { ReformProvision, ReformProvisionInfo, reformProvisionSchema, reformFindingSchema, reformImpactAssessmentSchema } from './reform.js';
+export type { ReformFinding, ReformImpactAssessment } from './reform.js';

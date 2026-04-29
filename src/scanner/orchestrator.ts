@@ -372,6 +372,7 @@ const DEFAULT_ADAPTER_TIMEOUT_MS: Record<ScanSource, number> = {
   'vibe-check': 60_000,
   manual: 60_000,
   questionnaire: 60_000,
+  'reform-2026': 60_000,
 };
 
 const SEVERITY_ORDER: Record<string, number> = {
@@ -394,6 +395,7 @@ const SOURCE_PRIORITY: Record<ScanSource, number> = {
   'vibe-check': 9,
   manual: 10,
   questionnaire: 11,
+  'reform-2026': 12,
 };
 
 const CANONICAL_RULE_TYPES: Record<string, string> = {
