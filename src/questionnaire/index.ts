@@ -9,6 +9,11 @@ export {
   getQuestionsForUnknownControls,
 } from './questions.js';
 export {
+  SMB_QUESTIONS,
+  SMB_QUESTIONNAIRE_VERSION,
+  getSMBQuestionForPrinciple,
+} from './smb.js';
+export {
   buildAttestationScanSnapshot,
   deriveQuestionnairePrinciples,
   initializeAttestationSession,
