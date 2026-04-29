@@ -58,10 +58,18 @@ type ToolCallExtra = {
   signal?: AbortSignal;
 };
 type AllowedRootResource = {
-  uri: string;
   name: string;
   description: string;
   path: string;
+};
+type ListedAllowedRootResource = AllowedRootResource & {
+  uri: string;
+};
+type SanitizedScannerError = {
+  source: ScannerError['source'];
+  message: string;
+  code?: string;
+  recoverable: boolean;
 };
 
 const LOCAL_READ_ONLY_ANNOTATIONS = {
@@ -129,7 +137,14 @@ export const TOOL_DEFINITIONS = [
   },
 ] as const;
 
-const scannerTimeoutMsInputSchema = z.number().describe('Per-scanner timeout in milliseconds').optional();
+const MAX_SCANNER_TIMEOUT_MS = 300_000;
+
+const scannerTimeoutMsInputSchema = z.number()
+  .int()
+  .positive()
+  .max(MAX_SCANNER_TIMEOUT_MS)
+  .describe('Per-scanner timeout in milliseconds')
+  .optional();
 
 const pathScanOptionsInputSchema = {
   strict: z.boolean().describe('Treat UNKNOWN controls as FAIL').default(false),
@@ -138,7 +153,6 @@ const pathScanOptionsInputSchema = {
   behavioral: z.boolean().describe('Enable behavioral supply-chain analysis').default(true),
   iac: z.boolean().describe('Enable infrastructure-as-code misconfiguration scanning').default(true),
   includeGitleaks: z.boolean().describe('Enable opt-in git history secret scanning via gitleaks').default(false),
-  gitleaksPath: z.string().describe('Path to gitleaks binary').optional(),
   scannerTimeoutMs: scannerTimeoutMsInputSchema,
 };
 
@@ -394,7 +408,6 @@ async function getAllowedRootResources(): Promise<AllowedRootResource[]> {
 
       seen.add(realRoot);
       resources.push({
-        uri: pathToFileURL(realRoot).href,
         name: path.basename(realRoot) || realRoot,
         description: 'Allowed scan root directory',
         path: realRoot,
@@ -471,6 +484,21 @@ export async function validatePath(targetPath: unknown): Promise<string | ToolEr
   return realTarget;
 }
 
+async function revalidatePathBeforeScan(validatedPath: string): Promise<string | ToolErrorResponse> {
+  const revalidatedPath = await validatePath(validatedPath);
+  if (isToolError(revalidatedPath)) {
+    return makeToolError('path changed after validation');
+  }
+
+  if (revalidatedPath !== validatedPath) {
+    return makeToolError('path changed after validation');
+  }
+
+  // This narrows the MCP validation-to-scan swap window. Full TOCTOU protection
+  // needs descriptor-relative traversal/O_PATH on Linux or OS sandboxing.
+  return revalidatedPath;
+}
+
 export function validateUrl(targetUrl: unknown): string | ToolErrorResponse {
   if (!targetUrl || typeof targetUrl !== 'string') {
     return makeToolError('url is required');
@@ -492,7 +520,7 @@ export function validateUrl(targetUrl: unknown): string | ToolErrorResponse {
 
 function createOrchestrator(
   targetKind: 'path' | 'url',
-  options: { externalEnrichment?: boolean; includeTyposquat?: boolean; behavioral?: boolean; iac?: boolean; includeGitleaks?: boolean; gitleaksPath?: string; scannerTimeoutMs?: number; reform?: boolean } = {},
+  options: { externalEnrichment?: boolean; includeTyposquat?: boolean; behavioral?: boolean; iac?: boolean; includeGitleaks?: boolean; scannerTimeoutMs?: number; reform?: boolean } = {},
 ): ScannerOrchestrator {
   const externalEnrichment = targetKind === 'path' && options.externalEnrichment === true;
   const orchestratorOptions: ScannerOrchestratorOptions = {
@@ -510,7 +538,7 @@ function createOrchestrator(
     },
     gitleaks: {
       enabled: targetKind === 'path' && options.includeGitleaks === true,
-      path: options.gitleaksPath || 'gitleaks',
+      path: getServerConfiguredGitleaksPath(),
     },
     reform: {
       enabled: targetKind === 'path' && options.reform === true,
@@ -523,6 +551,14 @@ function createOrchestrator(
     orchestrator.disable('supply-chain');
   }
   return orchestrator;
+}
+
+function getServerConfiguredGitleaksPath(): string {
+  const configuredPath = process.env.ATTESTLENS_GITLEAKS_PATH?.trim();
+  if (!configuredPath) {
+    return 'gitleaks';
+  }
+  return configuredPath;
 }
 
 function runScan(
@@ -539,6 +575,9 @@ function parseScannerTimeoutMs(value: unknown): number | undefined | ToolErrorRe
   }
   if (typeof value !== 'number' || !Number.isInteger(value) || value <= 0) {
     return makeToolError('scannerTimeoutMs must be a positive integer number of milliseconds');
+  }
+  if (value > MAX_SCANNER_TIMEOUT_MS) {
+    return makeToolError(`scannerTimeoutMs must be ${MAX_SCANNER_TIMEOUT_MS} milliseconds or less`);
   }
   return value;
 }
@@ -570,6 +609,15 @@ function serializeFindings(findings: AttestLensFinding[]) {
       status: mapping.status,
       confidence: mapping.confidence,
     })),
+  }));
+}
+
+export function sanitizeMcpErrors(errors: ScannerError[]): SanitizedScannerError[] {
+  return errors.map((error) => ({
+    source: error.source,
+    code: error.code,
+    recoverable: error.recoverable,
+    message: 'Scan error occurred',
   }));
 }
 
@@ -639,7 +687,7 @@ function buildScanSummary(result: Awaited<ReturnType<ScannerOrchestrator['scan']
       affectedPrinciples: controls.filter((control) => control.status === 'fail').map((control) => control.principle),
       unmappedCount: unmapped.length,
     },
-    errors: result.errors,
+    errors: sanitizeMcpErrors(result.errors),
     durationMs: result.totalDurationMs,
     ruleFreshness: RuleFreshnessSchema.parse(result.ruleFreshness),
   };
@@ -692,24 +740,27 @@ export async function handleToolCall(name: string, args: Record<string, unknown>
       if (isToolError(targetPath)) {
         return targetPath;
       }
+      const scanPath = await revalidatePathBeforeScan(targetPath);
+      if (isToolError(scanPath)) {
+        return scanPath;
+      }
       const strict = args?.strict === true;
       const externalEnrichment = args?.externalEnrichment === true;
       const includeTyposquat = args?.includeTyposquat === true;
       const behavioral = args?.behavioral !== false;
       const iac = args?.iac !== false;
       const includeGitleaks = args?.includeGitleaks === true;
-      const gitleaksPath = typeof args?.gitleaksPath === 'string' ? args.gitleaksPath : undefined;
       const scannerTimeoutMs = parseScannerTimeoutMs(args?.scannerTimeoutMs);
       if (isToolError(scannerTimeoutMs)) {
         return scannerTimeoutMs;
       }
 
-      const orchestrator = createOrchestrator('path', { externalEnrichment, includeTyposquat, behavioral, iac, includeGitleaks, gitleaksPath, scannerTimeoutMs });
-      const result = await runScan(orchestrator, targetPath, extra.signal);
+      const orchestrator = createOrchestrator('path', { externalEnrichment, includeTyposquat, behavioral, iac, includeGitleaks, scannerTimeoutMs });
+      const result = await runScan(orchestrator, scanPath, extra.signal);
 
       return makeJsonToolResponse({
         targetType: 'path',
-        targetPath: sanitizeTargetPathForOutput(targetPath),
+        targetPath: sanitizeTargetPathForOutput(scanPath),
         ...buildScanSummary(result, strict),
       });
     }
@@ -744,7 +795,11 @@ export async function handleToolCall(name: string, args: Record<string, unknown>
       if (isToolError(targetPath)) {
         return targetPath;
       }
-      const projectName = (args?.name as string) || path.basename(targetPath) || 'project';
+      const scanPath = await revalidatePathBeforeScan(targetPath);
+      if (isToolError(scanPath)) {
+        return scanPath;
+      }
+      const projectName = (args?.name as string) || path.basename(scanPath) || 'project';
       const format = parseReportFormat(args?.format);
       if (isToolError(format)) {
         return format;
@@ -755,20 +810,19 @@ export async function handleToolCall(name: string, args: Record<string, unknown>
       const behavioral = args?.behavioral !== false;
       const iac = args?.iac !== false;
       const includeGitleaks = args?.includeGitleaks === true;
-      const gitleaksPath = typeof args?.gitleaksPath === 'string' ? args.gitleaksPath : undefined;
       const scannerTimeoutMs = parseScannerTimeoutMs(args?.scannerTimeoutMs);
       if (isToolError(scannerTimeoutMs)) {
         return scannerTimeoutMs;
       }
 
-      const orchestrator = createOrchestrator('path', { externalEnrichment, includeTyposquat, behavioral, iac, includeGitleaks, gitleaksPath, scannerTimeoutMs });
+      const orchestrator = createOrchestrator('path', { externalEnrichment, includeTyposquat, behavioral, iac, includeGitleaks, scannerTimeoutMs });
       const startTime = Date.now();
-      const scanResult = await runScan(orchestrator, targetPath, extra.signal);
+      const scanResult = await runScan(orchestrator, scanPath, extra.signal);
       const duration = Date.now() - startTime;
 
       const reportOptions: ReportOptions = {
         targetName: projectName,
-        targetPath,
+        targetPath: scanPath,
         formats: [format],
         outputDir: '/tmp/attestlens-mcp',
         strictMode: strict,
@@ -786,7 +840,7 @@ export async function handleToolCall(name: string, args: Record<string, unknown>
         content: renderedContent,
         metadata: {
           targetName: report.target.name,
-          targetPath: report.target.path ?? sanitizeTargetPathForOutput(targetPath),
+          targetPath: report.target.path ?? sanitizeTargetPathForOutput(scanPath),
           scanDurationMs: report.metadata.scanDurationMs,
           scannerVersions: report.metadata.scannerVersions,
           ruleFreshness: report.metadata.ruleFreshness
@@ -851,16 +905,20 @@ export async function handleToolCall(name: string, args: Record<string, unknown>
       if (isToolError(targetPath)) {
         return targetPath;
       }
+      const scanPath = await revalidatePathBeforeScan(targetPath);
+      if (isToolError(scanPath)) {
+        return scanPath;
+      }
       const strict = args?.strict === true;
 
       const orchestrator = createOrchestrator('path', {});
       const startTime = Date.now();
-      const scanResult = await runScan(orchestrator, targetPath, extra.signal);
+      const scanResult = await runScan(orchestrator, scanPath, extra.signal);
       const duration = Date.now() - startTime;
 
       const reportOptions: ReportOptions = {
-        targetName: path.basename(targetPath) || 'project',
-        targetPath,
+        targetName: path.basename(scanPath) || 'project',
+        targetPath: scanPath,
         formats: ['json'],
         outputDir: '/tmp/attestlens-mcp',
         strictMode: strict,
@@ -886,6 +944,10 @@ export async function handleToolCall(name: string, args: Record<string, unknown>
       if (isToolError(targetPath)) {
         return targetPath;
       }
+      const scanPath = await revalidatePathBeforeScan(targetPath);
+      if (isToolError(scanPath)) {
+        return scanPath;
+      }
       const principle = validatePrinciple(args?.principle);
       if (isToolError(principle)) {
         return principle;
@@ -894,12 +956,12 @@ export async function handleToolCall(name: string, args: Record<string, unknown>
 
       const orchestrator = createOrchestrator('path', {});
       const startTime = Date.now();
-      const scanResult = await runScan(orchestrator, targetPath, extra.signal);
+      const scanResult = await runScan(orchestrator, scanPath, extra.signal);
       const duration = Date.now() - startTime;
 
       const reportOptions: ReportOptions = {
-        targetName: path.basename(targetPath) || 'project',
-        targetPath,
+        targetName: path.basename(scanPath) || 'project',
+        targetPath: scanPath,
         formats: ['json'],
         outputDir: '/tmp/attestlens-mcp',
         strictMode: strict,
@@ -950,6 +1012,10 @@ export async function handleToolCall(name: string, args: Record<string, unknown>
       if (isToolError(targetPath)) {
         return targetPath;
       }
+      const scanPath = await revalidatePathBeforeScan(targetPath);
+      if (isToolError(scanPath)) {
+        return scanPath;
+      }
       const strict = args?.strict === true;
       const reform = args?.reform === true;
 
@@ -961,12 +1027,12 @@ export async function handleToolCall(name: string, args: Record<string, unknown>
         includeGitleaks: false,
         reform,
       });
-      const scanResult = await runScan(orchestrator, targetPath, extra.signal);
+      const scanResult = await runScan(orchestrator, scanPath, extra.signal);
       const duration = scanResult.totalDurationMs;
 
       const reportOptions: ReportOptions = {
-        targetName: path.basename(targetPath) || 'project',
-        targetPath: sanitizeTargetPathForOutput(targetPath),
+        targetName: path.basename(scanPath) || 'project',
+        targetPath: sanitizeTargetPathForOutput(scanPath),
         formats: ['smb'],
         outputDir: './attestlens-reports',
         strictMode: strict,
@@ -1033,16 +1099,20 @@ export async function handleToolCall(name: string, args: Record<string, unknown>
       if (isToolError(targetPath)) {
         return targetPath;
       }
+      const scanPath = await revalidatePathBeforeScan(targetPath);
+      if (isToolError(scanPath)) {
+        return scanPath;
+      }
       const strict = args?.strict === true;
 
       const orchestrator = createOrchestrator('path', { reform: true });
       const startTime = Date.now();
-      const scanResult = await runScan(orchestrator, targetPath, extra.signal);
+      const scanResult = await runScan(orchestrator, scanPath, extra.signal);
       const duration = Date.now() - startTime;
 
       const reportOptions: ReportOptions = {
-        targetName: path.basename(targetPath) || 'project',
-        targetPath,
+        targetName: path.basename(scanPath) || 'project',
+        targetPath: scanPath,
         formats: ['json'],
         outputDir: '/tmp/attestlens-mcp',
         strictMode: strict,
@@ -1092,10 +1162,22 @@ function registerStructuredTool(
 }
 
 function registerResourceHandlers(server: McpServer): void {
+  const resourcesByUri = new Map<string, ListedAllowedRootResource>();
+
   server.server.setRequestHandler(ResourcesListSchema, async () => {
     const resources = await getAllowedRootResources();
+    resourcesByUri.clear();
+    const listedResources = resources.map((resource, index) => {
+      const listedResource: ListedAllowedRootResource = {
+        ...resource,
+        uri: `attestlens://root/${index}`,
+      };
+      resourcesByUri.set(listedResource.uri, listedResource);
+      return listedResource;
+    });
+
     return {
-      resources: resources.map(({ uri, name, description }) => ({
+      resources: listedResources.map(({ uri, name, description }) => ({
         uri,
         name,
         description,
@@ -1104,11 +1186,10 @@ function registerResourceHandlers(server: McpServer): void {
   });
 
   server.server.setRequestHandler(ResourcesReadSchema, async (request) => {
-    const resources = await getAllowedRootResources();
-    const requestedUri = new URL(request.params.uri).href;
-    const resource = resources.find((candidate) => candidate.uri === requestedUri);
+    const requestedUri = typeof request.params.uri === 'string' ? request.params.uri : '';
+    const resource = resourcesByUri.get(requestedUri);
     if (!resource) {
-      throw new McpError(ErrorCode.InvalidParams, `Resource ${requestedUri} not found`);
+      throw new McpError(-32002, 'Resource not found');
     }
 
     return {

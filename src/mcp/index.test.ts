@@ -6,6 +6,7 @@ import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
+  ListToolsRequestSchema as ToolsListSchema,
   ListResourcesRequestSchema as ResourcesListSchema,
   McpError,
   ReadResourceRequestSchema as ResourcesReadSchema,
@@ -118,6 +119,12 @@ type ResourceReadResponse = {
     text: string;
   }>;
 };
+type ToolListResponse = {
+  tools: Array<{
+    name: string;
+    inputSchema: unknown;
+  }>;
+};
 
 function getRegisteredRequestHandler(
   mcpServer: ReturnType<typeof createServer>,
@@ -147,12 +154,14 @@ describe('MCP Server', () => {
   beforeEach(async () => {
     tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'attestlens-mcp-'));
     delete process.env.ATTESTLENS_ALLOWED_ROOTS;
+    delete process.env.ATTESTLENS_GITLEAKS_PATH;
   });
 
   afterEach(async () => {
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
     delete process.env.ATTESTLENS_ALLOWED_ROOTS;
+    delete process.env.ATTESTLENS_GITLEAKS_PATH;
     await fs.rm(tempDir, { recursive: true, force: true });
   });
 
@@ -746,6 +755,18 @@ describe('MCP Server', () => {
       });
     });
 
+    it('rejects excessive MCP scanner timeout values', async () => {
+      const response = await handleToolCall('attestlens_scan', {
+        path: tempDir,
+        scannerTimeoutMs: 300_001,
+      });
+
+      expect(response).toEqual({
+        content: [{ type: 'text', text: 'scannerTimeoutMs must be 300000 milliseconds or less' }],
+        isError: true,
+      });
+    });
+
     it('returns isError for unsupported report formats', async () => {
       const response = await handleToolCall('attestlens_audit', {
         path: tempDir,
@@ -770,9 +791,10 @@ describe('MCP Server', () => {
       expect(disabledPayload.findings.some((finding: { sourceRule: string }) => finding.sourceRule === 'VS-BH-001')).toBe(false);
     });
 
-    it('accepts MCP gitleaks opt-in and skips when the binary is unavailable', async () => {
+    it('accepts MCP gitleaks opt-in and uses server-side binary configuration only', async () => {
       await writeMcpPackageProject(tempDir, 'gitleaks-target');
       await fs.mkdir(path.join(tempDir, '.git'), { recursive: true });
+      process.env.ATTESTLENS_GITLEAKS_PATH = path.join(tempDir, 'missing-server-gitleaks');
 
       const response = await handleToolCall('attestlens_scan', {
         path: tempDir,
@@ -784,6 +806,112 @@ describe('MCP Server', () => {
       expect(payload.errors.some((error: { source: string; code?: string }) => (
         error.source === 'gitleaks' && error.code === 'SCANNER_UNAVAILABLE'
       ))).toBe(true);
+    });
+
+    it('ignores client-supplied MCP gitleaksPath values', async () => {
+      await writeMcpPackageProject(tempDir, 'gitleaks-target');
+      await fs.mkdir(path.join(tempDir, '.git'), { recursive: true });
+      const markerPath = path.join(tempDir, 'evil-ran');
+      const evilBinaryPath = path.join(tempDir, 'evil-gitleaks');
+      await fs.writeFile(evilBinaryPath, [
+        '#!/usr/bin/env node',
+        `require('node:fs').writeFileSync(${JSON.stringify(markerPath)}, 'ran');`,
+      ].join('\n'));
+      await fs.chmod(evilBinaryPath, 0o755);
+      process.env.ATTESTLENS_GITLEAKS_PATH = path.join(tempDir, 'missing-server-gitleaks');
+
+      const response = await handleToolCall('attestlens_scan', {
+        path: tempDir,
+        includeGitleaks: true,
+        gitleaksPath: evilBinaryPath,
+      });
+      const payload = expectJsonStructuredPayload(response);
+
+      await expect(fs.access(markerPath)).rejects.toThrow();
+      expect(JSON.stringify(payload)).not.toContain(evilBinaryPath);
+      expect(payload.errors).toEqual(expect.arrayContaining([
+        expect.objectContaining({
+          source: 'gitleaks',
+          code: 'SCANNER_UNAVAILABLE',
+          recoverable: true,
+          message: 'Scan error occurred',
+        }),
+      ]));
+    });
+
+    it('sanitizes scanner errors in MCP scan responses', async () => {
+      vi.spyOn(ScannerOrchestrator.prototype, 'scan').mockResolvedValue({
+        findings: [],
+        results: [
+          {
+            source: 'guardvibe',
+            version: '1.0.0',
+            timestamp: new Date().toISOString(),
+            findings: [],
+            errors: [
+              {
+                source: 'guardvibe',
+                message: 'Scanner failed at /Users/alice/secret/path with command details',
+                code: 'SCANNER_ERROR',
+                recoverable: true,
+              },
+            ],
+            durationMs: 12,
+          },
+        ],
+        errors: [
+          {
+            source: 'guardvibe',
+            message: 'Scanner failed at /Users/alice/secret/path with command details',
+            code: 'SCANNER_ERROR',
+            recoverable: true,
+          },
+        ],
+        totalDurationMs: 12,
+        ruleFreshness: makeRuleFreshness(),
+      });
+
+      const response = await handleToolCall('attestlens_scan', { path: tempDir });
+      const payload = expectJsonStructuredPayload(response);
+
+      expect(payload.errors).toEqual([
+        {
+          source: 'guardvibe',
+          code: 'SCANNER_ERROR',
+          recoverable: true,
+          message: 'Scan error occurred',
+        },
+      ]);
+      expect(response.content[0].text).not.toContain('/Users/alice/secret/path');
+    });
+
+    it('revalidates paths immediately before scanning and catches swaps', async () => {
+      const allowedRoot = path.join(tempDir, 'allowed-root');
+      const outsideRoot = path.join(tempDir, 'outside-root');
+      const projectDir = path.join(allowedRoot, 'project');
+      await fs.mkdir(projectDir, { recursive: true });
+      await fs.mkdir(outsideRoot, { recursive: true });
+      process.env.ATTESTLENS_ALLOWED_ROOTS = allowedRoot;
+
+      const originalRealpath = fs.realpath.bind(fs);
+      let projectRealpathCalls = 0;
+      vi.spyOn(fs, 'realpath').mockImplementation(async (target: any) => {
+        const realPath = await originalRealpath(target);
+        if (String(target) === path.resolve(projectDir) && projectRealpathCalls++ === 0) {
+          await fs.rm(projectDir, { recursive: true, force: true });
+          symlinkSync(outsideRoot, projectDir, 'dir');
+        }
+        return realPath;
+      });
+      const scanSpy = vi.spyOn(ScannerOrchestrator.prototype, 'scan');
+
+      const response = await handleToolCall('attestlens_scan', { path: projectDir });
+
+      expect(response).toEqual({
+        content: [{ type: 'text', text: 'path changed after validation' }],
+        isError: true,
+      });
+      expect(scanSpy).not.toHaveBeenCalled();
     });
 
     it('enables MCP audit external enrichment only when explicitly requested', async () => {
@@ -917,6 +1045,7 @@ describe('MCP Contract Tests', () => {
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
     delete process.env.ATTESTLENS_ALLOWED_ROOTS;
+    delete process.env.ATTESTLENS_GITLEAKS_PATH;
     await fs.rm(tempDir, { recursive: true, force: true });
   });
 
@@ -982,7 +1111,24 @@ describe('MCP Contract Tests', () => {
     }
   });
 
-  it('resources handler lists allowed roots as file:// URIs', async () => {
+  it('does not publish client-controlled gitleaksPath in MCP tool input schemas', async () => {
+    const mcpServer = createServer();
+    const listTools = getRegisteredRequestHandler(mcpServer, ToolsListSchema, 'tools/list');
+
+    const response = await listTools({ method: 'tools/list' }) as ToolListResponse;
+    const pathScanTools = response.tools.filter((tool) => (
+      tool.name === 'attestlens_scan'
+        || tool.name === 'attestlens_audit'
+        || tool.name === 'attestlens_compliance_check'
+    ));
+
+    expect(pathScanTools.length).toBeGreaterThan(0);
+    for (const tool of pathScanTools) {
+      expect(JSON.stringify(tool.inputSchema)).not.toContain('gitleaksPath');
+    }
+  });
+
+  it('resources handler lists allowed roots as opaque attestlens URIs', async () => {
     process.env.ATTESTLENS_ALLOWED_ROOTS = tempDir;
     const mcpServer = createServer();
     const listResources = getRegisteredRequestHandler(mcpServer, ResourcesListSchema, 'resources/list');
@@ -991,10 +1137,11 @@ describe('MCP Contract Tests', () => {
 
     expect(response.resources.length).toBeGreaterThan(0);
     for (const resource of response.resources) {
-      expect(resource.uri).toMatch(/^file:\/\//);
+      expect(resource.uri).toMatch(/^attestlens:\/\/root\/\d+$/);
       expect(resource.name).toBeTruthy();
       expect(resource.description).toBeTruthy();
     }
+    expect(JSON.stringify(response.resources)).not.toContain(tempDir);
     expect(response.resources).toEqual(expect.arrayContaining([
       expect.objectContaining({
         name: path.basename(tempDir),
@@ -1025,6 +1172,25 @@ describe('MCP Contract Tests', () => {
       text: expect.stringContaining('scan'),
     }));
     expect(response.contents[0]?.text).not.toContain('SHOULD_NOT_APPEAR');
+  });
+
+  it('resources read handler returns generic not-found errors without echoing unknown URIs', async () => {
+    expect.assertions(5);
+    process.env.ATTESTLENS_ALLOWED_ROOTS = tempDir;
+    const mcpServer = createServer();
+    const readResource = getRegisteredRequestHandler(mcpServer, ResourcesReadSchema, 'resources/read');
+    const unknownUri = `file://${tempDir}/secret`;
+
+    await readResource({
+      method: 'resources/read',
+      params: { uri: unknownUri },
+    }).catch((error: unknown) => {
+      expect(error).toMatchObject({ code: -32002 });
+      expect(error).toBeInstanceOf(McpError);
+      expect((error as Error).message).toContain('Resource not found');
+      expect(String(error)).not.toContain(unknownUri);
+      expect(String(error)).not.toContain(tempDir);
+    });
   });
 
   it('blocks symlink escapes without leaking the symlink target path', async () => {
