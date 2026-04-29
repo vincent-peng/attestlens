@@ -95,6 +95,7 @@ describe('MCP Server', () => {
       expect(scanTool?.inputSchema.properties).toHaveProperty('gitleaksPath');
       expect(auditTool?.inputSchema.properties).toHaveProperty('gitleaksPath');
       expect(urlTool?.inputSchema.properties).not.toHaveProperty('gitleaksPath');
+      expect((auditTool?.inputSchema.properties as any).format.enum).toContain('agent');
     });
 
     it('returns URL scan output keyed by targetUrl', async () => {
@@ -243,6 +244,31 @@ describe('MCP Server', () => {
 
       expect(payload.metadata.ruleFreshness.cachePath).toBeUndefined();
       expect(response.content[0].text).not.toContain('/Users/alice');
+    });
+
+    it('returns agent audits as machine-readable JSON', async () => {
+      vi.spyOn(ScannerOrchestrator.prototype, 'scan').mockResolvedValue({
+        findings: [],
+        results: [],
+        errors: [],
+        totalDurationMs: 10,
+        ruleFreshness: makeRuleFreshness(),
+      });
+
+      const response = await handleToolCall('attestlens_audit', {
+        path: tempDir,
+        format: 'agent',
+        opinion: true,
+      });
+      const payload = JSON.parse(response.content[0].text);
+
+      expect(payload.schema).toBe('attestlens-agent-v1');
+      expect(payload).toEqual(expect.objectContaining({
+        verdict: expect.any(String),
+        confidence: expect.any(String),
+        score: expect.any(Number),
+        actions: expect.any(Array),
+      }));
     });
 
     it('keeps MCP scan external enrichment disabled by default', async () => {

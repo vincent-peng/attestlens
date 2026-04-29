@@ -22,6 +22,7 @@ import {
 import { mapAllFindings } from '../mapping/engine.js';
 import {
   buildComplianceReport,
+  generateAgentReport,
   generateHTMLReport,
   generateJSONReport,
   generateMarkdownReport,
@@ -108,7 +109,7 @@ export const MCP_TOOLS = [
       properties: {
         path: { type: 'string', description: 'Path to the project directory to audit' },
         name: { type: 'string', description: 'Project name for the report' },
-        format: { type: 'string', enum: ['json', 'html', 'markdown', 'pdf'], description: 'Output format', default: 'json' },
+        format: { type: 'string', enum: ['json', 'html', 'markdown', 'pdf', 'agent'], description: 'Output format', default: 'json' },
         strict: { type: 'boolean', description: 'Treat UNKNOWN controls as FAIL', default: false },
         externalEnrichment: {
           type: 'boolean',
@@ -394,7 +395,7 @@ function buildScanSummary(result: Awaited<ReturnType<ScannerOrchestrator['scan']
 
 function parseReportFormat(rawFormat: unknown): ReportFormat {
   const format = typeof rawFormat === 'string' ? rawFormat : 'json';
-  if (format === 'json' || format === 'html' || format === 'markdown' || format === 'pdf') {
+  if (format === 'json' || format === 'html' || format === 'markdown' || format === 'pdf' || format === 'agent') {
     return format;
   }
   throw new McpError(ErrorCode.InvalidParams, `unsupported report format: ${format}`);
@@ -410,6 +411,8 @@ async function renderAuditContent(
       return generateHTMLReport(report, reportOptions);
     case 'markdown':
       return generateMarkdownReport(report);
+    case 'agent':
+      return generateAgentReport(report);
     case 'pdf': {
       const pdf = await generatePDFReport(report, reportOptions);
       return JSON.stringify(
