@@ -31,8 +31,8 @@ import {
 import type { ReportFormat, ReportOptions } from '../report/generator.js';
 import { ScannerOrchestrator, type ScannerOrchestratorOptions } from '../scanner/orchestrator.js';
 import type { ScannerError, ScannerResult } from '../scanner/types.js';
-import { RuleFreshness as RuleFreshnessSchema } from '../schema/index.js';
-import type { AttestLensFinding } from '../schema/index.js';
+import { APPInfo, RuleFreshness as RuleFreshnessSchema } from '../schema/index.js';
+import type { APPPrinciple, AttestLensFinding } from '../schema/index.js';
 import { sanitizeTargetPathForOutput, sanitizeTargetUrlForOutput } from '../utils/target.js';
 
 const ATTESTLENS_VERSION = '0.2.0';
@@ -191,6 +191,19 @@ export const MCP_TOOLS = [
       required: ['path'],
     },
   },
+  {
+    name: 'attestlens_check',
+    description: 'Check a single APP principle compliance. Lightweight — only runs relevant scanners. Returns { principle, verdict, score, findings, fixPrompts }.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        path: { type: 'string', description: 'Path to the project directory' },
+        principle: { type: 'string', description: 'APP principle to check (e.g. APP_11)' },
+        strict: { type: 'boolean', description: 'Treat UNKNOWN as NON_COMPLIANT', default: false },
+      },
+      required: ['path', 'principle'],
+    },
+  },
 ] as const;
 
 function getAllowedRoots(): string[] | undefined {
@@ -296,6 +309,16 @@ function parseScannerTimeoutMs(value: unknown): number | undefined {
     throw new McpError(ErrorCode.InvalidParams, 'scannerTimeoutMs must be a positive integer number of milliseconds');
   }
   return value;
+}
+
+function validatePrinciple(value: unknown): APPPrinciple {
+  if (typeof value !== 'string' || !Object.prototype.hasOwnProperty.call(APPInfo, value)) {
+    throw new McpError(
+      ErrorCode.InvalidParams,
+      `invalid APP principle: ${String(value)}. Valid principles: ${Object.keys(APPInfo).join(', ')}`,
+    );
+  }
+  return value as APPPrinciple;
 }
 
 function serializeFindings(findings: AttestLensFinding[]) {
@@ -603,6 +626,69 @@ export async function handleToolCall(name: string, args: Record<string, unknown>
         content: [{
           type: 'text',
           text: JSON.stringify(opinion, null, 2),
+        }],
+      };
+    }
+
+    case 'attestlens_check': {
+      const targetPath = await validatePath(args?.path as string);
+      const principle = validatePrinciple(args?.principle);
+      const strict = args?.strict === true;
+
+      const orchestrator = createOrchestrator('path', {});
+      const startTime = Date.now();
+      const scanResult = await orchestrator.scan(targetPath);
+      const duration = Date.now() - startTime;
+
+      const reportOptions: ReportOptions = {
+        targetName: path.basename(targetPath) || 'project',
+        targetPath,
+        formats: ['json'],
+        outputDir: '/tmp/attestlens-mcp',
+        strictMode: strict,
+        includeOpinion: true,
+        ruleFreshness: scanResult.ruleFreshness,
+      };
+      const report = buildComplianceReport(scanResult.findings, reportOptions, duration);
+      report.metadata.scannerVersions = Object.fromEntries(
+        scanResult.results.map((scannerResult) => [scannerResult.source, scannerResult.version]),
+      );
+
+      const control = report.appControls.find((appControl) => appControl.principle === principle);
+      if (!control) {
+        throw new McpError(ErrorCode.InvalidParams, `APP principle not found in report: ${principle}`);
+      }
+
+      const opinion = report.complianceOpinion?.principles.find((principleOpinion) => (
+        principleOpinion.principle === principle
+      ));
+      if (!opinion) {
+        throw new McpError(ErrorCode.InternalError, `Opinion generation failed for ${principle}`);
+      }
+
+      const findingIds = new Set(control.findings);
+      const findings = report.findings
+        .filter((finding) => findingIds.has(finding.id))
+        .map((finding) => ({
+          id: finding.id,
+          severity: finding.severity,
+          title: finding.title,
+          fix: finding.fix,
+        }));
+
+      return {
+        content: [{
+          type: 'text',
+          text: JSON.stringify({
+            principle,
+            verdict: opinion.verdict,
+            score: opinion.score,
+            confidence: opinion.confidence,
+            findings,
+            fixPrompts: findings
+              .map((finding) => finding.fix)
+              .filter((fix): fix is string => typeof fix === 'string' && fix.length > 0),
+          }, null, 2),
         }],
       };
     }
