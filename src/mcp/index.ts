@@ -28,7 +28,8 @@ import {
   generateMarkdownReport,
   generatePDFReport,
 } from '../report/generator.js';
-import type { ReportFormat, ReportOptions } from '../report/generator.js';
+import { buildSMBComplianceResult } from '../report/smb-generator.js';
+import type { ComplianceReportWithSMB, ReportFormat, ReportOptions } from '../report/generator.js';
 import { ScannerOrchestrator, type ScannerOrchestratorOptions } from '../scanner/orchestrator.js';
 import type { ScannerError, ScannerResult } from '../scanner/types.js';
 import { APPInfo, RuleFreshness as RuleFreshnessSchema } from '../schema/index.js';
@@ -39,9 +40,20 @@ const ATTESTLENS_VERSION = '0.2.0';
 
 type ToolResponse = { content: Array<{ type: 'text'; text: string }> };
 
+const LOCAL_READ_ONLY_ANNOTATIONS = {
+  readOnlyHint: true,
+  openWorldHint: false,
+} as const;
+
+const URL_READ_ONLY_ANNOTATIONS = {
+  readOnlyHint: true,
+  openWorldHint: true,
+} as const;
+
 export const MCP_TOOLS = [
   {
     name: 'attestlens_scan',
+    title: 'Project Compliance Scan',
     description: 'Scan a project directory for Australian Privacy Act (APP/NDB) compliance findings.',
     inputSchema: {
       type: 'object',
@@ -84,9 +96,11 @@ export const MCP_TOOLS = [
       },
       required: ['path'],
     },
+    annotations: LOCAL_READ_ONLY_ANNOTATIONS,
   },
   {
     name: 'attestlens_scan_url',
+    title: 'Live Site Compliance Scan',
     description: 'Scan a public URL for live-site APP/NDB compliance findings.',
     inputSchema: {
       type: 'object',
@@ -100,9 +114,11 @@ export const MCP_TOOLS = [
       },
       required: ['url'],
     },
+    annotations: URL_READ_ONLY_ANNOTATIONS,
   },
   {
     name: 'attestlens_audit',
+    title: 'Full Compliance Audit',
     description: 'Full APP/NDB compliance audit. Scans a project, maps findings to Australian Privacy Act obligations, and generates a compliance report.',
     inputSchema: {
       type: 'object',
@@ -152,9 +168,11 @@ export const MCP_TOOLS = [
       },
       required: ['path'],
     },
+    annotations: LOCAL_READ_ONLY_ANNOTATIONS,
   },
   {
     name: 'attestlens_map',
+    title: 'Map Findings to APP/NDB',
     description: 'Map a list of security findings to APP/NDB obligations.',
     inputSchema: {
       type: 'object',
@@ -178,9 +196,11 @@ export const MCP_TOOLS = [
       },
       required: ['findings'],
     },
+    annotations: LOCAL_READ_ONLY_ANNOTATIONS,
   },
   {
     name: 'attestlens_opinion',
+    title: 'Compliance Opinion',
     description: 'Generate a compliance opinion for a project. Returns a definitive verdict (COMPLIANT / PARTIALLY_COMPLIANT / NON_COMPLIANT) with per-principle assessments, confidence levels, and evidence chains. Deterministic — no LLM calls.',
     inputSchema: {
       type: 'object',
@@ -190,9 +210,11 @@ export const MCP_TOOLS = [
       },
       required: ['path'],
     },
+    annotations: LOCAL_READ_ONLY_ANNOTATIONS,
   },
   {
     name: 'attestlens_check',
+    title: 'Single Principle Compliance Check',
     description: 'Check a single APP principle compliance. Runs a full compliance scan and returns results for a single APP principle. Returns { principle, verdict, score, findings, remediations }.',
     inputSchema: {
       type: 'object',
@@ -203,9 +225,26 @@ export const MCP_TOOLS = [
       },
       required: ['path', 'principle'],
     },
+    annotations: LOCAL_READ_ONLY_ANNOTATIONS,
+  },
+  {
+    name: 'attestlens_compliance_check',
+    title: 'Compliance Check for Australian Businesses',
+    description: 'Run a plain-English compliance check for Australian businesses. Scans a project for Privacy Act (APP/NDB) obligations and returns a readiness score, priority actions, compliance gaps, and reform warnings. Non-interactive: always scan-only without questionnaire.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        path: { type: 'string', description: 'Path to the project directory to check' },
+        strict: { type: 'boolean', description: 'Treat unknown controls as failing', default: false },
+        reform: { type: 'boolean', description: 'Include Privacy Act 2026 reform impact warnings', default: false },
+      },
+      required: ['path'],
+    },
+    annotations: LOCAL_READ_ONLY_ANNOTATIONS,
   },
   {
     name: 'attestlens_reform',
+    title: 'Privacy Act Reform Impact Assessment',
     description: 'Run a Privacy Act 2026 reform impact assessment. Scans the project for reform-relevant patterns (statutory tort, children\'s privacy code, automated decision-making, AML/CTF) and returns a structured impact assessment with per-provision status, action items with deadlines, and overall impact rating.',
     inputSchema: {
       type: 'object',
@@ -215,6 +254,7 @@ export const MCP_TOOLS = [
       },
       required: ['path'],
     },
+    annotations: LOCAL_READ_ONLY_ANNOTATIONS,
   },
 ] as const;
 
@@ -703,6 +743,91 @@ export async function handleToolCall(name: string, args: Record<string, unknown>
             remediations: findings
               .map((finding) => finding.fix)
               .filter((fix): fix is string => typeof fix === 'string' && fix.length > 0),
+          }, null, 2),
+        }],
+      };
+    }
+
+    case 'attestlens_compliance_check': {
+      const targetPath = await validatePath(args?.path as string);
+      const strict = args?.strict === true;
+      const reform = args?.reform === true;
+
+      const orchestrator = createOrchestrator('path', {
+        externalEnrichment: false,
+        includeTyposquat: false,
+        behavioral: true,
+        iac: true,
+        includeGitleaks: false,
+        reform,
+      });
+      const scanResult = await orchestrator.scan(targetPath);
+      const duration = scanResult.totalDurationMs;
+
+      const reportOptions: ReportOptions = {
+        targetName: path.basename(targetPath) || 'project',
+        targetPath: sanitizeTargetPathForOutput(targetPath),
+        formats: ['smb'],
+        outputDir: './attestlens-reports',
+        strictMode: strict,
+        includeReform: reform,
+        includeSMB: true,
+        ruleFreshness: scanResult.ruleFreshness,
+      };
+
+      const report = buildComplianceReport(scanResult.findings, reportOptions, duration) as ComplianceReportWithSMB;
+      report.metadata.scannerVersions = Object.fromEntries(
+        scanResult.results.map((scannerResult) => [scannerResult.source, scannerResult.version]),
+      );
+
+      const smbResult = report.smbCompliance ?? buildSMBComplianceResult(report);
+      if (!smbResult) {
+        throw new McpError(ErrorCode.InternalError, 'Failed to generate SMB compliance result');
+      }
+
+      const gapControls = report.appControls.filter((control) => control.status === 'unknown');
+      const reformProvisions = report.reformImpactAssessment?.provisions.filter((provision) => (
+        provision.findingCount > 0
+      )) ?? [];
+
+      return {
+        content: [{
+          type: 'text',
+          text: JSON.stringify({
+            readinessScore: smbResult.readinessScore,
+            readinessLabel: smbResult.readinessLabel,
+            verdict: smbResult.verdict,
+            summary: smbResult.summary,
+            actions: smbResult.actions.map((action) => ({
+              priority: action.priority,
+              title: action.title,
+              description: action.description,
+              principle: action.principle,
+            })),
+            gaps: smbResult.gaps.map((gap, index) => {
+              const control = gapControls[index];
+              return {
+                principle: control?.principle,
+                shortName: control?.shortName ?? gap.area,
+                description: gap.description,
+                status: gap.status,
+              };
+            }),
+            reformWarnings: smbResult.reformWarnings?.map((warning, index) => {
+              const provision = reformProvisions[index];
+              return {
+                provision: warning.provision,
+                shortName: provision?.shortName ?? warning.provision,
+                impact: warning.impact,
+                deadline: warning.deadline,
+                actionNeeded: warning.description,
+              };
+            }),
+            metadata: {
+              target: report.target,
+              scanDurationMs: duration,
+              scannerVersions: report.metadata.scannerVersions,
+            },
           }, null, 2),
         }],
       };

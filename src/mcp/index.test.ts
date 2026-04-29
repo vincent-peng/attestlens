@@ -96,6 +96,7 @@ describe('MCP Server', () => {
       const auditTool = MCP_TOOLS.find((tool) => tool.name === 'attestlens_audit');
       const urlTool = MCP_TOOLS.find((tool) => tool.name === 'attestlens_scan_url');
       const checkTool = MCP_TOOLS.find((tool) => tool.name === 'attestlens_check');
+      const complianceCheckTool = MCP_TOOLS.find((tool) => tool.name === 'attestlens_compliance_check');
 
       expect(scanTool?.inputSchema.properties).toHaveProperty('externalEnrichment');
       expect(auditTool?.inputSchema.properties).toHaveProperty('externalEnrichment');
@@ -122,6 +123,18 @@ describe('MCP Server', () => {
       expect(checkTool?.inputSchema.required).toEqual(['path', 'principle']);
       expect(checkTool?.inputSchema.properties).toHaveProperty('principle');
       expect(checkTool?.inputSchema.properties).toHaveProperty('strict');
+      expect(complianceCheckTool?.title).toBe('Compliance Check for Australian Businesses');
+      expect(complianceCheckTool?.inputSchema.required).toEqual(['path']);
+      expect(complianceCheckTool?.inputSchema.properties).toHaveProperty('strict');
+      expect(complianceCheckTool?.inputSchema.properties).toHaveProperty('reform');
+    });
+
+    it('publishes read-only tool annotations and marks URL scanning as open-world', () => {
+      for (const tool of MCP_TOOLS) {
+        expect(tool.title.length).toBeGreaterThan(0);
+        expect(tool.annotations.readOnlyHint).toBe(true);
+        expect(tool.annotations.openWorldHint).toBe(tool.name === 'attestlens_scan_url');
+      }
     });
 
     it('returns structured single-principle output from attestlens_check', async () => {
@@ -178,6 +191,101 @@ describe('MCP Server', () => {
       })).rejects.toThrow('invalid APP principle');
 
       expect(scanSpy).not.toHaveBeenCalled();
+    });
+
+    it('returns scan-only SMB compliance output from attestlens_compliance_check', async () => {
+      const reformFinding = makeFinding({
+        id: 'REFORM-ADM-001',
+        source: 'reform-2026',
+        sourceRule: 'REFORM-ADM-001',
+        severity: 'high',
+        category: 'Privacy Reform',
+        title: 'Automated decision-making signal',
+        description: 'The project appears to use automated decisions that affect people.',
+        fix: 'Document the automated decision flow and add a plain-English notice.',
+        provision: 'AUTOMATED_DECISION_MAKING',
+        effectiveDate: '2026-12-10',
+      });
+      const scanSpy = vi.spyOn(ScannerOrchestrator.prototype, 'scan').mockResolvedValue({
+        findings: [
+          makeFinding(),
+          reformFinding,
+        ],
+        results: [
+          {
+            source: 'guardvibe',
+            version: '1.0.0',
+            timestamp: new Date().toISOString(),
+            findings: [
+              makeFinding(),
+            ],
+            errors: [],
+            durationMs: 12,
+          },
+          {
+            source: 'reform-2026',
+            version: '1.0.0',
+            timestamp: new Date().toISOString(),
+            findings: [
+              reformFinding,
+            ],
+            errors: [],
+            durationMs: 8,
+          },
+        ],
+        errors: [],
+        totalDurationMs: 20,
+        ruleFreshness: makeRuleFreshness(),
+      });
+
+      const response = await handleToolCall('attestlens_compliance_check', {
+        path: tempDir,
+        reform: true,
+      });
+      const payload = JSON.parse(response.content[0].text);
+
+      expect(payload).toEqual(expect.objectContaining({
+        readinessScore: expect.any(Number),
+        readinessLabel: expect.any(String),
+        verdict: expect.any(String),
+        summary: expect.any(String),
+        actions: expect.any(Array),
+        gaps: expect.any(Array),
+      }));
+      expect(payload.actions).toEqual(expect.arrayContaining([
+        expect.objectContaining({
+          priority: 'high',
+          title: 'Strengthen personal information security',
+          principle: 'APP_11',
+        }),
+      ]));
+      expect(payload.gaps[0]).toEqual(expect.objectContaining({
+        principle: expect.any(String),
+        shortName: expect.any(String),
+        description: expect.any(String),
+        status: 'unknown',
+      }));
+      expect(payload.reformWarnings).toEqual([
+        expect.objectContaining({
+          provision: 'Automated decision notices',
+          shortName: 'Automated Decision-Making Transparency',
+          impact: 'high',
+          deadline: 'December 2026',
+          actionNeeded: expect.stringContaining('automated systems'),
+        }),
+      ]);
+      expect(payload.metadata).toEqual(expect.objectContaining({
+        target: expect.objectContaining({
+          name: path.basename(tempDir),
+          path: path.basename(tempDir),
+        }),
+        scanDurationMs: 20,
+        scannerVersions: {
+          guardvibe: '1.0.0',
+          'reform-2026': '1.0.0',
+        },
+      }));
+      expect(scanSpy).toHaveBeenCalledWith(tempDir);
     });
 
     it('returns URL scan output keyed by targetUrl', async () => {
