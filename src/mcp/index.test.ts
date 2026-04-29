@@ -165,7 +165,7 @@ describe('MCP Server', () => {
             fix: 'Move the secret to a server-side environment variable.',
           },
         ],
-        fixPrompts: ['Move the secret to a server-side environment variable.'],
+        remediations: ['Move the secret to a server-side environment variable.'],
       }));
     });
 

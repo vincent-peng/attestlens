@@ -193,7 +193,7 @@ export const MCP_TOOLS = [
   },
   {
     name: 'attestlens_check',
-    description: 'Check a single APP principle compliance. Lightweight — only runs relevant scanners. Returns { principle, verdict, score, findings, fixPrompts }.',
+    description: 'Check a single APP principle compliance. Runs a full compliance scan and returns results for a single APP principle. Returns { principle, verdict, score, findings, remediations }.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -685,7 +685,7 @@ export async function handleToolCall(name: string, args: Record<string, unknown>
             score: opinion.score,
             confidence: opinion.confidence,
             findings,
-            fixPrompts: findings
+            remediations: findings
               .map((finding) => finding.fix)
               .filter((fix): fix is string => typeof fix === 'string' && fix.length > 0),
           }, null, 2),

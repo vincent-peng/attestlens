@@ -372,12 +372,12 @@ describe('generateAgentReport', () => {
         score: expect.any(Number),
         action: expect.any(String),
       }));
-      expect(action).toHaveProperty('fixPrompt');
-      expect(action.fixPrompt === null || typeof action.fixPrompt === 'string').toBe(true);
+      expect(action).toHaveProperty('remediation');
+      expect(action.remediation === null || typeof action.remediation === 'string').toBe(true);
     }
   });
 
-  it('includes fixPrompt from the most severe linked finding fix', () => {
+  it('includes remediation from the most severe linked finding fix', () => {
     const report = buildComplianceReport([
       makeFinding({
         id: 'F-APP11-HIGH',
@@ -396,7 +396,7 @@ describe('generateAgentReport', () => {
 
     expect(parsed.actions).toEqual(expect.arrayContaining([
       expect.objectContaining({
-        fixPrompt: 'Move the credential into a managed secret store.',
+        remediation: 'Move the credential into a managed secret store.',
       }),
     ]));
   });

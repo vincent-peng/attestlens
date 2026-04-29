@@ -1256,7 +1256,7 @@ export function generateAgentReport(report: ComplianceReport): string {
     verdict: string;
     score: number;
     action: string;
-    fixPrompt: string | null;
+    remediation: string | null;
   }> = [];
 
   for (const control of report.appControls) {
@@ -1278,7 +1278,7 @@ export function generateAgentReport(report: ComplianceReport): string {
       action: control.status === 'fail'
         ? `Fix ${control.findings.length} finding(s) to achieve compliance`
         : `Provide evidence for ${control.shortName}`,
-      fixPrompt: topFinding?.fix ?? null,
+      remediation: topFinding?.fix ?? null,
     });
   }
 

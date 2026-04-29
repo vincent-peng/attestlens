@@ -193,7 +193,26 @@ program
 
       if (agentOutput) {
         console.log(generateAgentReport(report));
-        if (report.complianceOpinion?.overallVerdict === 'NON_COMPLIANT') {
+        // Exit 1 for NON_COMPLIANT verdict or failing controls without opinion
+        const verdict = report.complianceOpinion?.overallVerdict;
+        if (verdict === 'NON_COMPLIANT') {
+          process.exit(1);
+        }
+        if (!verdict) {
+          // No opinion available — fail on any failing controls
+          const failCount = report.appControls.filter(c => c.status === 'fail').length;
+          if (failCount > 0) {
+            process.exit(1);
+          }
+          // In strict mode, UNKNOWN controls also fail
+          if (options.strict) {
+            const unknownCount = report.appControls.filter(c => c.status === 'unknown').length;
+            if (unknownCount > 0) {
+              process.exit(1);
+            }
+          }
+        }
+        if (verdict === 'PARTIALLY_COMPLIANT' && options.strict) {
           process.exit(1);
         }
         return;
@@ -419,8 +438,9 @@ async function maybeAutoUpdateRules(options: any, quiet = false): Promise<void> 
   if (quiet) {
     try {
       await updateRuleCache({ source });
-    } catch {
-      // Machine-readable modes must keep stdout clean; continue with cached or embedded rules.
+    } catch (error: any) {
+      // Machine-readable modes must keep stdout clean; write warning to stderr instead.
+      process.stderr.write(`Warning: Rule auto-update failed: ${error.message}. Continuing with cached or embedded rules.\n`);
     }
     return;
   }
