@@ -26,7 +26,7 @@ See `docs/YC-RFS-EVOLUTION.md` for the full product thesis and `ATTESTLENS-EXECU
 
 ## Baseline (main, commit 61c15bc)
 
-- 357 tests passing, `tsc --noEmit` clean
+- 367 tests passing, `tsc --noEmit` clean
 - 25,272 lines of TS across 70 source files
 - CLI: scan, audit, report, attest, monitor
 - MCP server: attestlens_scan, attestlens_scan_url, attestlens_audit, attestlens_map, attestlens_opinion
@@ -45,7 +45,7 @@ See `docs/YC-RFS-EVOLUTION.md` for the full product thesis and `ATTESTLENS-EXECU
 | 4: SMB Compliance Tier | `feature/smb-tier` | 3-4 days | ⏳ Blocked on 3 |
 | 5: Integration + Sellable Gate | `feature/sellable-gate` | 2 days | ⏳ Blocked on 4 |
 
-Each phase: own branch → merge to main → next phase. 357+ tests must pass after every merge.
+Each phase: own branch → merge to main → next phase. 367+ tests must pass after every merge.
 
 ---
 
@@ -129,7 +129,7 @@ These are low priority vs. Layer 2 build. Address opportunistically.
 
 1. One phase at a time — no parallel branches
 2. Merge to main between phases — keep main always deployable
-3. 357+ tests must pass + tsc clean — no exceptions
+3. 367+ tests must pass + tsc clean — no exceptions
 4. Codex implements, Ada orchestrates and reviews
 5. Opinion engine is deterministic — no LLM calls, fully reproducible
 6. If Codex breaks tests — fix before merge, don't proceed

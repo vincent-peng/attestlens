@@ -27,7 +27,7 @@ Phase 4: SMB Compliance Tier            (3-4 days)
 Phase 5: Integration + Sellable Gate    (2 days)
 ```
 
-Each phase on its own branch. Merge to main between phases. 357 tests must pass + tsc clean after each merge.
+Each phase on its own branch. Merge to main between phases. 367 tests must pass + tsc clean after each merge.
 
 ---
 
@@ -146,7 +146,7 @@ This is the biggest product shift with the least new code. The data already exis
 - [ ] `attestlens_audit` MCP tool supports `format: "agent"` 
 - [ ] `attestlens_check` MCP tool works for single-principle queries
 - [ ] CI/CD integration guide + example GitHub Action
-- [ ] All 357+ tests pass, tsc clean
+- [ ] All 367+ tests pass, tsc clean
 
 ---
 
@@ -243,7 +243,7 @@ This is the biggest product shift with the least new code. The data already exis
 
 1. **One phase at a time** — no parallel phase branches
 2. **Merge to main between phases** — keep main always deployable
-3. **357 tests must pass + tsc clean** — no exceptions
+3. **367 tests must pass + tsc clean** — no exceptions
 4. **Codex does implementation** — Ada writes the prompt, reviews the output, merges
 5. **Opinion engine is deterministic** — no LLM calls, fully reproducible
 6. **Each Codex prompt** includes: exact files to modify, schema types to add, test requirements, acceptance criteria
