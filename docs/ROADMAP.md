@@ -37,7 +37,7 @@ See `ATTESTLENS-EXECUTION-PLAN.md` (workspace root) for detailed implementation 
 
 | Phase | Goal | Est. | Key Deliverables |
 |-------|------|------|-----------------|
-| 1 | Opinion-Grade Assessments | 3-4d | `ComplianceOpinion` schema, opinion engine (deterministic), CLI `--opinion`, MCP `attestlens_opinion`, report sections |
+| 1 | Opinion-Grade Assessments | 3-4d | `ComplianceOpinion` schema, opinion engine (deterministic), CLI `--opinion`, MCP `attestlens_opinion`, report sections | ✅ Done |
 | 2 | Agent-Native Enhancements | 2-3d | Agent output format, `attestlens_check` MCP tool, streaming results, CI/CD GitHub Action |
 | 3 | Privacy Act 2026 Reform Module | 3-4d | Reform scanner (4 provisions), `--reform` CLI flag, reform report section, `attestlens_reform` MCP tool |
 | 4 | SMB Compliance Tier | 3-4d | `attestlens compliance-check`, SMB questionnaire (~15 plain-English questions), jargon-free report |

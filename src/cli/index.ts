@@ -147,6 +147,8 @@ program
   .option('--external-enrichment', 'Enable external OSV.dev and npm registry dependency enrichment')
   .option('--scanner-timeout <ms>', 'Per-scanner timeout in milliseconds')
   .option('--auto-update', 'Refresh the cached rule pack from ATTESTLENS_RULE_SOURCE before scanning')
+  .option('--opinion', 'Include compliance opinion in report')
+
   .action(async (targetInput: string, options: any) => {
     console.log(chalk.bold.cyan('\n🔍 AttestLens — Privacy Act Compliance Audit\n'));
 
@@ -174,6 +176,7 @@ program
         formats: reportFormats,
         outputDir: path.resolve(options.output),
         strictMode: options.strict,
+        includeOpinion: options.opinion,
         ruleFreshness: scanResult.ruleFreshness,
       };
 
@@ -193,6 +196,12 @@ program
         console.log(chalk.bold(`  Breach Readiness: ${report.breachReadiness.level.toUpperCase()} (${report.breachReadiness.score}/100, ${Math.round(report.breachReadiness.confidence * 100)}% confidence)`));
       }
       console.log(chalk.bold(`  Rule Pack: ${formatRuleFreshnessForCli(scanResult.ruleFreshness)}`));
+      if (report.complianceOpinion) {
+        const op = report.complianceOpinion;
+        const verdictColor = op.overallVerdict === 'COMPLIANT' ? chalk.green : op.overallVerdict === 'NON_COMPLIANT' ? chalk.red : chalk.yellow;
+        console.log(chalk.bold(`  Opinion: ${verdictColor(op.overallVerdict.replace(/_/g, ' '))} (confidence: ${op.overallConfidence})`));
+        console.log(chalk.gray(`  Signed: ${op.signedBy} @ ${op.signedAt}`));
+      }
       console.log(chalk.bold('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━'));
       console.log('');
 

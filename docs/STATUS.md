@@ -29,7 +29,7 @@ See `docs/YC-RFS-EVOLUTION.md` for the full product thesis and `ATTESTLENS-EXECU
 - 357 tests passing, `tsc --noEmit` clean
 - 25,272 lines of TS across 70 source files
 - CLI: scan, audit, report, attest, monitor
-- MCP server: attestlens_scan, attestlens_scan_url, attestlens_audit, attestlens_map
+- MCP server: attestlens_scan, attestlens_scan_url, attestlens_audit, attestlens_map, attestlens_opinion
 - Continuous monitoring: webhook receiver, baselines, regression detection, job queue, reporter
 - All M3 scanner enhancements shipped (OSV, provenance, confidence, timeouts, behavioral, gitleaks, SAST-lite, IaC, dedup, maturity)
 
@@ -39,8 +39,8 @@ See `docs/YC-RFS-EVOLUTION.md` for the full product thesis and `ATTESTLENS-EXECU
 
 | Phase | Branch | Est. | Status |
 |-------|--------|------|--------|
-| 1: Opinion-Grade Assessments | `feature/opinion-grade-assessments` | 3-4 days | 🔨 Next |
-| 2: Agent-Native Enhancements | `feature/agent-native` | 2-3 days | ⏳ Blocked on 1 |
+| 1: Opinion-Grade Assessments | `feature/opinion-grade-assessments` | 3-4 days | ✅ Done (commit 147da44) |
+| 2: Agent-Native Enhancements | `feature/agent-native` | 2-3 days | 🔨 Next |
 | 3: Privacy Act 2026 Reform Module | `feature/reform-module` | 3-4 days | ⏳ Blocked on 2 |
 | 4: SMB Compliance Tier | `feature/smb-tier` | 3-4 days | ⏳ Blocked on 3 |
 | 5: Integration + Sellable Gate | `feature/sellable-gate` | 2 days | ⏳ Blocked on 4 |
@@ -50,6 +50,14 @@ Each phase: own branch → merge to main → next phase. 357+ tests must pass af
 ---
 
 ## What's Shipped (Full History)
+
+### Phase 1 — Opinion-Grade Assessments ✅
+- `ComplianceOpinion` schema: verdict, confidence, per-principle opinions, evidence chains
+- Deterministic opinion engine (`buildComplianceOpinion`) — no LLM calls
+- CLI `--opinion` flag with color-coded verdict display
+- HTML + Markdown opinion sections (color-coded badges, per-principle table, signature)
+- MCP `attestlens_opinion` tool + `opinion` option on `attestlens_audit`
+- 10 new tests (367 total)
 
 ### M3 — Scanner Enhancement ✅
 - OSV.dev vulnerability integration (`--external-enrichment`)

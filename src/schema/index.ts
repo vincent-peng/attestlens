@@ -335,6 +335,36 @@ export const ConsultantNarrative = z.object({
 });
 export type ConsultantNarrative = z.infer<typeof ConsultantNarrative>;
 
+export const ComplianceVerdict = z.enum(['COMPLIANT', 'PARTIALLY_COMPLIANT', 'NON_COMPLIANT']);
+export type ComplianceVerdict = z.infer<typeof ComplianceVerdict>;
+
+export const OpinionConfidence = z.enum(['HIGH', 'MODERATE', 'LOW']);
+export type OpinionConfidence = z.infer<typeof OpinionConfidence>;
+
+export const PrincipleOpinion = z.object({
+  principle: APPPrinciple,
+  verdict: ComplianceVerdict,
+  confidence: OpinionConfidence,
+  score: z.number().min(0).max(100),
+  summary: z.string(),
+  evidenceCount: z.number().int().nonnegative(),
+  corroboratedCount: z.number().int().nonnegative(),
+  keyFindings: z.array(z.string()),
+});
+export type PrincipleOpinion = z.infer<typeof PrincipleOpinion>;
+
+export const ComplianceOpinion = z.object({
+  overallVerdict: ComplianceVerdict,
+  overallConfidence: OpinionConfidence,
+  signedBy: z.string(),
+  signedAt: z.string().datetime(),
+  principles: z.array(PrincipleOpinion),
+  riskLevel: z.enum(['low', 'medium', 'high', 'critical']),
+  score: z.number().min(0).max(100),
+  disclaimer: z.string(),
+});
+export type ComplianceOpinion = z.infer<typeof ComplianceOpinion>;
+
 // ─── Rule Pack Metadata ─────────────────────────────────────────────────────
 
 export const RulePackSource = z.enum(['embedded', 'cache', 'remote']);
@@ -395,6 +425,7 @@ export const ComplianceReport = z.object({
   assessment: ReportAssessment.optional(),
   breachReadiness: BreachReadiness.optional(),
   consultantNarrative: ConsultantNarrative.optional(),
+  complianceOpinion: ComplianceOpinion.optional(),
   remediation: z.array(RemediationItem),
   metadata: z.object({
     scannerVersions: z.record(z.string(), z.string()),

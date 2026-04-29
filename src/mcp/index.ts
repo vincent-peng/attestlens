@@ -143,6 +143,11 @@ export const MCP_TOOLS = [
           type: 'number',
           description: 'Per-scanner timeout in milliseconds',
         },
+        opinion: {
+          type: 'boolean',
+          description: 'Include compliance opinion in the audit result',
+          default: false,
+        },
       },
       required: ['path'],
     },
@@ -171,6 +176,18 @@ export const MCP_TOOLS = [
         },
       },
       required: ['findings'],
+    },
+  },
+  {
+    name: 'attestlens_opinion',
+    description: 'Generate a compliance opinion for a project. Returns a definitive verdict (COMPLIANT / PARTIALLY_COMPLIANT / NON_COMPLIANT) with per-principle assessments, confidence levels, and evidence chains. Deterministic — no LLM calls.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        path: { type: 'string', description: 'Path to the project directory to audit' },
+        strict: { type: 'boolean', description: 'Treat UNKNOWN controls as NON_COMPLIANT', default: false },
+      },
+      required: ['path'],
     },
   },
 ] as const;
@@ -489,6 +506,7 @@ export async function handleToolCall(name: string, args: Record<string, unknown>
         formats: [format],
         outputDir: '/tmp/attestlens-mcp',
         strictMode: strict,
+        includeOpinion: args?.opinion === true,
         ruleFreshness: scanResult.ruleFreshness,
       };
       const report = buildComplianceReport(scanResult.findings, reportOptions, duration);
@@ -545,6 +563,43 @@ export async function handleToolCall(name: string, args: Record<string, unknown>
               ]),
             ),
           }, null, 2),
+        }],
+      };
+    }
+
+    case 'attestlens_opinion': {
+      const targetPath = await validatePath(args?.path as string);
+      const strict = args?.strict === true;
+
+      const orchestrator = createOrchestrator('path', {});
+      const startTime = Date.now();
+      const scanResult = await orchestrator.scan(targetPath);
+      const duration = Date.now() - startTime;
+
+      const reportOptions: ReportOptions = {
+        targetName: path.basename(targetPath) || 'project',
+        targetPath,
+        formats: ['json'],
+        outputDir: '/tmp/attestlens-mcp',
+        strictMode: strict,
+        includeOpinion: true,
+        ruleFreshness: scanResult.ruleFreshness,
+      };
+      const report = buildComplianceReport(scanResult.findings, reportOptions, duration);
+      report.metadata.scannerVersions = Object.fromEntries(
+        scanResult.results.map((scannerResult) => [scannerResult.source, scannerResult.version]),
+      );
+
+      // Return just the opinion, not the full report
+      const opinion = report.complianceOpinion;
+      if (!opinion) {
+        throw new McpError(ErrorCode.InternalError, 'Opinion generation failed');
+      }
+
+      return {
+        content: [{
+          type: 'text',
+          text: JSON.stringify(opinion, null, 2),
         }],
       };
     }
