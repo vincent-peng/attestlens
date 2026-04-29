@@ -11,6 +11,7 @@
 import { Command } from 'commander';
 import chalk from 'chalk';
 import ora from 'ora';
+import { select } from '@inquirer/prompts';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -26,12 +27,25 @@ import {
   generatePDFReport,
   SUPPORTED_REPORT_FORMATS,
 } from '../report/generator.js';
+import {
+  buildSMBComplianceResult,
+  generateSMBHTMLReport,
+  generateSMBMarkdownReport,
+  type SMBComplianceResult,
+} from '../report/smb-generator.js';
 import { updateRuleCache } from '../scanner/rules/index.js';
 import {
+  SMB_QUESTIONS,
+  SMB_QUESTIONNAIRE_VERSION,
+  aggregatePrincipleResults,
   buildAttestationScanSnapshot,
+  buildFindingsHash,
   buildFrozenSessionQuestions,
+  completeQuestionnaireSession,
+  createQuestionnaireSession,
   createInteractivePromptRunner,
   deriveQuestionnairePrinciples,
+  evaluateResponse,
   initializeAttestationSession,
   loadQuestionnaireSession,
   loadScanSnapshot,
@@ -41,12 +55,16 @@ import {
 } from '../questionnaire/index.js';
 import { RuleFreshness } from '../schema/index.js';
 import type {
+  APPPrinciple,
   AssessmentMode,
   AttestLensFinding,
+  ComplianceReport,
+  Question,
+  QuestionnaireResponse,
   QuestionnaireSession,
   RuleFreshness as RuleFreshnessMetadata,
 } from '../schema/index.js';
-import type { ReportFormat, ReportOptions } from '../report/generator.js';
+import type { ComplianceReportWithSMB, ReportFormat, ReportOptions } from '../report/generator.js';
 import type { ScannerError, ScannerResult } from '../scanner/types.js';
 import type { AttestationPromptRunner, AttestationScanSnapshot, SessionTarget } from '../questionnaire/index.js';
 import { getHostnameFromTargetUrl } from '../utils/target.js';
@@ -303,6 +321,97 @@ program
 
     try {
       await executeAttestCommand(targetInput, options);
+    } catch (error: any) {
+      console.error(chalk.red(`\nError: ${error.message}`));
+      process.exit(1);
+    }
+  });
+
+// ─── Compliance Check Command ────────────────────────────────────────────────
+
+program
+  .command('compliance-check')
+  .description('Plain-English compliance check for Australian businesses')
+  .argument('<target>', 'Path to project directory or URL (https://...)')
+  .option('-o, --output <dir>', 'Output directory', './attestlens-reports')
+  .option('-f, --format <formats>', 'Output formats (json,html,markdown)', 'html,markdown')
+  .option('--strict', 'Treat unknown controls as failing')
+  .option('--non-interactive', 'Skip questionnaire, scan-only assessment')
+  .option('--include-gitleaks', 'Enable git history secret scanning')
+  .option('--gitleaks-path <path>', 'Path to gitleaks binary', 'gitleaks')
+  .option('--reform', 'Include Privacy Act 2026 reform impact assessment')
+  .option('--scanner-timeout <ms>', 'Per-scanner timeout in milliseconds')
+  .action(async (targetInput: string, options: any) => {
+    console.log(chalk.bold.cyan('\n📋 AttestLens — Compliance Check\n'));
+
+    try {
+      const outputFormats = parseSMBOutputFormats(options.format);
+      const target = await resolveCliTarget(targetInput);
+      const outputDir = path.resolve(options.output);
+      const orchestrator = createOrchestrator(target.kind, options);
+      const spinner = ora(target.kind === 'url' ? `Checking URL: ${target.value}` : 'Checking project...').start();
+      const startTime = Date.now();
+
+      const scanResult = await orchestrator.scan(target.value);
+      const urlScanFailure = target.kind === 'url' ? getUrlScanFailureMessage(scanResult) : null;
+      if (urlScanFailure) {
+        spinner.fail('Compliance check failed');
+        throw new Error(urlScanFailure);
+      }
+      const duration = Date.now() - startTime;
+      spinner.succeed(`Compliance scan complete in ${(duration / 1000).toFixed(1)}s`);
+      displayRuleFreshness(scanResult.ruleFreshness);
+
+      const preliminaryReportOptions: ReportOptions = {
+        targetName: target.name,
+        targetPath: target.kind === 'path' ? target.value : undefined,
+        targetUrl: target.kind === 'url' ? target.value : undefined,
+        formats: ['json'],
+        outputDir,
+        strictMode: false,
+        includeReform: options.reform,
+        ruleFreshness: scanResult.ruleFreshness,
+      };
+      const preliminaryReport = buildComplianceReport(
+        scanResult.findings,
+        preliminaryReportOptions,
+        duration,
+      );
+
+      const questionnaireSession = options.nonInteractive
+        ? undefined
+        : await runSMBQuestionnaire({
+          preliminaryReport,
+          target,
+          findings: scanResult.findings,
+          strictMode: Boolean(options.strict),
+        });
+
+      const reportOptions: ReportOptions = {
+        targetName: target.name,
+        targetPath: target.kind === 'path' ? target.value : undefined,
+        targetUrl: target.kind === 'url' ? target.value : undefined,
+        formats: ['smb'],
+        outputDir,
+        strictMode: options.strict,
+        includeReform: options.reform,
+        includeSMB: true,
+        ruleFreshness: scanResult.ruleFreshness,
+      };
+
+      const report = buildComplianceReport(
+        scanResult.findings,
+        reportOptions,
+        duration,
+        questionnaireSession,
+      ) as ComplianceReportWithSMB;
+      report.metadata.scannerVersions = Object.fromEntries(
+        scanResult.results.map(r => [r.source, r.version]),
+      );
+
+      const reportPaths = await writeSMBComplianceFiles(report, reportOptions, outputFormats, questionnaireSession);
+      displaySMBTerminalSummary(getSMBComplianceResult(report, questionnaireSession), reportPaths, outputDir);
+      displayScannerWarnings(scanResult.errors);
     } catch (error: any) {
       console.error(chalk.red(`\nError: ${error.message}`));
       process.exit(1);
@@ -566,6 +675,250 @@ function toSessionTarget(target: CliTarget): SessionTarget {
   return target.kind === 'url'
     ? { kind: 'url', name: target.name, url: target.value }
     : { kind: 'path', name: target.name, path: target.value };
+}
+
+type SMBOutputFormat = 'json' | 'html' | 'markdown';
+
+function parseSMBOutputFormats(rawFormats: string): SMBOutputFormat[] {
+  const formats = rawFormats
+    .split(',')
+    .map(value => value.trim().toLowerCase())
+    .filter(Boolean);
+
+  if (formats.length === 0) {
+    throw new Error('At least one report format is required');
+  }
+
+  const normalized = new Set<SMBOutputFormat>();
+  for (const format of formats) {
+    switch (format) {
+      case 'json':
+      case 'html':
+      case 'markdown':
+        normalized.add(format);
+        break;
+      case 'md':
+        normalized.add('markdown');
+        break;
+      case 'smb':
+        normalized.add('html');
+        normalized.add('markdown');
+        break;
+      default:
+        throw new Error(`Unsupported compliance-check format: ${format}`);
+    }
+  }
+
+  return Array.from(normalized);
+}
+
+function deriveSMBQuestionnairePrinciples(report: ComplianceReport): APPPrinciple[] {
+  return report.appControls
+    .filter((control) => control.status === 'unknown')
+    .map((control) => control.principle);
+}
+
+function getSMBQuestionsForReport(report: ComplianceReport): Question[] {
+  const principles = new Set(deriveSMBQuestionnairePrinciples(report));
+  return SMB_QUESTIONS.filter((question) => principles.has(question.appPrinciple));
+}
+
+async function promptSMBQuestion(question: Question, index: number, total: number): Promise<QuestionnaireResponse> {
+  console.log('');
+  console.log(chalk.bold.cyan(`Business question ${index + 1} of ${total}`));
+  if (question.helpText) {
+    console.log(chalk.gray(question.helpText));
+  }
+
+  const answer = await select<boolean>({
+    message: question.question,
+    choices: [
+      { name: 'Yes', value: true },
+      { name: 'No', value: false },
+    ],
+  });
+  const response: QuestionnaireResponse = {
+    questionId: question.id,
+    answer,
+    timestamp: new Date().toISOString(),
+  };
+
+  return {
+    ...response,
+    evaluation: evaluateResponse(question, response),
+  };
+}
+
+async function runSMBQuestionnaire(params: {
+  preliminaryReport: ComplianceReport;
+  target: CliTarget;
+  findings: AttestLensFinding[];
+  strictMode: boolean;
+}): Promise<QuestionnaireSession | undefined> {
+  if (!process.stdin.isTTY || !process.stdout.isTTY) {
+    throw new Error('Compliance check questions require an interactive terminal. Use --non-interactive for scan-only assessment.');
+  }
+
+  const questions = getSMBQuestionsForReport(params.preliminaryReport);
+  if (questions.length === 0) {
+    return undefined;
+  }
+
+  console.log('');
+  console.log(chalk.bold.cyan('Business Questions'));
+  console.log(chalk.gray('Answer yes or no so the report can include business processes the scan cannot see.'));
+
+  const responses: QuestionnaireResponse[] = [];
+  for (const [index, question] of questions.entries()) {
+    responses.push(await promptSMBQuestion(question, index, questions.length));
+  }
+
+  const assessmentMode: AssessmentMode = 'operator_attested';
+  const principles = Array.from(new Set(questions.map((question) => question.appPrinciple)));
+  const initialPrincipleResults = aggregatePrincipleResults(principles, [], questions, assessmentMode);
+  const principleResults = aggregatePrincipleResults(principles, responses, questions, assessmentMode);
+  const session = createQuestionnaireSession({
+    target: toSessionTarget(params.target),
+    strictMode: params.strictMode,
+    scanSnapshotPath: '',
+    findingsHash: buildFindingsHash(params.findings),
+    questionnaireVersion: SMB_QUESTIONNAIRE_VERSION,
+    principles,
+    sessionQuestions: questions,
+    principleResults: initialPrincipleResults,
+    assessmentMode,
+  });
+
+  return completeQuestionnaireSession(session, responses, principleResults);
+}
+
+function getSMBComplianceResult(
+  report: ComplianceReportWithSMB,
+  questionnaireSession?: QuestionnaireSession,
+): SMBComplianceResult {
+  if (!report.smbCompliance) {
+    report.smbCompliance = buildSMBComplianceResult(report, questionnaireSession);
+  }
+
+  return report.smbCompliance;
+}
+
+function toPublicSMBComplianceJSON(result: SMBComplianceResult): Record<string, unknown> {
+  return {
+    ...result,
+    actions: result.actions.map(({ principle: _principle, ...action }) => action),
+  };
+}
+
+async function writeSMBComplianceFiles(
+  report: ComplianceReportWithSMB,
+  reportOptions: ReportOptions,
+  outputFormats: SMBOutputFormat[],
+  questionnaireSession?: QuestionnaireSession,
+): Promise<Array<{ label: string; path: string }>> {
+  const outputDir = path.resolve(reportOptions.outputDir);
+  await fs.mkdir(outputDir, { recursive: true });
+
+  const filename = `${buildReportFilename(reportOptions.targetName, report.timestamp)}-compliance-check`;
+  const result = getSMBComplianceResult(report, questionnaireSession);
+  const outputs: Array<{ label: string; path: string }> = [];
+
+  for (const format of outputFormats) {
+    switch (format) {
+      case 'html': {
+        const filePath = path.join(outputDir, `${filename}.html`);
+        await fs.writeFile(filePath, generateSMBHTMLReport(result));
+        outputs.push({ label: 'Compliance check HTML', path: filePath });
+        break;
+      }
+      case 'markdown': {
+        const filePath = path.join(outputDir, `${filename}.md`);
+        await fs.writeFile(filePath, generateSMBMarkdownReport(result));
+        outputs.push({ label: 'Compliance check Markdown', path: filePath });
+        break;
+      }
+      case 'json': {
+        const filePath = path.join(outputDir, `${filename}.json`);
+        await fs.writeFile(filePath, JSON.stringify(toPublicSMBComplianceJSON(result), null, 2));
+        outputs.push({ label: 'Compliance check JSON', path: filePath });
+        break;
+      }
+    }
+  }
+
+  return outputs;
+}
+
+function formatOutputDirForDisplay(outputDir: string): string {
+  const relative = path.relative(process.cwd(), outputDir);
+  if (!relative) {
+    return '.';
+  }
+  return relative.startsWith('..') ? outputDir : relative;
+}
+
+function colorReadiness(result: SMBComplianceResult): string {
+  const label = `${result.readinessScore}/100 — ${result.readinessLabel}`;
+  switch (result.readinessLabel) {
+    case 'Ready':
+      return chalk.green(label);
+    case 'Nearly Ready':
+      return chalk.yellow(label);
+    case 'Needs Work':
+      return chalk.hex('#f4a261')(label);
+    case 'Not Ready':
+      return chalk.red(label);
+    case 'Unknown':
+    default:
+      return chalk.gray(label);
+  }
+}
+
+function colorPriority(priority: SMBComplianceResult['actions'][number]['priority']): string {
+  switch (priority) {
+    case 'urgent':
+      return chalk.red(priority);
+    case 'high':
+      return chalk.hex('#f4a261')(priority);
+    case 'medium':
+      return chalk.yellow(priority);
+    case 'low':
+    default:
+      return chalk.cyan(priority);
+  }
+}
+
+function displaySMBTerminalSummary(
+  result: SMBComplianceResult,
+  reportPaths: Array<{ label: string; path: string }>,
+  outputDir: string,
+): void {
+  console.log('');
+  console.log(`${result.readinessLabel === 'Ready' ? '✅' : '⚠️'} Compliance Readiness: ${colorReadiness(result)}`);
+  console.log('');
+  console.log(result.summary);
+
+  const topActions = result.actions.slice(0, 3);
+  console.log(chalk.bold('\n⚡ Top Actions:'));
+  if (topActions.length === 0) {
+    console.log(chalk.green('  No priority actions found.'));
+  } else {
+    topActions.forEach((action, index) => {
+      console.log(`  ${index + 1}. ${action.title} (${colorPriority(action.priority)})`);
+    });
+  }
+
+  console.log(chalk.bold(`\n🔍 ${result.gaps.length} gap${result.gaps.length === 1 ? '' : 's'} need investigation`));
+  const reformCount = result.reformWarnings?.length || 0;
+  if (reformCount > 0) {
+    console.log(chalk.bold(`⚠️  ${reformCount} upcoming law change${reformCount === 1 ? '' : 's'} may affect you`));
+  }
+
+  console.log('');
+  for (const output of reportPaths) {
+    console.log(chalk.green(`  📄 ${output.label}: ${output.path}`));
+  }
+  console.log(chalk.green(`\nReport saved to ${formatOutputDirForDisplay(outputDir)}/`));
 }
 
 function buildSessionTargetFromReportTarget(reportTarget: {
@@ -1012,7 +1365,7 @@ function buildReportFilename(targetName: string, timestamp: string): string {
 }
 
 async function writeReportFiles(
-  report: any,
+  report: ComplianceReportWithSMB,
   reportOptions: ReportOptions,
   questionnaireSession?: QuestionnaireSession,
 ): Promise<Array<{ label: string; path: string }>> {
@@ -1042,6 +1395,16 @@ async function writeReportFiles(
         await fs.writeFile(filePath, await generatePDFReport(report, reportOptions, questionnaireSession));
         outputs.push({ label: 'PDF report', path: filePath });
         break;
+      case 'smb': {
+        const smbResult = getSMBComplianceResult(report, questionnaireSession);
+        const markdownPath = path.join(outputDir, `${filename}-compliance-check.md`);
+        const htmlPath = path.join(outputDir, `${filename}-compliance-check.html`);
+        await fs.writeFile(markdownPath, generateSMBMarkdownReport(smbResult));
+        await fs.writeFile(htmlPath, generateSMBHTMLReport(smbResult));
+        outputs.push({ label: 'Compliance check Markdown', path: markdownPath });
+        outputs.push({ label: 'Compliance check HTML', path: htmlPath });
+        break;
+      }
       case 'agent':
         break;
     }

@@ -36,14 +36,17 @@ import { mapAllFindings } from '../mapping/engine.js';
 import { getQuestionById } from '../questionnaire/index.js';
 import { buildComplianceOpinion } from '../opinion/engine.js';
 import { sanitizeTargetPathForOutput, sanitizeTargetUrlForOutput } from '../utils/target.js';
+import { buildSMBComplianceResult } from './smb-generator.js';
+import type { SMBComplianceResult } from './smb-generator.js';
 
 const ATTESTLENS_VERSION = '0.2.0';
 
-export const SUPPORTED_REPORT_FORMATS = ['json', 'html', 'markdown', 'pdf', 'agent'] as const;
+export const SUPPORTED_REPORT_FORMATS = ['json', 'html', 'markdown', 'pdf', 'agent', 'smb'] as const;
 export type ReportFormat = (typeof SUPPORTED_REPORT_FORMATS)[number];
 type BreachReadiness = NonNullable<ComplianceReport['breachReadiness']>;
 type BreachReadinessFactor = BreachReadiness['topFactors'][number];
 type ConsultantNarrative = NonNullable<ComplianceReport['consultantNarrative']>;
+export type ComplianceReportWithSMB = ComplianceReport & { smbCompliance?: SMBComplianceResult };
 
 // ─── Report Builder ─────────────────────────────────────────────────────────
 
@@ -57,6 +60,7 @@ export interface ReportOptions {
   strictMode?: boolean; // Treat UNKNOWN as FAIL
   includeOpinion?: boolean; // Include compliance opinion in report
   includeReform?: boolean; // Include Privacy Act 2026 reform impact assessment
+  includeSMB?: boolean; // Include plain-English SMB compliance result
   ruleFreshness?: RuleFreshness;
   branding?: {
     logo?: string;
@@ -112,7 +116,7 @@ export function buildComplianceReport(
   const timestamp = new Date().toISOString();
 
   // Step 5: Build the report
-  const report: ComplianceReport = {
+  const report: ComplianceReportWithSMB = {
     id: crypto.randomUUID(),
     timestamp,
     target: {
@@ -150,6 +154,10 @@ export function buildComplianceReport(
   // Attach compliance opinion if requested
   if (options.includeOpinion) {
     report.complianceOpinion = buildComplianceOpinion(report, { strictMode: options.strictMode });
+  }
+
+  if (options.formats.includes('smb') || options.includeSMB) {
+    report.smbCompliance = buildSMBComplianceResult(report, questionnaireSession);
   }
 
   return report;

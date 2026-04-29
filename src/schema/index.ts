@@ -32,7 +32,7 @@ export const ScanSource = z.enum([
 ]);
 export type ScanSource = z.infer<typeof ScanSource>;
 
-export const ReportFormat = z.enum(['json', 'html', 'pdf', 'sarif', 'markdown', 'agent']);
+export const ReportFormat = z.enum(['json', 'html', 'pdf', 'sarif', 'markdown', 'agent', 'smb']);
 export type ReportFormat = z.infer<typeof ReportFormat>;
 
 // ─── APP Principles ─────────────────────────────────────────────────────────
