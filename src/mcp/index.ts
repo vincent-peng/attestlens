@@ -38,15 +38,20 @@ import { sanitizeTargetPathForOutput, sanitizeTargetUrlForOutput } from '../util
 
 const ATTESTLENS_VERSION = '0.2.0';
 
-type ToolResponse = { content: Array<{ type: 'text'; text: string }> };
+type ToolResponse = { content: Array<{ type: 'text'; text: string }>; isError?: boolean };
+type ToolErrorResponse = ToolResponse & { isError: true };
 
 const LOCAL_READ_ONLY_ANNOTATIONS = {
   readOnlyHint: true,
+  destructiveHint: false,
+  idempotentHint: true,
   openWorldHint: false,
 } as const;
 
 const URL_READ_ONLY_ANNOTATIONS = {
   readOnlyHint: true,
+  destructiveHint: false,
+  idempotentHint: true,
   openWorldHint: true,
 } as const;
 
@@ -258,64 +263,85 @@ export const MCP_TOOLS = [
   },
 ] as const;
 
-function getAllowedRoots(): string[] | undefined {
-  if (!process.env.ATTESTLENS_ALLOWED_ROOTS) {
-    return undefined;
-  }
-  return process.env.ATTESTLENS_ALLOWED_ROOTS.split(':').filter(Boolean);
+function makeToolError(message: string): ToolErrorResponse {
+  return {
+    content: [{ type: 'text', text: message }],
+    isError: true,
+  };
 }
 
-export async function validatePath(targetPath: string): Promise<string> {
+function isToolError(value: unknown): value is ToolErrorResponse {
+  return typeof value === 'object' && value !== null && (value as ToolResponse).isError === true;
+}
+
+function getAllowedRoots(): string[] {
+  if (!process.env.ATTESTLENS_ALLOWED_ROOTS) {
+    return [process.cwd()];
+  }
+  return process.env.ATTESTLENS_ALLOWED_ROOTS
+    .split(path.delimiter)
+    .map((root) => root.trim())
+    .filter(Boolean);
+}
+
+export async function validatePath(targetPath: unknown): Promise<string | ToolErrorResponse> {
   if (!targetPath || typeof targetPath !== 'string') {
-    throw new McpError(ErrorCode.InvalidParams, 'path is required');
+    return makeToolError('path is required');
   }
   if (/[;|`$\\]/.test(targetPath)) {
-    throw new McpError(ErrorCode.InvalidParams, 'path contains invalid characters');
+    return makeToolError('path contains invalid characters');
   }
 
   const resolved = path.resolve(targetPath);
-  const allowedRoots = getAllowedRoots();
-  if (allowedRoots) {
-    const isAllowed = allowedRoots.some((root) => {
-      const normalizedRoot = path.resolve(root);
-      return resolved === normalizedRoot || resolved.startsWith(normalizedRoot + path.sep);
-    });
-    if (!isAllowed) {
-      throw new McpError(
-        ErrorCode.InvalidParams,
-        `path is outside allowed roots: ${resolved}. Allowed roots: ${allowedRoots.join(', ')}`,
-      );
-    }
+  let realTarget: string;
+  try {
+    realTarget = await fs.realpath(resolved);
+  } catch {
+    return makeToolError(`path does not exist: ${sanitizeTargetPathForOutput(resolved)}`);
   }
 
   let stat;
   try {
-    stat = await fs.stat(resolved);
+    stat = await fs.stat(realTarget);
   } catch {
-    throw new McpError(ErrorCode.InvalidParams, `path does not exist: ${resolved}`);
+    return makeToolError(`path does not exist: ${sanitizeTargetPathForOutput(resolved)}`);
   }
 
   if (!stat.isDirectory()) {
-    throw new McpError(ErrorCode.InvalidParams, `path is not a directory: ${resolved}`);
+    return makeToolError(`path is not a directory: ${sanitizeTargetPathForOutput(resolved)}`);
   }
 
-  return resolved;
+  const realRoots = await Promise.all(getAllowedRoots().map(async (root) => {
+    const resolvedRoot = path.resolve(root);
+    try {
+      return await fs.realpath(resolvedRoot);
+    } catch {
+      return resolvedRoot;
+    }
+  }));
+
+  const isAllowed = realRoots.some((root) => realTarget === root || realTarget.startsWith(root + path.sep));
+  if (!isAllowed) {
+    return makeToolError('path is outside allowed workspace roots');
+  }
+
+  return realTarget;
 }
 
-export function validateUrl(targetUrl: string): string {
+export function validateUrl(targetUrl: unknown): string | ToolErrorResponse {
   if (!targetUrl || typeof targetUrl !== 'string') {
-    throw new McpError(ErrorCode.InvalidParams, 'url is required');
+    return makeToolError('url is required');
   }
 
   let parsed: URL;
   try {
     parsed = new URL(targetUrl);
   } catch {
-    throw new McpError(ErrorCode.InvalidParams, `invalid URL: ${targetUrl}`);
+    return makeToolError(`invalid URL: ${sanitizeTargetUrlForOutput(targetUrl)}`);
   }
 
   if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
-    throw new McpError(ErrorCode.InvalidParams, `unsupported URL protocol: ${parsed.protocol}`);
+    return makeToolError(`unsupported URL protocol: ${parsed.protocol}`);
   }
 
   return parsed.toString();
@@ -356,22 +382,19 @@ function createOrchestrator(
   return orchestrator;
 }
 
-function parseScannerTimeoutMs(value: unknown): number | undefined {
+function parseScannerTimeoutMs(value: unknown): number | undefined | ToolErrorResponse {
   if (value === undefined || value === null) {
     return undefined;
   }
   if (typeof value !== 'number' || !Number.isInteger(value) || value <= 0) {
-    throw new McpError(ErrorCode.InvalidParams, 'scannerTimeoutMs must be a positive integer number of milliseconds');
+    return makeToolError('scannerTimeoutMs must be a positive integer number of milliseconds');
   }
   return value;
 }
 
-function validatePrinciple(value: unknown): APPPrinciple {
+function validatePrinciple(value: unknown): APPPrinciple | ToolErrorResponse {
   if (typeof value !== 'string' || !Object.prototype.hasOwnProperty.call(APPInfo, value)) {
-    throw new McpError(
-      ErrorCode.InvalidParams,
-      `invalid APP principle: ${String(value)}. Valid principles: ${Object.keys(APPInfo).join(', ')}`,
-    );
+    return makeToolError(`invalid APP principle: ${String(value)}. Valid principles: ${Object.keys(APPInfo).join(', ')}`);
   }
   return value as APPPrinciple;
 }
@@ -410,7 +433,7 @@ function collectUrlScanErrors(
 
 function getUrlScanFailureError(
   result: Awaited<ReturnType<ScannerOrchestrator['scan']>>,
-): McpError | null {
+): ToolErrorResponse | null {
   const urlResult = result.results.find((scannerResult) => scannerResult.source === 'url-scan');
   const urlErrors = collectUrlScanErrors(result, urlResult);
 
@@ -419,7 +442,7 @@ function getUrlScanFailureError(
   }
 
   if (!urlResult) {
-    return new McpError(ErrorCode.InternalError, 'URL scan failed before any findings could be collected.');
+    return makeToolError('URL scan failed before any findings could be collected.');
   }
 
   const fatalError = urlErrors.find((error) => !error.recoverable);
@@ -434,14 +457,14 @@ function getUrlScanFailureError(
   return null;
 }
 
-function formatUrlScanFailure(error: ScannerError): McpError {
+function formatUrlScanFailure(error: ScannerError): ToolErrorResponse {
   switch (error.code) {
     case 'INVALID_URL':
-      return new McpError(ErrorCode.InvalidParams, 'URL target is not allowed for scanning.');
+      return makeToolError('URL target is not allowed for scanning.');
     case 'FETCH_FAILED':
-      return new McpError(ErrorCode.InternalError, 'URL scan failed before any findings could be collected.');
+      return makeToolError('URL scan failed before any findings could be collected.');
     default:
-      return new McpError(ErrorCode.InternalError, 'URL scan failed before any findings could be collected.');
+      return makeToolError('URL scan failed before any findings could be collected.');
   }
 }
 
@@ -471,12 +494,12 @@ function buildScanSummary(result: Awaited<ReturnType<ScannerOrchestrator['scan']
   };
 }
 
-function parseReportFormat(rawFormat: unknown): ReportFormat {
+function parseReportFormat(rawFormat: unknown): ReportFormat | ToolErrorResponse {
   const format = typeof rawFormat === 'string' ? rawFormat : 'json';
   if (format === 'json' || format === 'html' || format === 'markdown' || format === 'pdf' || format === 'agent') {
     return format;
   }
-  throw new McpError(ErrorCode.InvalidParams, `unsupported report format: ${format}`);
+  return makeToolError(`unsupported report format: ${format}`);
 }
 
 async function renderAuditContent(
@@ -514,7 +537,10 @@ async function renderAuditContent(
 export async function handleToolCall(name: string, args: Record<string, unknown> | undefined): Promise<ToolResponse> {
   switch (name) {
     case 'attestlens_scan': {
-      const targetPath = await validatePath(args?.path as string);
+      const targetPath = await validatePath(args?.path);
+      if (isToolError(targetPath)) {
+        return targetPath;
+      }
       const strict = args?.strict === true;
       const externalEnrichment = args?.externalEnrichment === true;
       const includeTyposquat = args?.includeTyposquat === true;
@@ -523,6 +549,9 @@ export async function handleToolCall(name: string, args: Record<string, unknown>
       const includeGitleaks = args?.includeGitleaks === true;
       const gitleaksPath = typeof args?.gitleaksPath === 'string' ? args.gitleaksPath : undefined;
       const scannerTimeoutMs = parseScannerTimeoutMs(args?.scannerTimeoutMs);
+      if (isToolError(scannerTimeoutMs)) {
+        return scannerTimeoutMs;
+      }
 
       const orchestrator = createOrchestrator('path', { externalEnrichment, includeTyposquat, behavioral, iac, includeGitleaks, gitleaksPath, scannerTimeoutMs });
       const result = await orchestrator.scan(targetPath);
@@ -540,15 +569,21 @@ export async function handleToolCall(name: string, args: Record<string, unknown>
     }
 
     case 'attestlens_scan_url': {
-      const targetUrl = validateUrl(args?.url as string);
+      const targetUrl = validateUrl(args?.url);
+      if (isToolError(targetUrl)) {
+        return targetUrl;
+      }
       const strict = args?.strict === true;
       const scannerTimeoutMs = parseScannerTimeoutMs(args?.scannerTimeoutMs);
+      if (isToolError(scannerTimeoutMs)) {
+        return scannerTimeoutMs;
+      }
 
       const orchestrator = createOrchestrator('url', { scannerTimeoutMs });
       const result = await orchestrator.scan(targetUrl);
       const urlScanFailure = getUrlScanFailureError(result);
       if (urlScanFailure) {
-        throw urlScanFailure;
+        return urlScanFailure;
       }
 
       return {
@@ -564,9 +599,15 @@ export async function handleToolCall(name: string, args: Record<string, unknown>
     }
 
     case 'attestlens_audit': {
-      const targetPath = await validatePath(args?.path as string);
+      const targetPath = await validatePath(args?.path);
+      if (isToolError(targetPath)) {
+        return targetPath;
+      }
       const projectName = (args?.name as string) || path.basename(targetPath) || 'project';
       const format = parseReportFormat(args?.format);
+      if (isToolError(format)) {
+        return format;
+      }
       const strict = args?.strict === true;
       const externalEnrichment = args?.externalEnrichment === true;
       const includeTyposquat = args?.includeTyposquat === true;
@@ -575,6 +616,9 @@ export async function handleToolCall(name: string, args: Record<string, unknown>
       const includeGitleaks = args?.includeGitleaks === true;
       const gitleaksPath = typeof args?.gitleaksPath === 'string' ? args.gitleaksPath : undefined;
       const scannerTimeoutMs = parseScannerTimeoutMs(args?.scannerTimeoutMs);
+      if (isToolError(scannerTimeoutMs)) {
+        return scannerTimeoutMs;
+      }
 
       const orchestrator = createOrchestrator('path', { externalEnrichment, includeTyposquat, behavioral, iac, includeGitleaks, gitleaksPath, scannerTimeoutMs });
       const startTime = Date.now();
@@ -606,7 +650,7 @@ export async function handleToolCall(name: string, args: Record<string, unknown>
     case 'attestlens_map': {
       const rawFindings = args?.findings as Array<Record<string, unknown>> | undefined;
       if (!rawFindings || !Array.isArray(rawFindings)) {
-        throw new McpError(ErrorCode.InvalidParams, 'findings array is required');
+        return makeToolError('findings array is required');
       }
 
       const findings: AttestLensFinding[] = rawFindings.map((finding, index) => ({
@@ -649,7 +693,10 @@ export async function handleToolCall(name: string, args: Record<string, unknown>
     }
 
     case 'attestlens_opinion': {
-      const targetPath = await validatePath(args?.path as string);
+      const targetPath = await validatePath(args?.path);
+      if (isToolError(targetPath)) {
+        return targetPath;
+      }
       const strict = args?.strict === true;
 
       const orchestrator = createOrchestrator('path', {});
@@ -674,7 +721,7 @@ export async function handleToolCall(name: string, args: Record<string, unknown>
       // Return just the opinion, not the full report
       const opinion = report.complianceOpinion;
       if (!opinion) {
-        throw new McpError(ErrorCode.InternalError, 'Opinion generation failed');
+        return makeToolError('Opinion generation failed');
       }
 
       return {
@@ -686,8 +733,14 @@ export async function handleToolCall(name: string, args: Record<string, unknown>
     }
 
     case 'attestlens_check': {
-      const targetPath = await validatePath(args?.path as string);
+      const targetPath = await validatePath(args?.path);
+      if (isToolError(targetPath)) {
+        return targetPath;
+      }
       const principle = validatePrinciple(args?.principle);
+      if (isToolError(principle)) {
+        return principle;
+      }
       const strict = args?.strict === true;
 
       const orchestrator = createOrchestrator('path', {});
@@ -711,14 +764,14 @@ export async function handleToolCall(name: string, args: Record<string, unknown>
 
       const control = report.appControls.find((appControl) => appControl.principle === principle);
       if (!control) {
-        throw new McpError(ErrorCode.InvalidParams, `APP principle not found in report: ${principle}`);
+        return makeToolError(`APP principle not found in report: ${principle}`);
       }
 
       const opinion = report.complianceOpinion?.principles.find((principleOpinion) => (
         principleOpinion.principle === principle
       ));
       if (!opinion) {
-        throw new McpError(ErrorCode.InternalError, `Opinion generation failed for ${principle}`);
+        return makeToolError(`Opinion generation failed for ${principle}`);
       }
 
       const findingIds = new Set(control.findings);
@@ -749,7 +802,10 @@ export async function handleToolCall(name: string, args: Record<string, unknown>
     }
 
     case 'attestlens_compliance_check': {
-      const targetPath = await validatePath(args?.path as string);
+      const targetPath = await validatePath(args?.path);
+      if (isToolError(targetPath)) {
+        return targetPath;
+      }
       const strict = args?.strict === true;
       const reform = args?.reform === true;
 
@@ -782,7 +838,7 @@ export async function handleToolCall(name: string, args: Record<string, unknown>
 
       const smbResult = report.smbCompliance ?? buildSMBComplianceResult(report);
       if (!smbResult) {
-        throw new McpError(ErrorCode.InternalError, 'Failed to generate SMB compliance result');
+        return makeToolError('Failed to generate SMB compliance result');
       }
 
       const gapControls = report.appControls.filter((control) => control.status === 'unknown');
@@ -834,7 +890,10 @@ export async function handleToolCall(name: string, args: Record<string, unknown>
     }
 
     case 'attestlens_reform': {
-      const targetPath = await validatePath(args?.path as string);
+      const targetPath = await validatePath(args?.path);
+      if (isToolError(targetPath)) {
+        return targetPath;
+      }
       const strict = args?.strict === true;
 
       const orchestrator = createOrchestrator('path', { reform: true });
@@ -858,7 +917,7 @@ export async function handleToolCall(name: string, args: Record<string, unknown>
 
       const assessment: ReformImpactAssessment | undefined = report.reformImpactAssessment;
       if (!assessment) {
-        throw new McpError(ErrorCode.InternalError, 'Reform impact assessment generation failed');
+        return makeToolError('Reform impact assessment generation failed');
       }
 
       return {

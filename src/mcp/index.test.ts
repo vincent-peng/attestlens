@@ -60,18 +60,63 @@ describe('MCP Server', () => {
   });
 
   describe('validatePath', () => {
-    it('allows valid directories when ATTESTLENS_ALLOWED_ROOTS is not set', async () => {
-      await expect(validatePath(tempDir)).resolves.toBe(tempDir);
+    it('defaults to cwd when ATTESTLENS_ALLOWED_ROOTS is not set', async () => {
+      const realCwd = await fs.realpath(process.cwd());
+
+      await expect(validatePath(process.cwd())).resolves.toBe(realCwd);
+
+      const result = await validatePath(tempDir);
+      expect(result).toEqual({
+        content: [{ type: 'text', text: 'path is outside allowed workspace roots' }],
+        isError: true,
+      });
+    });
+
+    it('allows directories inside configured roots', async () => {
+      process.env.ATTESTLENS_ALLOWED_ROOTS = tempDir;
+
+      await expect(validatePath(tempDir)).resolves.toBe(await fs.realpath(tempDir));
     });
 
     it('blocks paths outside allowed roots', async () => {
       process.env.ATTESTLENS_ALLOWED_ROOTS = tempDir;
 
-      await expect(validatePath('/etc')).rejects.toThrow(McpError);
+      await expect(validatePath('/etc')).resolves.toEqual({
+        content: [{ type: 'text', text: 'path is outside allowed workspace roots' }],
+        isError: true,
+      });
     });
 
     it('rejects shell metacharacters', async () => {
-      await expect(validatePath(`${tempDir};rm -rf /`)).rejects.toThrow('path contains invalid characters');
+      await expect(validatePath(`${tempDir};rm -rf /`)).resolves.toEqual({
+        content: [{ type: 'text', text: 'path contains invalid characters' }],
+        isError: true,
+      });
+    });
+
+    it('splits allowed roots with path.delimiter and trims entries', async () => {
+      const firstRoot = path.join(tempDir, 'first-root');
+      const secondRoot = path.join(tempDir, 'second-root');
+      await fs.mkdir(firstRoot);
+      await fs.mkdir(secondRoot);
+      process.env.ATTESTLENS_ALLOWED_ROOTS = `${firstRoot}${path.delimiter} ${secondRoot} `;
+
+      await expect(validatePath(secondRoot)).resolves.toBe(await fs.realpath(secondRoot));
+    });
+
+    it('blocks symlink escapes from allowed roots', async () => {
+      const allowedRoot = path.join(tempDir, 'allowed');
+      const outsideRoot = path.join(tempDir, 'outside');
+      const escapeLink = path.join(allowedRoot, 'escape');
+      await fs.mkdir(allowedRoot);
+      await fs.mkdir(outsideRoot);
+      await fs.symlink(outsideRoot, escapeLink, 'dir');
+      process.env.ATTESTLENS_ALLOWED_ROOTS = allowedRoot;
+
+      await expect(validatePath(escapeLink)).resolves.toEqual({
+        content: [{ type: 'text', text: 'path is outside allowed workspace roots' }],
+        isError: true,
+      });
     });
   });
 
@@ -82,15 +127,25 @@ describe('MCP Server', () => {
     });
 
     it('rejects non-http protocols', () => {
-      expect(() => validateUrl('file:///tmp/report')).toThrow('unsupported URL protocol');
+      expect(validateUrl('file:///tmp/report')).toEqual({
+        content: [{ type: 'text', text: 'unsupported URL protocol: file:' }],
+        isError: true,
+      });
     });
 
     it('rejects invalid URLs', () => {
-      expect(() => validateUrl('not-a-url')).toThrow('invalid URL');
+      expect(validateUrl('not-a-url?token=secret')).toEqual({
+        content: [{ type: 'text', text: 'invalid URL: not-a-url' }],
+        isError: true,
+      });
     });
   });
 
   describe('handleToolCall', () => {
+    beforeEach(() => {
+      process.env.ATTESTLENS_ALLOWED_ROOTS = tempDir;
+    });
+
     it('exposes explicit enrichment, typosquat, behavioral, iac, gitleaks, and timeout options on MCP scan tools', () => {
       const scanTool = MCP_TOOLS.find((tool) => tool.name === 'attestlens_scan');
       const auditTool = MCP_TOOLS.find((tool) => tool.name === 'attestlens_audit');
@@ -133,8 +188,28 @@ describe('MCP Server', () => {
       for (const tool of MCP_TOOLS) {
         expect(tool.title.length).toBeGreaterThan(0);
         expect(tool.annotations.readOnlyHint).toBe(true);
+        expect(tool.annotations.destructiveHint).toBe(false);
+        expect(tool.annotations.idempotentHint).toBe(true);
         expect(tool.annotations.openWorldHint).toBe(tool.name === 'attestlens_scan_url' || tool.name === 'attestlens_scan' || tool.name === 'attestlens_audit');
       }
+    });
+
+    it('keeps unknown tools as protocol-level errors', async () => {
+      await expect(handleToolCall('attestlens_unknown', {})).rejects.toThrow(McpError);
+    });
+
+    it('returns sanitized isError responses for path validation failures', async () => {
+      const missingPath = path.join(tempDir, 'missing-project');
+      const scanSpy = vi.spyOn(ScannerOrchestrator.prototype, 'scan');
+
+      const response = await handleToolCall('attestlens_scan', { path: missingPath });
+
+      expect(response).toEqual({
+        content: [{ type: 'text', text: 'path does not exist: missing-project' }],
+        isError: true,
+      });
+      expect(response.content[0].text).not.toContain(tempDir);
+      expect(scanSpy).not.toHaveBeenCalled();
     });
 
     it('returns structured single-principle output from attestlens_check', async () => {
@@ -185,10 +260,15 @@ describe('MCP Server', () => {
     it('rejects invalid attestlens_check principles', async () => {
       const scanSpy = vi.spyOn(ScannerOrchestrator.prototype, 'scan');
 
-      await expect(handleToolCall('attestlens_check', {
+      const response = await handleToolCall('attestlens_check', {
         path: tempDir,
         principle: 'APP_99',
-      })).rejects.toThrow('invalid APP principle');
+      });
+
+      expect(response).toEqual({
+        content: [{ type: 'text', text: expect.stringContaining('invalid APP principle') }],
+        isError: true,
+      });
 
       expect(scanSpy).not.toHaveBeenCalled();
     });
@@ -391,9 +471,14 @@ describe('MCP Server', () => {
         ruleFreshness: makeRuleFreshness(),
       });
 
-      await expect(handleToolCall('attestlens_scan_url', {
+      const response = await handleToolCall('attestlens_scan_url', {
         url: 'http://localhost:3000',
-      })).rejects.toThrow('URL target is not allowed for scanning.');
+      });
+
+      expect(response).toEqual({
+        content: [{ type: 'text', text: 'URL target is not allowed for scanning.' }],
+        isError: true,
+      });
     });
 
     it('returns PDF audits as base64-encoded payloads', async () => {
@@ -537,10 +622,27 @@ describe('MCP Server', () => {
     });
 
     it('rejects invalid MCP scanner timeout values', async () => {
-      await expect(handleToolCall('attestlens_scan', {
+      const response = await handleToolCall('attestlens_scan', {
         path: tempDir,
         scannerTimeoutMs: 0,
-      })).rejects.toThrow('scannerTimeoutMs must be a positive integer');
+      });
+
+      expect(response).toEqual({
+        content: [{ type: 'text', text: 'scannerTimeoutMs must be a positive integer number of milliseconds' }],
+        isError: true,
+      });
+    });
+
+    it('returns isError for unsupported report formats', async () => {
+      const response = await handleToolCall('attestlens_audit', {
+        path: tempDir,
+        format: 'xml',
+      });
+
+      expect(response).toEqual({
+        content: [{ type: 'text', text: 'unsupported report format: xml' }],
+        isError: true,
+      });
     });
 
     it('enables MCP behavioral findings by default and allows explicit disable', async () => {
