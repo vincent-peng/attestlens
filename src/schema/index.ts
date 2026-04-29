@@ -6,6 +6,7 @@
  */
 
 import { z } from 'zod';
+import { reformImpactAssessmentSchema } from './reform.js';
 
 // ─── Enums ───────────────────────────────────────────────────────────────────
 
@@ -427,6 +428,7 @@ export const ComplianceReport = z.object({
   breachReadiness: BreachReadiness.optional(),
   consultantNarrative: ConsultantNarrative.optional(),
   complianceOpinion: ComplianceOpinion.optional(),
+  reformImpactAssessment: reformImpactAssessmentSchema.optional(),
   remediation: z.array(RemediationItem),
   metadata: z.object({
     scannerVersions: z.record(z.string(), z.string()),

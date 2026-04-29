@@ -81,6 +81,7 @@ program
   .option('--external-enrichment', 'Enable external OSV.dev and npm registry dependency enrichment')
   .option('--scanner-timeout <ms>', 'Per-scanner timeout in milliseconds')
   .option('--auto-update', 'Refresh the cached rule pack from ATTESTLENS_RULE_SOURCE before scanning')
+  .option('--reform', 'Include Privacy Act 2026 reform impact assessment')
   .action(async (targetInput: string, options: any) => {
     console.log(chalk.bold.cyan('\n🔍 AttestLens — Privacy Act Compliance Scanner\n'));
 
@@ -150,6 +151,7 @@ program
   .option('--scanner-timeout <ms>', 'Per-scanner timeout in milliseconds')
   .option('--auto-update', 'Refresh the cached rule pack from ATTESTLENS_RULE_SOURCE before scanning')
   .option('--opinion', 'Include compliance opinion in report')
+  .option('--reform', 'Include Privacy Act 2026 reform impact assessment')
 
   .action(async (targetInput: string, options: any) => {
     try {
@@ -183,6 +185,7 @@ program
         outputDir: path.resolve(options.output),
         strictMode: options.strict,
         includeOpinion: options.opinion,
+        includeReform: options.reform,
         ruleFreshness: scanResult.ruleFreshness,
       };
 

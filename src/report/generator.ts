@@ -20,8 +20,18 @@ import type {
   Severity,
   QuestionnaireSession,
   RuleFreshness,
+  ReformImpactAssessment,
+  ReformProvision as ReformProvisionName,
 } from '../schema/index.js';
-import { APPInfo, RuleFreshness as RuleFreshnessSchema, calculateGrade, calculateRiskLevel } from '../schema/index.js';
+import {
+  APPInfo,
+  ReformProvision,
+  ReformProvisionInfo,
+  RuleFreshness as RuleFreshnessSchema,
+  calculateGrade,
+  calculateRiskLevel,
+  reformProvisionSchema,
+} from '../schema/index.js';
 import { mapAllFindings } from '../mapping/engine.js';
 import { getQuestionById } from '../questionnaire/index.js';
 import { buildComplianceOpinion } from '../opinion/engine.js';
@@ -46,6 +56,7 @@ export interface ReportOptions {
   outputDir: string;
   strictMode?: boolean; // Treat UNKNOWN as FAIL
   includeOpinion?: boolean; // Include compliance opinion in report
+  includeReform?: boolean; // Include Privacy Act 2026 reform impact assessment
   ruleFreshness?: RuleFreshness;
   branding?: {
     logo?: string;
@@ -98,10 +109,12 @@ export function buildComplianceReport(
   const targetPath = sanitizeTargetPathForOutput(options.targetPath);
   const targetUrl = sanitizeTargetUrlForOutput(options.targetUrl);
 
+  const timestamp = new Date().toISOString();
+
   // Step 5: Build the report
   const report: ComplianceReport = {
     id: crypto.randomUUID(),
-    timestamp: new Date().toISOString(),
+    timestamp,
     target: {
       name: options.targetName,
       path: targetPath,
@@ -118,6 +131,9 @@ export function buildComplianceReport(
     assessment,
     breachReadiness,
     consultantNarrative,
+    reformImpactAssessment: options.includeReform
+      ? buildReformImpactAssessment(mappedFindings, timestamp)
+      : undefined,
     remediation,
     metadata: {
       scannerVersions: {},
@@ -647,6 +663,111 @@ function groupByCategory(findings: AttestLensFinding[]): Map<string, AttestLensF
   return groups;
 }
 
+// ─── Reform Impact Assessment ───────────────────────────────────────────────
+
+const REFORM_PROVISION_ORDER: ReformProvisionName[] = [
+  ReformProvision.STATUTORY_TORT,
+  ReformProvision.CHILDREN_PRIVACY_CODE,
+  ReformProvision.AUTOMATED_DECISION_MAKING,
+  ReformProvision.AML_CTF,
+];
+
+const REFORM_IMPACT_DISCLAIMER =
+  'Privacy Act 2026 reform provisions may have future effective dates. ' +
+  'This assessment is a planning aid for implementation readiness and does not constitute legal advice.';
+
+function buildReformImpactAssessment(
+  findings: AttestLensFinding[],
+  assessmentDate: string,
+): ReformImpactAssessment {
+  const reformFindings = findings
+    .map((finding) => ({ finding, provision: getReformProvision(finding) }))
+    .filter((entry): entry is { finding: AttestLensFinding; provision: ReformProvisionName } => Boolean(entry.provision));
+
+  const provisions = REFORM_PROVISION_ORDER.map((provision) => {
+    const provisionFindings = reformFindings
+      .filter((entry) => entry.provision === provision)
+      .map((entry) => entry.finding);
+    const info = ReformProvisionInfo[provision];
+
+    return {
+      provision,
+      shortName: info.shortName,
+      effectiveDate: info.effectiveDate,
+      findingCount: provisionFindings.length,
+      status: provisionFindings.length > 0 ? 'gap' as const : 'unknown' as const,
+      findings: provisionFindings.map((finding) => ({
+        id: finding.id,
+        sourceRule: finding.sourceRule,
+        severity: finding.severity,
+        title: finding.title,
+        description: finding.description,
+        file: finding.file,
+        line: finding.line,
+        remediation: finding.fix,
+      })),
+      summary: provisionFindings.length > 0
+        ? `${provisionFindings.length} reform finding${provisionFindings.length === 1 ? '' : 's'} detected for ${info.shortName}.`
+        : `No reform-specific scanner findings detected for ${info.shortName}; verify applicability before ${info.effectiveDate}.`,
+    };
+  });
+
+  return {
+    overallImpact: getReformOverallImpact(reformFindings.map((entry) => entry.finding)),
+    provisions,
+    actionItems: provisions
+      .filter((provision) => provision.findingCount > 0)
+      .map((provision) => ({
+        priority: getReformActionPriority(provision.findings.map((finding) => finding.severity)),
+        provision: provision.provision,
+        title: `Address ${provision.shortName} readiness gaps`,
+        description: `${provision.findingCount} finding${provision.findingCount === 1 ? '' : 's'} should be resolved before the reform provision takes effect.`,
+        deadline: provision.effectiveDate,
+      })),
+    assessmentDate,
+    disclaimer: REFORM_IMPACT_DISCLAIMER,
+  };
+}
+
+function getReformProvision(finding: AttestLensFinding): ReformProvisionName | undefined {
+  if (finding.source !== 'reform-2026') {
+    return undefined;
+  }
+
+  const directProvision = reformProvisionSchema.safeParse((finding as AttestLensFinding & { provision?: unknown }).provision);
+  if (directProvision.success) {
+    return directProvision.data;
+  }
+
+  const rawOutput = finding.evidence.rawOutput;
+  if (!rawOutput || typeof rawOutput !== 'object' || !('provision' in rawOutput)) {
+    return undefined;
+  }
+
+  const rawProvision = reformProvisionSchema.safeParse((rawOutput as { provision?: unknown }).provision);
+  return rawProvision.success ? rawProvision.data : undefined;
+}
+
+function getReformOverallImpact(findings: AttestLensFinding[]): 'high' | 'medium' | 'low' {
+  if (findings.some((finding) => finding.severity === 'critical')) {
+    return 'high';
+  }
+  if (findings.some((finding) => finding.severity === 'high')) {
+    return 'medium';
+  }
+  return 'low';
+}
+
+function getReformActionPriority(severities: Severity[]): 'immediate' | 'before_deadline' | 'recommended' {
+  if (severities.includes('critical')) {
+    return 'immediate';
+  }
+  if (severities.includes('high') || severities.includes('medium')) {
+    return 'before_deadline';
+  }
+  return 'recommended';
+}
+
 // ─── HTML Report Generator ───────────────────────────────────────────────────
 
 export function generateHTMLReport(
@@ -809,6 +930,7 @@ export function generateHTMLReport(
     ${generateHTMLConsultantNarrativeSection(report)}
     ${generateHTMLOpinionSection(report)}
     ${generateHTMLBreachReadinessSection(report)}
+    ${generateHTMLReformImpactAssessmentSection(report)}
 
     <!-- APP Control Checklist -->
     <h2>APP Control Checklist</h2>
@@ -897,6 +1019,60 @@ export function generateHTMLReport(
   </div>
 </body>
 </html>`;
+}
+
+function generateHTMLReformImpactAssessmentSection(report: ComplianceReport): string {
+  const assessment = report.reformImpactAssessment;
+  if (!assessment) {
+    return '';
+  }
+
+  return `
+    <h2>Reform Impact Assessment</h2>
+    <p><strong>Overall Impact:</strong> <span class="risk-badge risk-${assessment.overallImpact}">${assessment.overallImpact.toUpperCase()}</span></p>
+    <p>${escapeHtml(assessment.disclaimer)}</p>
+    <table class="checklist">
+      <thead>
+        <tr>
+          <th>Provision</th>
+          <th>Effective Date</th>
+          <th>Findings</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${assessment.provisions.map((provision) => `
+          <tr>
+            <td><strong>${escapeHtml(provision.shortName)}</strong><br><span style="font-size: 9pt; color: var(--text-light);">${escapeHtml(provision.provision)}</span></td>
+            <td>${escapeHtml(provision.effectiveDate)}</td>
+            <td>${provision.findingCount}</td>
+          </tr>
+        `).join('')}
+      </tbody>
+    </table>
+    ${assessment.provisions.map((provision) => `
+      <h3>${escapeHtml(provision.shortName)}</h3>
+      <p>${escapeHtml(provision.summary)}</p>
+      ${provision.findings.length > 0 ? provision.findings.map((finding) => `
+        <div class="finding ${finding.severity}">
+          <div class="finding-header">
+            <div>
+              <span class="severity-badge severity-${finding.severity}">${finding.severity}</span>
+              <strong style="margin-left: 8px;">${escapeHtml(finding.title)}</strong>
+            </div>
+            <span class="finding-id">${escapeHtml(finding.id)}</span>
+          </div>
+          <p>${escapeHtml(finding.description)}</p>
+          ${finding.file ? `<p style="font-size: 9pt; color: var(--text-light);">${escapeHtml(finding.file)}${finding.line ? `:${finding.line}` : ''}</p>` : ''}
+          ${finding.remediation ? `
+            <div class="fix-box">
+              <div class="fix-label">Suggested Fix</div>
+              <p style="font-size: 10pt; margin-top: 4px;">${escapeHtml(finding.remediation)}</p>
+            </div>
+          ` : ''}
+        </div>
+      `).join('') : '<p style="font-size: 10pt; color: var(--text-light);">No findings for this provision.</p>'}
+    `).join('')}
+  `;
 }
 
 function getRiskSummary(report: ComplianceReport): string {
@@ -1377,6 +1553,8 @@ export function generateMarkdownReport(
     lines.push('');
   }
 
+  appendMarkdownReformImpactAssessment(lines, report.reformImpactAssessment);
+
   lines.push(`### APP Control Status`);
   lines.push('');
   lines.push(`| Principle | Obligation | Status | Score |`);
@@ -1485,6 +1663,48 @@ export function generateMarkdownReport(
   lines.push(`*Generated by AttestLens v${ATTESTLENS_VERSION} — ${new Date(report.timestamp).toLocaleString('en-AU')}*`);
 
   return lines.join('\n');
+}
+
+function appendMarkdownReformImpactAssessment(
+  lines: string[],
+  assessment: ReformImpactAssessment | undefined,
+): void {
+  if (!assessment) {
+    return;
+  }
+
+  lines.push(`### Reform Impact Assessment`);
+  lines.push('');
+  lines.push(`- **Overall Impact:** ${assessment.overallImpact.toUpperCase()}`);
+  lines.push(`- **Disclaimer:** ${assessment.disclaimer}`);
+  lines.push('');
+  lines.push(`| Provision | Effective Date | Findings |`);
+  lines.push(`|---|---|---|`);
+  for (const provision of assessment.provisions) {
+    lines.push(`| ${provision.shortName} (${provision.provision}) | ${provision.effectiveDate} | ${provision.findingCount} |`);
+  }
+  lines.push('');
+
+  for (const provision of assessment.provisions) {
+    lines.push(`#### ${provision.shortName}`);
+    lines.push('');
+    lines.push(provision.summary);
+    lines.push('');
+    if (provision.findings.length === 0) {
+      lines.push(`- No findings for this provision.`);
+      lines.push('');
+      continue;
+    }
+
+    for (const finding of provision.findings) {
+      const location = finding.file ? ` (${finding.file}${finding.line ? `:${finding.line}` : ''})` : '';
+      lines.push(`- **${finding.severity.toUpperCase()} / ${finding.sourceRule}:** ${finding.title}${location}`);
+      if (finding.remediation) {
+        lines.push(`  Suggested fix: ${finding.remediation}`);
+      }
+    }
+    lines.push('');
+  }
 }
 
 // ─── PDF Report Generator ────────────────────────────────────────────────────

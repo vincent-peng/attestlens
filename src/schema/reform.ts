@@ -80,9 +80,20 @@ export const reformImpactAssessmentSchema = z.object({
   overallImpact: z.enum(['high', 'medium', 'low']),
   provisions: z.array(z.object({
     provision: reformProvisionSchema,
-    status: z.enum(['compliant', 'gap', 'unknown']),
-    findings: z.array(z.string()),
+    shortName: z.string(),
     effectiveDate: z.string(),
+    findingCount: z.number().int().nonnegative(),
+    status: z.enum(['compliant', 'gap', 'unknown']),
+    findings: z.array(z.object({
+      id: z.string(),
+      sourceRule: z.string(),
+      severity: _severitySchema,
+      title: z.string(),
+      description: z.string(),
+      file: z.string().optional(),
+      line: z.number().optional(),
+      remediation: z.string().optional(),
+    })),
     summary: z.string(),
   })),
   actionItems: z.array(z.object({
