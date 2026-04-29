@@ -10,14 +10,15 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 
-import { Server } from '@modelcontextprotocol/sdk/server/index.js';
+import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import {
-  CallToolRequestSchema,
   ErrorCode,
-  ListToolsRequestSchema,
+  ListResourcesRequestSchema as ResourcesListSchema,
   McpError,
+  ReadResourceRequestSchema as ResourcesReadSchema,
 } from '@modelcontextprotocol/sdk/types.js';
+import { z } from 'zod';
 
 import { mapAllFindings } from '../mapping/engine.js';
 import {
@@ -32,290 +33,458 @@ import { buildSMBComplianceResult } from '../report/smb-generator.js';
 import type { ComplianceReportWithSMB, ReportFormat, ReportOptions } from '../report/generator.js';
 import { ScannerOrchestrator, type ScannerOrchestratorOptions } from '../scanner/orchestrator.js';
 import type { ScannerError, ScannerResult } from '../scanner/types.js';
-import { APPInfo, RuleFreshness as RuleFreshnessSchema } from '../schema/index.js';
+import {
+  APPInfo,
+  APPPrinciple as APPPrincipleSchema,
+  ComplianceOpinion as ComplianceOpinionSchema,
+  ControlStatus,
+  RuleFreshness as RuleFreshnessSchema,
+  ScanSource,
+  Severity,
+  reformImpactAssessmentSchema,
+} from '../schema/index.js';
 import type { APPPrinciple, AttestLensFinding, ReformImpactAssessment } from '../schema/index.js';
 import { sanitizeTargetPathForOutput, sanitizeTargetUrlForOutput } from '../utils/target.js';
 
 const ATTESTLENS_VERSION = '0.2.0';
 
-type ToolResponse = { content: Array<{ type: 'text'; text: string }> };
+type ToolResponse = {
+  content: Array<{ type: 'text'; text: string }>;
+  structuredContent?: Record<string, unknown>;
+  isError?: boolean;
+};
+type ToolErrorResponse = ToolResponse & { isError: true };
+type ToolCallExtra = {
+  signal?: AbortSignal;
+};
+type AllowedRootResource = {
+  uri: string;
+  name: string;
+  description: string;
+  path: string;
+};
 
 const LOCAL_READ_ONLY_ANNOTATIONS = {
   readOnlyHint: true,
+  destructiveHint: false,
+  idempotentHint: true,
   openWorldHint: false,
 } as const;
 
 const URL_READ_ONLY_ANNOTATIONS = {
   readOnlyHint: true,
+  destructiveHint: false,
+  idempotentHint: true,
   openWorldHint: true,
 } as const;
 
-export const MCP_TOOLS = [
+export const TOOL_DEFINITIONS = [
   {
     name: 'attestlens_scan',
     title: 'Project Compliance Scan',
     description: 'Scan a project directory for Australian Privacy Act (APP/NDB) compliance findings.',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        path: { type: 'string', description: 'Path to the project directory to scan' },
-        strict: { type: 'boolean', description: 'Treat UNKNOWN controls as FAIL', default: false },
-        externalEnrichment: {
-          type: 'boolean',
-          description: 'Enable external OSV.dev and npm registry dependency enrichment',
-          default: false,
-        },
-        includeTyposquat: {
-          type: 'boolean',
-          description: 'Enable experimental typosquatting detection (VS-SC-004)',
-          default: false,
-        },
-        behavioral: {
-          type: 'boolean',
-          description: 'Enable behavioral supply-chain analysis',
-          default: true,
-        },
-        iac: {
-          type: 'boolean',
-          description: 'Enable infrastructure-as-code misconfiguration scanning',
-          default: true,
-        },
-        includeGitleaks: {
-          type: 'boolean',
-          description: 'Enable opt-in git history secret scanning via gitleaks',
-          default: false,
-        },
-        gitleaksPath: {
-          type: 'string',
-          description: 'Path to gitleaks binary',
-        },
-        scannerTimeoutMs: {
-          type: 'number',
-          description: 'Per-scanner timeout in milliseconds',
-        },
-      },
-      required: ['path'],
-    },
     annotations: URL_READ_ONLY_ANNOTATIONS,
   },
   {
     name: 'attestlens_scan_url',
     title: 'Live Site Compliance Scan',
     description: 'Scan a public URL for live-site APP/NDB compliance findings.',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        url: { type: 'string', description: 'Public http(s) URL to scan' },
-        strict: { type: 'boolean', description: 'Treat UNKNOWN controls as FAIL', default: false },
-        scannerTimeoutMs: {
-          type: 'number',
-          description: 'Per-scanner timeout in milliseconds',
-        },
-      },
-      required: ['url'],
-    },
     annotations: URL_READ_ONLY_ANNOTATIONS,
   },
   {
     name: 'attestlens_audit',
     title: 'Full Compliance Audit',
     description: 'Full APP/NDB compliance audit. Scans a project, maps findings to Australian Privacy Act obligations, and generates a compliance report.',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        path: { type: 'string', description: 'Path to the project directory to audit' },
-        name: { type: 'string', description: 'Project name for the report' },
-        format: { type: 'string', enum: ['json', 'html', 'markdown', 'pdf', 'agent'], description: 'Output format', default: 'json' },
-        strict: { type: 'boolean', description: 'Treat UNKNOWN controls as FAIL', default: false },
-        externalEnrichment: {
-          type: 'boolean',
-          description: 'Enable external OSV.dev and npm registry dependency enrichment',
-          default: false,
-        },
-        includeTyposquat: {
-          type: 'boolean',
-          description: 'Enable experimental typosquatting detection (VS-SC-004)',
-          default: false,
-        },
-        behavioral: {
-          type: 'boolean',
-          description: 'Enable behavioral supply-chain analysis',
-          default: true,
-        },
-        iac: {
-          type: 'boolean',
-          description: 'Enable infrastructure-as-code misconfiguration scanning',
-          default: true,
-        },
-        includeGitleaks: {
-          type: 'boolean',
-          description: 'Enable opt-in git history secret scanning via gitleaks',
-          default: false,
-        },
-        gitleaksPath: {
-          type: 'string',
-          description: 'Path to gitleaks binary',
-        },
-        scannerTimeoutMs: {
-          type: 'number',
-          description: 'Per-scanner timeout in milliseconds',
-        },
-        opinion: {
-          type: 'boolean',
-          description: 'Include compliance opinion in the audit result',
-          default: false,
-        },
-      },
-      required: ['path'],
-    },
     annotations: URL_READ_ONLY_ANNOTATIONS,
   },
   {
     name: 'attestlens_map',
     title: 'Map Findings to APP/NDB',
     description: 'Map a list of security findings to APP/NDB obligations.',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        findings: {
-          type: 'array',
-          description: 'List of findings to map',
-          items: {
-            type: 'object',
-            properties: {
-              source: { type: 'string' },
-              sourceRule: { type: 'string' },
-              severity: { type: 'string' },
-              category: { type: 'string' },
-              title: { type: 'string' },
-              description: { type: 'string' },
-            },
-            required: ['source', 'sourceRule', 'severity', 'title'],
-          },
-        },
-      },
-      required: ['findings'],
-    },
     annotations: LOCAL_READ_ONLY_ANNOTATIONS,
   },
   {
     name: 'attestlens_opinion',
     title: 'Compliance Opinion',
     description: 'Generate a compliance opinion for a project. Returns a definitive verdict (COMPLIANT / PARTIALLY_COMPLIANT / NON_COMPLIANT) with per-principle assessments, confidence levels, and evidence chains. Deterministic — no LLM calls.',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        path: { type: 'string', description: 'Path to the project directory to audit' },
-        strict: { type: 'boolean', description: 'Treat UNKNOWN controls as NON_COMPLIANT', default: false },
-      },
-      required: ['path'],
-    },
     annotations: LOCAL_READ_ONLY_ANNOTATIONS,
   },
   {
     name: 'attestlens_check',
     title: 'Single Principle Compliance Check',
     description: 'Check a single APP principle compliance. Runs a full compliance scan and returns results for a single APP principle. Returns { principle, verdict, score, findings, remediations }.',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        path: { type: 'string', description: 'Path to the project directory' },
-        principle: { type: 'string', description: 'APP principle to check (e.g. APP_11)' },
-        strict: { type: 'boolean', description: 'Treat UNKNOWN as NON_COMPLIANT', default: false },
-      },
-      required: ['path', 'principle'],
-    },
     annotations: LOCAL_READ_ONLY_ANNOTATIONS,
   },
   {
     name: 'attestlens_compliance_check',
     title: 'Compliance Check for Australian Businesses',
     description: 'Run a plain-English compliance check for Australian businesses. Scans a project for Privacy Act (APP/NDB) obligations and returns a readiness score, priority actions, compliance gaps, and reform warnings. Non-interactive: always scan-only without questionnaire.',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        path: { type: 'string', description: 'Path to the project directory to check' },
-        strict: { type: 'boolean', description: 'Treat unknown controls as failing', default: false },
-        reform: { type: 'boolean', description: 'Include Privacy Act 2026 reform impact warnings', default: false },
-      },
-      required: ['path'],
-    },
     annotations: LOCAL_READ_ONLY_ANNOTATIONS,
   },
   {
     name: 'attestlens_reform',
     title: 'Privacy Act Reform Impact Assessment',
     description: 'Run a Privacy Act 2026 reform impact assessment. Scans the project for reform-relevant patterns (statutory tort, children\'s privacy code, automated decision-making, AML/CTF) and returns a structured impact assessment with per-provision status, action items with deadlines, and overall impact rating.',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        path: { type: 'string', description: 'Path to the project directory to assess' },
-        strict: { type: 'boolean', description: 'Treat UNKNOWN controls as FAIL', default: false },
-      },
-      required: ['path'],
-    },
     annotations: LOCAL_READ_ONLY_ANNOTATIONS,
   },
 ] as const;
 
-function getAllowedRoots(): string[] | undefined {
-  if (!process.env.ATTESTLENS_ALLOWED_ROOTS) {
-    return undefined;
-  }
-  return process.env.ATTESTLENS_ALLOWED_ROOTS.split(':').filter(Boolean);
+const scannerTimeoutMsInputSchema = z.number().describe('Per-scanner timeout in milliseconds').optional();
+
+const pathScanOptionsInputSchema = {
+  strict: z.boolean().describe('Treat UNKNOWN controls as FAIL').default(false),
+  externalEnrichment: z.boolean().describe('Enable external OSV.dev and npm registry dependency enrichment').default(false),
+  includeTyposquat: z.boolean().describe('Enable experimental typosquatting detection (VS-SC-004)').default(false),
+  behavioral: z.boolean().describe('Enable behavioral supply-chain analysis').default(true),
+  iac: z.boolean().describe('Enable infrastructure-as-code misconfiguration scanning').default(true),
+  includeGitleaks: z.boolean().describe('Enable opt-in git history secret scanning via gitleaks').default(false),
+  gitleaksPath: z.string().describe('Path to gitleaks binary').optional(),
+  scannerTimeoutMs: scannerTimeoutMsInputSchema,
+};
+
+const scanInputSchema = {
+  path: z.string().describe('Path to the project directory to scan'),
+  ...pathScanOptionsInputSchema,
+};
+
+const scanUrlInputSchema = {
+  url: z.string().describe('Public http(s) URL to scan'),
+  strict: z.boolean().describe('Treat UNKNOWN controls as FAIL').default(false),
+  scannerTimeoutMs: scannerTimeoutMsInputSchema,
+};
+
+const auditInputSchema = {
+  path: z.string().describe('Path to the project directory to audit'),
+  name: z.string().describe('Project name for the report').optional(),
+  format: z.enum(['json', 'html', 'markdown', 'pdf', 'agent']).describe('Output format').default('json'),
+  ...pathScanOptionsInputSchema,
+  opinion: z.boolean().describe('Include compliance opinion in the audit result').default(false),
+};
+
+const mapInputSchema = {
+  findings: z.array(z.object({
+    id: z.string().optional(),
+    source: z.string(),
+    sourceRule: z.string(),
+    severity: z.string(),
+    category: z.string().optional(),
+    title: z.string(),
+    description: z.string().optional(),
+    file: z.string().optional(),
+    line: z.number().optional(),
+  }).passthrough()).describe('List of findings to map'),
+};
+
+const opinionInputSchema = {
+  path: z.string().describe('Path to the project directory to audit'),
+  strict: z.boolean().describe('Treat UNKNOWN controls as NON_COMPLIANT').default(false),
+};
+
+const checkInputSchema = {
+  path: z.string().describe('Path to the project directory'),
+  principle: z.string().describe('APP principle to check (e.g. APP_11)'),
+  strict: z.boolean().describe('Treat UNKNOWN as NON_COMPLIANT').default(false),
+};
+
+const complianceCheckInputSchema = {
+  path: z.string().describe('Path to the project directory to check'),
+  strict: z.boolean().describe('Treat unknown controls as failing').default(false),
+  reform: z.boolean().describe('Include Privacy Act 2026 reform impact warnings').default(false),
+};
+
+const reformInputSchema = {
+  path: z.string().describe('Path to the project directory to assess'),
+  strict: z.boolean().describe('Treat UNKNOWN controls as FAIL').default(false),
+};
+
+const findingCountOutputSchema = z.object({
+  critical: z.number().int().nonnegative(),
+  high: z.number().int().nonnegative(),
+  medium: z.number().int().nonnegative(),
+  low: z.number().int().nonnegative(),
+  info: z.number().int().nonnegative(),
+});
+
+const appMappingOutputSchema = z.object({
+  principle: APPPrincipleSchema,
+  obligation: z.string(),
+  status: ControlStatus,
+  confidence: z.number(),
+});
+
+const serializedFindingOutputSchema = z.object({
+  id: z.string(),
+  source: ScanSource,
+  sourceRule: z.string(),
+  severity: Severity,
+  title: z.string(),
+  description: z.string(),
+  file: z.string().optional(),
+  line: z.number().optional(),
+  url: z.string().optional(),
+  fix: z.string().optional(),
+  fixPrompt: z.string().optional(),
+  corroboratedBy: z.array(ScanSource).optional(),
+  appMappings: z.array(appMappingOutputSchema),
+});
+
+const scannerErrorOutputSchema = z.object({
+  source: z.string(),
+  message: z.string(),
+  code: z.string().optional(),
+  recoverable: z.boolean().optional(),
+}).passthrough();
+
+const scanSummaryOutputSchema = {
+  findings: z.array(serializedFindingOutputSchema),
+  controls: z.array(z.object({
+    principle: APPPrincipleSchema,
+    shortName: z.string(),
+    status: ControlStatus,
+    score: z.number(),
+  })),
+  summary: z.object({
+    total: z.number().int().nonnegative(),
+    critical: z.number().int().nonnegative(),
+    high: z.number().int().nonnegative(),
+    medium: z.number().int().nonnegative(),
+    low: z.number().int().nonnegative(),
+    info: z.number().int().nonnegative(),
+    affectedPrinciples: z.array(APPPrincipleSchema),
+    unmappedCount: z.number().int().nonnegative(),
+  }),
+  errors: z.array(scannerErrorOutputSchema),
+  durationMs: z.number(),
+  ruleFreshness: RuleFreshnessSchema,
+};
+
+const scanOutputSchema = {
+  targetType: z.literal('path'),
+  targetPath: z.string(),
+  ...scanSummaryOutputSchema,
+};
+
+const scanUrlOutputSchema = {
+  targetType: z.literal('url'),
+  targetUrl: z.string(),
+  ...scanSummaryOutputSchema,
+};
+
+const auditOutputSchema = {
+  format: z.enum(['json', 'html', 'markdown', 'pdf', 'agent']),
+  content: z.string().describe('The rendered report content'),
+  metadata: z.object({
+    targetName: z.string(),
+    targetPath: z.string(),
+    scanDurationMs: z.number(),
+    scannerVersions: z.record(z.string()),
+    ruleFreshness: z.object({
+      version: z.string(),
+      stale: z.boolean(),
+    }).optional(),
+  }).optional(),
+};
+
+const mapOutputSchema = {
+  appMappings: z.record(z.object({
+    status: ControlStatus,
+    score: z.number(),
+    findingCount: findingCountOutputSchema,
+  })),
+};
+
+const opinionOutputSchema = ComplianceOpinionSchema.shape;
+
+const checkOutputSchema = {
+  principle: APPPrincipleSchema,
+  verdict: z.enum(['COMPLIANT', 'PARTIALLY_COMPLIANT', 'NON_COMPLIANT']),
+  score: z.number(),
+  confidence: z.enum(['HIGH', 'MODERATE', 'LOW']),
+  findings: z.array(z.object({
+    id: z.string(),
+    severity: Severity,
+    title: z.string(),
+    fix: z.string().optional(),
+  })),
+  remediations: z.array(z.string()),
+};
+
+const complianceCheckOutputSchema = {
+  readinessScore: z.number(),
+  readinessLabel: z.enum(['Ready', 'Nearly Ready', 'Needs Work', 'Not Ready', 'Unknown']),
+  verdict: z.enum(['compliant', 'partially_compliant', 'non_compliant', 'unknown']),
+  summary: z.string(),
+  actions: z.array(z.object({
+    priority: z.enum(['urgent', 'high', 'medium', 'low']),
+    title: z.string(),
+    description: z.string(),
+    principle: APPPrincipleSchema,
+  })),
+  gaps: z.array(z.object({
+    principle: APPPrincipleSchema.optional(),
+    shortName: z.string(),
+    description: z.string(),
+    status: z.enum(['missing', 'partial', 'unknown']),
+  })),
+  reformWarnings: z.array(z.object({
+    provision: z.string(),
+    shortName: z.string(),
+    impact: z.enum(['critical', 'high', 'medium']),
+    deadline: z.string(),
+    actionNeeded: z.string(),
+  })).optional(),
+  metadata: z.object({
+    target: z.object({
+      name: z.string(),
+      path: z.string().optional(),
+      url: z.string().optional(),
+      version: z.string().optional(),
+    }),
+    scanDurationMs: z.number(),
+    scannerVersions: z.record(z.string()),
+  }),
+};
+
+const reformOutputSchema = reformImpactAssessmentSchema.shape;
+
+function makeToolError(message: string): ToolErrorResponse {
+  return {
+    content: [{ type: 'text', text: message }],
+    isError: true,
+  };
 }
 
-export async function validatePath(targetPath: string): Promise<string> {
+function isToolError(value: unknown): value is ToolErrorResponse {
+  return typeof value === 'object' && value !== null && (value as ToolResponse).isError === true;
+}
+
+function makeJsonToolResponse(payload: Record<string, unknown>): ToolResponse {
+  const text = JSON.stringify(payload, null, 2);
+  return {
+    content: [{ type: 'text', text }],
+    structuredContent: normalizeStructuredContent(payload),
+  };
+}
+
+function normalizeStructuredContent(payload: Record<string, unknown>): Record<string, unknown> {
+  return JSON.parse(JSON.stringify(payload)) as Record<string, unknown>;
+}
+
+function getAllowedRoots(): string[] {
+  if (!process.env.ATTESTLENS_ALLOWED_ROOTS) {
+    return [process.cwd()];
+  }
+  return process.env.ATTESTLENS_ALLOWED_ROOTS
+    .split(path.delimiter)
+    .map((root) => root.trim())
+    .filter(Boolean);
+}
+
+async function getAllowedRootResources(): Promise<AllowedRootResource[]> {
+  const resources: AllowedRootResource[] = [];
+  const seen = new Set<string>();
+
+  for (const root of getAllowedRoots()) {
+    try {
+      const realRoot = await fs.realpath(path.resolve(root));
+      const stat = await fs.stat(realRoot);
+      if (!stat.isDirectory() || seen.has(realRoot)) {
+        continue;
+      }
+
+      seen.add(realRoot);
+      resources.push({
+        uri: pathToFileURL(realRoot).href,
+        name: path.basename(realRoot) || realRoot,
+        description: 'Allowed scan root directory',
+        path: realRoot,
+      });
+    } catch {
+      // Missing or unreadable roots are inactive.
+    }
+  }
+
+  return resources;
+}
+
+function isPathWithinRoot(target: string, root: string): boolean {
+  if (target === root) {
+    return true;
+  }
+  const relative = path.relative(root, target);
+  return relative !== '' && !relative.startsWith('..') && !path.isAbsolute(relative);
+}
+
+export async function validatePath(targetPath: unknown): Promise<string | ToolErrorResponse> {
   if (!targetPath || typeof targetPath !== 'string') {
-    throw new McpError(ErrorCode.InvalidParams, 'path is required');
+    return makeToolError('path is required');
   }
   if (/[;|`$\\]/.test(targetPath)) {
-    throw new McpError(ErrorCode.InvalidParams, 'path contains invalid characters');
+    return makeToolError('path contains invalid characters');
   }
 
   const resolved = path.resolve(targetPath);
-  const allowedRoots = getAllowedRoots();
-  if (allowedRoots) {
-    const isAllowed = allowedRoots.some((root) => {
-      const normalizedRoot = path.resolve(root);
-      return resolved === normalizedRoot || resolved.startsWith(normalizedRoot + path.sep);
-    });
-    if (!isAllowed) {
-      throw new McpError(
-        ErrorCode.InvalidParams,
-        `path is outside allowed roots: ${resolved}. Allowed roots: ${allowedRoots.join(', ')}`,
-      );
+  const resolvedRoots: string[] = [];
+  const canonicalRoots: string[] = [];
+  for (const root of getAllowedRoots()) {
+    const resolvedRoot = path.resolve(root);
+    try {
+      canonicalRoots.push(await fs.realpath(resolvedRoot));
+      resolvedRoots.push(resolvedRoot);
+    } catch {
+      // Missing or unreadable roots are inactive.
     }
+  }
+
+  if (canonicalRoots.length === 0) {
+    return makeToolError('no valid allowed roots configured');
+  }
+
+  const isCandidate = resolvedRoots.some((root) => isPathWithinRoot(resolved, root));
+  if (!isCandidate) {
+    return makeToolError('path is outside allowed workspace roots');
+  }
+
+  let realTarget: string;
+  try {
+    realTarget = await fs.realpath(resolved);
+  } catch {
+    return makeToolError('path is outside allowed workspace roots');
   }
 
   let stat;
   try {
-    stat = await fs.stat(resolved);
+    stat = await fs.stat(realTarget);
   } catch {
-    throw new McpError(ErrorCode.InvalidParams, `path does not exist: ${resolved}`);
+    return makeToolError('path is outside allowed workspace roots');
   }
 
   if (!stat.isDirectory()) {
-    throw new McpError(ErrorCode.InvalidParams, `path is not a directory: ${resolved}`);
+    return makeToolError('path is not a directory');
   }
 
-  return resolved;
+  const isAllowed = canonicalRoots.some((root) => isPathWithinRoot(realTarget, root));
+  if (!isAllowed) {
+    return makeToolError('path is outside allowed workspace roots');
+  }
+
+  return realTarget;
 }
 
-export function validateUrl(targetUrl: string): string {
+export function validateUrl(targetUrl: unknown): string | ToolErrorResponse {
   if (!targetUrl || typeof targetUrl !== 'string') {
-    throw new McpError(ErrorCode.InvalidParams, 'url is required');
+    return makeToolError('url is required');
   }
 
   let parsed: URL;
   try {
     parsed = new URL(targetUrl);
   } catch {
-    throw new McpError(ErrorCode.InvalidParams, `invalid URL: ${targetUrl}`);
+    return makeToolError(`invalid URL: ${sanitizeTargetUrlForOutput(targetUrl)}`);
   }
 
   if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
-    throw new McpError(ErrorCode.InvalidParams, `unsupported URL protocol: ${parsed.protocol}`);
+    return makeToolError(`unsupported URL protocol: ${parsed.protocol}`);
   }
 
   return parsed.toString();
@@ -356,22 +525,27 @@ function createOrchestrator(
   return orchestrator;
 }
 
-function parseScannerTimeoutMs(value: unknown): number | undefined {
+function runScan(
+  orchestrator: ScannerOrchestrator,
+  target: string,
+  signal?: AbortSignal,
+): ReturnType<ScannerOrchestrator['scan']> {
+  return orchestrator.scan(target, undefined, { signal });
+}
+
+function parseScannerTimeoutMs(value: unknown): number | undefined | ToolErrorResponse {
   if (value === undefined || value === null) {
     return undefined;
   }
   if (typeof value !== 'number' || !Number.isInteger(value) || value <= 0) {
-    throw new McpError(ErrorCode.InvalidParams, 'scannerTimeoutMs must be a positive integer number of milliseconds');
+    return makeToolError('scannerTimeoutMs must be a positive integer number of milliseconds');
   }
   return value;
 }
 
-function validatePrinciple(value: unknown): APPPrinciple {
+function validatePrinciple(value: unknown): APPPrinciple | ToolErrorResponse {
   if (typeof value !== 'string' || !Object.prototype.hasOwnProperty.call(APPInfo, value)) {
-    throw new McpError(
-      ErrorCode.InvalidParams,
-      `invalid APP principle: ${String(value)}. Valid principles: ${Object.keys(APPInfo).join(', ')}`,
-    );
+    return makeToolError(`invalid APP principle: ${String(value)}. Valid principles: ${Object.keys(APPInfo).join(', ')}`);
   }
   return value as APPPrinciple;
 }
@@ -410,7 +584,7 @@ function collectUrlScanErrors(
 
 function getUrlScanFailureError(
   result: Awaited<ReturnType<ScannerOrchestrator['scan']>>,
-): McpError | null {
+): ToolErrorResponse | null {
   const urlResult = result.results.find((scannerResult) => scannerResult.source === 'url-scan');
   const urlErrors = collectUrlScanErrors(result, urlResult);
 
@@ -419,7 +593,7 @@ function getUrlScanFailureError(
   }
 
   if (!urlResult) {
-    return new McpError(ErrorCode.InternalError, 'URL scan failed before any findings could be collected.');
+    return makeToolError('URL scan failed before any findings could be collected.');
   }
 
   const fatalError = urlErrors.find((error) => !error.recoverable);
@@ -434,14 +608,14 @@ function getUrlScanFailureError(
   return null;
 }
 
-function formatUrlScanFailure(error: ScannerError): McpError {
+function formatUrlScanFailure(error: ScannerError): ToolErrorResponse {
   switch (error.code) {
     case 'INVALID_URL':
-      return new McpError(ErrorCode.InvalidParams, 'URL target is not allowed for scanning.');
+      return makeToolError('URL target is not allowed for scanning.');
     case 'FETCH_FAILED':
-      return new McpError(ErrorCode.InternalError, 'URL scan failed before any findings could be collected.');
+      return makeToolError('URL scan failed before any findings could be collected.');
     default:
-      return new McpError(ErrorCode.InternalError, 'URL scan failed before any findings could be collected.');
+      return makeToolError('URL scan failed before any findings could be collected.');
   }
 }
 
@@ -471,12 +645,12 @@ function buildScanSummary(result: Awaited<ReturnType<ScannerOrchestrator['scan']
   };
 }
 
-function parseReportFormat(rawFormat: unknown): ReportFormat {
+function parseReportFormat(rawFormat: unknown): ReportFormat | ToolErrorResponse {
   const format = typeof rawFormat === 'string' ? rawFormat : 'json';
   if (format === 'json' || format === 'html' || format === 'markdown' || format === 'pdf' || format === 'agent') {
     return format;
   }
-  throw new McpError(ErrorCode.InvalidParams, `unsupported report format: ${format}`);
+  return makeToolError(`unsupported report format: ${format}`);
 }
 
 async function renderAuditContent(
@@ -511,10 +685,13 @@ async function renderAuditContent(
   }
 }
 
-export async function handleToolCall(name: string, args: Record<string, unknown> | undefined): Promise<ToolResponse> {
+export async function handleToolCall(name: string, args: Record<string, unknown> | undefined, extra: ToolCallExtra = {}): Promise<ToolResponse> {
   switch (name) {
     case 'attestlens_scan': {
-      const targetPath = await validatePath(args?.path as string);
+      const targetPath = await validatePath(args?.path);
+      if (isToolError(targetPath)) {
+        return targetPath;
+      }
       const strict = args?.strict === true;
       const externalEnrichment = args?.externalEnrichment === true;
       const includeTyposquat = args?.includeTyposquat === true;
@@ -523,50 +700,55 @@ export async function handleToolCall(name: string, args: Record<string, unknown>
       const includeGitleaks = args?.includeGitleaks === true;
       const gitleaksPath = typeof args?.gitleaksPath === 'string' ? args.gitleaksPath : undefined;
       const scannerTimeoutMs = parseScannerTimeoutMs(args?.scannerTimeoutMs);
+      if (isToolError(scannerTimeoutMs)) {
+        return scannerTimeoutMs;
+      }
 
       const orchestrator = createOrchestrator('path', { externalEnrichment, includeTyposquat, behavioral, iac, includeGitleaks, gitleaksPath, scannerTimeoutMs });
-      const result = await orchestrator.scan(targetPath);
+      const result = await runScan(orchestrator, targetPath, extra.signal);
 
-      return {
-        content: [{
-          type: 'text',
-          text: JSON.stringify({
-            targetType: 'path',
-            targetPath: sanitizeTargetPathForOutput(targetPath),
-            ...buildScanSummary(result, strict),
-          }, null, 2),
-        }],
-      };
+      return makeJsonToolResponse({
+        targetType: 'path',
+        targetPath: sanitizeTargetPathForOutput(targetPath),
+        ...buildScanSummary(result, strict),
+      });
     }
 
     case 'attestlens_scan_url': {
-      const targetUrl = validateUrl(args?.url as string);
+      const targetUrl = validateUrl(args?.url);
+      if (isToolError(targetUrl)) {
+        return targetUrl;
+      }
       const strict = args?.strict === true;
       const scannerTimeoutMs = parseScannerTimeoutMs(args?.scannerTimeoutMs);
-
-      const orchestrator = createOrchestrator('url', { scannerTimeoutMs });
-      const result = await orchestrator.scan(targetUrl);
-      const urlScanFailure = getUrlScanFailureError(result);
-      if (urlScanFailure) {
-        throw urlScanFailure;
+      if (isToolError(scannerTimeoutMs)) {
+        return scannerTimeoutMs;
       }
 
-      return {
-        content: [{
-          type: 'text',
-          text: JSON.stringify({
-            targetType: 'url',
-            targetUrl: sanitizeTargetUrlForOutput(targetUrl),
-            ...buildScanSummary(result, strict),
-          }, null, 2),
-        }],
-      };
+      const orchestrator = createOrchestrator('url', { scannerTimeoutMs });
+      const result = await runScan(orchestrator, targetUrl, extra.signal);
+      const urlScanFailure = getUrlScanFailureError(result);
+      if (urlScanFailure) {
+        return urlScanFailure;
+      }
+
+      return makeJsonToolResponse({
+        targetType: 'url',
+        targetUrl: sanitizeTargetUrlForOutput(targetUrl),
+        ...buildScanSummary(result, strict),
+      });
     }
 
     case 'attestlens_audit': {
-      const targetPath = await validatePath(args?.path as string);
+      const targetPath = await validatePath(args?.path);
+      if (isToolError(targetPath)) {
+        return targetPath;
+      }
       const projectName = (args?.name as string) || path.basename(targetPath) || 'project';
       const format = parseReportFormat(args?.format);
+      if (isToolError(format)) {
+        return format;
+      }
       const strict = args?.strict === true;
       const externalEnrichment = args?.externalEnrichment === true;
       const includeTyposquat = args?.includeTyposquat === true;
@@ -575,10 +757,13 @@ export async function handleToolCall(name: string, args: Record<string, unknown>
       const includeGitleaks = args?.includeGitleaks === true;
       const gitleaksPath = typeof args?.gitleaksPath === 'string' ? args.gitleaksPath : undefined;
       const scannerTimeoutMs = parseScannerTimeoutMs(args?.scannerTimeoutMs);
+      if (isToolError(scannerTimeoutMs)) {
+        return scannerTimeoutMs;
+      }
 
       const orchestrator = createOrchestrator('path', { externalEnrichment, includeTyposquat, behavioral, iac, includeGitleaks, gitleaksPath, scannerTimeoutMs });
       const startTime = Date.now();
-      const scanResult = await orchestrator.scan(targetPath);
+      const scanResult = await runScan(orchestrator, targetPath, extra.signal);
       const duration = Date.now() - startTime;
 
       const reportOptions: ReportOptions = {
@@ -595,18 +780,36 @@ export async function handleToolCall(name: string, args: Record<string, unknown>
         scanResult.results.map((scannerResult) => [scannerResult.source, scannerResult.version]),
       );
 
+      const renderedContent = await renderAuditContent(report, reportOptions, format);
+      const auditEnvelope = {
+        format,
+        content: renderedContent,
+        metadata: {
+          targetName: report.target.name,
+          targetPath: report.target.path ?? sanitizeTargetPathForOutput(targetPath),
+          scanDurationMs: report.metadata.scanDurationMs,
+          scannerVersions: report.metadata.scannerVersions,
+          ruleFreshness: report.metadata.ruleFreshness
+            ? {
+              version: report.metadata.ruleFreshness.version,
+              stale: report.metadata.ruleFreshness.stale,
+            }
+            : undefined,
+        },
+      };
       return {
         content: [{
           type: 'text',
-          text: await renderAuditContent(report, reportOptions, format),
+          text: renderedContent,
         }],
+        structuredContent: normalizeStructuredContent(auditEnvelope),
       };
     }
 
     case 'attestlens_map': {
       const rawFindings = args?.findings as Array<Record<string, unknown>> | undefined;
       if (!rawFindings || !Array.isArray(rawFindings)) {
-        throw new McpError(ErrorCode.InvalidParams, 'findings array is required');
+        return makeToolError('findings array is required');
       }
 
       const findings: AttestLensFinding[] = rawFindings.map((finding, index) => ({
@@ -629,32 +832,30 @@ export async function handleToolCall(name: string, args: Record<string, unknown>
 
       const { controls } = mapAllFindings(findings);
 
-      return {
-        content: [{
-          type: 'text',
-          text: JSON.stringify({
-            appMappings: Object.fromEntries(
-              controls.map((control) => [
-                control.principle,
-                {
-                  status: control.status,
-                  score: control.score,
-                  findingCount: control.findingCount,
-                },
-              ]),
-            ),
-          }, null, 2),
-        }],
-      };
+      return makeJsonToolResponse({
+        appMappings: Object.fromEntries(
+          controls.map((control) => [
+            control.principle,
+            {
+              status: control.status,
+              score: control.score,
+              findingCount: control.findingCount,
+            },
+          ]),
+        ),
+      });
     }
 
     case 'attestlens_opinion': {
-      const targetPath = await validatePath(args?.path as string);
+      const targetPath = await validatePath(args?.path);
+      if (isToolError(targetPath)) {
+        return targetPath;
+      }
       const strict = args?.strict === true;
 
       const orchestrator = createOrchestrator('path', {});
       const startTime = Date.now();
-      const scanResult = await orchestrator.scan(targetPath);
+      const scanResult = await runScan(orchestrator, targetPath, extra.signal);
       const duration = Date.now() - startTime;
 
       const reportOptions: ReportOptions = {
@@ -674,25 +875,26 @@ export async function handleToolCall(name: string, args: Record<string, unknown>
       // Return just the opinion, not the full report
       const opinion = report.complianceOpinion;
       if (!opinion) {
-        throw new McpError(ErrorCode.InternalError, 'Opinion generation failed');
+        return makeToolError('Opinion generation failed');
       }
 
-      return {
-        content: [{
-          type: 'text',
-          text: JSON.stringify(opinion, null, 2),
-        }],
-      };
+      return makeJsonToolResponse(opinion);
     }
 
     case 'attestlens_check': {
-      const targetPath = await validatePath(args?.path as string);
+      const targetPath = await validatePath(args?.path);
+      if (isToolError(targetPath)) {
+        return targetPath;
+      }
       const principle = validatePrinciple(args?.principle);
+      if (isToolError(principle)) {
+        return principle;
+      }
       const strict = args?.strict === true;
 
       const orchestrator = createOrchestrator('path', {});
       const startTime = Date.now();
-      const scanResult = await orchestrator.scan(targetPath);
+      const scanResult = await runScan(orchestrator, targetPath, extra.signal);
       const duration = Date.now() - startTime;
 
       const reportOptions: ReportOptions = {
@@ -711,14 +913,14 @@ export async function handleToolCall(name: string, args: Record<string, unknown>
 
       const control = report.appControls.find((appControl) => appControl.principle === principle);
       if (!control) {
-        throw new McpError(ErrorCode.InvalidParams, `APP principle not found in report: ${principle}`);
+        return makeToolError(`APP principle not found in report: ${principle}`);
       }
 
       const opinion = report.complianceOpinion?.principles.find((principleOpinion) => (
         principleOpinion.principle === principle
       ));
       if (!opinion) {
-        throw new McpError(ErrorCode.InternalError, `Opinion generation failed for ${principle}`);
+        return makeToolError(`Opinion generation failed for ${principle}`);
       }
 
       const findingIds = new Set(control.findings);
@@ -731,25 +933,23 @@ export async function handleToolCall(name: string, args: Record<string, unknown>
           fix: finding.fix,
         }));
 
-      return {
-        content: [{
-          type: 'text',
-          text: JSON.stringify({
-            principle,
-            verdict: opinion.verdict,
-            score: opinion.score,
-            confidence: opinion.confidence,
-            findings,
-            remediations: findings
-              .map((finding) => finding.fix)
-              .filter((fix): fix is string => typeof fix === 'string' && fix.length > 0),
-          }, null, 2),
-        }],
-      };
+      return makeJsonToolResponse({
+        principle,
+        verdict: opinion.verdict,
+        score: opinion.score,
+        confidence: opinion.confidence,
+        findings,
+        remediations: findings
+          .map((finding) => finding.fix)
+          .filter((fix): fix is string => typeof fix === 'string' && fix.length > 0),
+      });
     }
 
     case 'attestlens_compliance_check': {
-      const targetPath = await validatePath(args?.path as string);
+      const targetPath = await validatePath(args?.path);
+      if (isToolError(targetPath)) {
+        return targetPath;
+      }
       const strict = args?.strict === true;
       const reform = args?.reform === true;
 
@@ -761,7 +961,7 @@ export async function handleToolCall(name: string, args: Record<string, unknown>
         includeGitleaks: false,
         reform,
       });
-      const scanResult = await orchestrator.scan(targetPath);
+      const scanResult = await runScan(orchestrator, targetPath, extra.signal);
       const duration = scanResult.totalDurationMs;
 
       const reportOptions: ReportOptions = {
@@ -782,7 +982,7 @@ export async function handleToolCall(name: string, args: Record<string, unknown>
 
       const smbResult = report.smbCompliance ?? buildSMBComplianceResult(report);
       if (!smbResult) {
-        throw new McpError(ErrorCode.InternalError, 'Failed to generate SMB compliance result');
+        return makeToolError('Failed to generate SMB compliance result');
       }
 
       const gapControls = report.appControls.filter((control) => control.status === 'unknown');
@@ -790,56 +990,54 @@ export async function handleToolCall(name: string, args: Record<string, unknown>
         provision.findingCount > 0
       )) ?? [];
 
-      return {
-        content: [{
-          type: 'text',
-          text: JSON.stringify({
-            readinessScore: smbResult.readinessScore,
-            readinessLabel: smbResult.readinessLabel,
-            verdict: smbResult.verdict,
-            summary: smbResult.summary,
-            actions: smbResult.actions.map((action) => ({
-              priority: action.priority,
-              title: action.title,
-              description: action.description,
-              principle: action.principle,
-            })),
-            gaps: smbResult.gaps.map((gap, index) => {
-              const control = gapControls[index];
-              return {
-                principle: control?.principle,
-                shortName: control?.shortName ?? gap.area,
-                description: gap.description,
-                status: gap.status,
-              };
-            }),
-            reformWarnings: smbResult.reformWarnings?.map((warning, index) => {
-              const provision = reformProvisions[index];
-              return {
-                provision: warning.provision,
-                shortName: provision?.shortName ?? warning.provision,
-                impact: warning.impact,
-                deadline: warning.deadline,
-                actionNeeded: warning.description,
-              };
-            }),
-            metadata: {
-              target: report.target,
-              scanDurationMs: duration,
-              scannerVersions: report.metadata.scannerVersions,
-            },
-          }, null, 2),
-        }],
-      };
+      return makeJsonToolResponse({
+        readinessScore: smbResult.readinessScore,
+        readinessLabel: smbResult.readinessLabel,
+        verdict: smbResult.verdict,
+        summary: smbResult.summary,
+        actions: smbResult.actions.map((action) => ({
+          priority: action.priority,
+          title: action.title,
+          description: action.description,
+          principle: action.principle,
+        })),
+        gaps: smbResult.gaps.map((gap, index) => {
+          const control = gapControls[index];
+          return {
+            principle: control?.principle,
+            shortName: control?.shortName ?? gap.area,
+            description: gap.description,
+            status: gap.status,
+          };
+        }),
+        reformWarnings: smbResult.reformWarnings?.map((warning, index) => {
+          const provision = reformProvisions[index];
+          return {
+            provision: warning.provision,
+            shortName: provision?.shortName ?? warning.provision,
+            impact: warning.impact,
+            deadline: warning.deadline,
+            actionNeeded: warning.description,
+          };
+        }),
+        metadata: {
+          target: report.target,
+          scanDurationMs: duration,
+          scannerVersions: report.metadata.scannerVersions,
+        },
+      });
     }
 
     case 'attestlens_reform': {
-      const targetPath = await validatePath(args?.path as string);
+      const targetPath = await validatePath(args?.path);
+      if (isToolError(targetPath)) {
+        return targetPath;
+      }
       const strict = args?.strict === true;
 
       const orchestrator = createOrchestrator('path', { reform: true });
       const startTime = Date.now();
-      const scanResult = await orchestrator.scan(targetPath);
+      const scanResult = await runScan(orchestrator, targetPath, extra.signal);
       const duration = Date.now() - startTime;
 
       const reportOptions: ReportOptions = {
@@ -858,15 +1056,10 @@ export async function handleToolCall(name: string, args: Record<string, unknown>
 
       const assessment: ReformImpactAssessment | undefined = report.reformImpactAssessment;
       if (!assessment) {
-        throw new McpError(ErrorCode.InternalError, 'Reform impact assessment generation failed');
+        return makeToolError('Reform impact assessment generation failed');
       }
 
-      return {
-        content: [{
-          type: 'text',
-          text: JSON.stringify(assessment, null, 2),
-        }],
-      };
+      return makeJsonToolResponse(assessment);
     }
 
     default:
@@ -874,17 +1067,82 @@ export async function handleToolCall(name: string, args: Record<string, unknown>
   }
 }
 
-export function createServer(): Server {
-  const server = new Server(
+function getToolDefinition(name: (typeof TOOL_DEFINITIONS)[number]['name']) {
+  const definition = TOOL_DEFINITIONS.find((tool) => tool.name === name);
+  if (!definition) {
+    throw new Error(`Unknown tool definition: ${name}`);
+  }
+  return definition;
+}
+
+function registerStructuredTool(
+  server: McpServer,
+  name: (typeof TOOL_DEFINITIONS)[number]['name'],
+  inputSchema: Record<string, z.ZodTypeAny>,
+  outputSchema: Record<string, z.ZodTypeAny>,
+): void {
+  const definition = getToolDefinition(name);
+  server.registerTool(name, {
+    title: definition.title,
+    description: definition.description,
+    inputSchema,
+    outputSchema,
+    annotations: definition.annotations,
+  }, async (args, extra) => handleToolCall(name, args as Record<string, unknown>, { signal: extra.signal }));
+}
+
+function registerResourceHandlers(server: McpServer): void {
+  server.server.setRequestHandler(ResourcesListSchema, async () => {
+    const resources = await getAllowedRootResources();
+    return {
+      resources: resources.map(({ uri, name, description }) => ({
+        uri,
+        name,
+        description,
+      })),
+    };
+  });
+
+  server.server.setRequestHandler(ResourcesReadSchema, async (request) => {
+    const resources = await getAllowedRootResources();
+    const requestedUri = new URL(request.params.uri).href;
+    const resource = resources.find((candidate) => candidate.uri === requestedUri);
+    if (!resource) {
+      throw new McpError(ErrorCode.InvalidParams, `Resource ${requestedUri} not found`);
+    }
+
+    return {
+      contents: [
+        {
+          uri: resource.uri,
+          mimeType: 'text/plain',
+          text: [
+            resource.description,
+            `Name: ${resource.name}`,
+            'AttestLens can scan files under this root when a tool call targets it.',
+            'Directory contents are intentionally not exposed through MCP resources.',
+          ].join('\n'),
+        },
+      ],
+    };
+  });
+}
+
+export function createServer(): McpServer {
+  const server = new McpServer(
     { name: 'attestlens', version: ATTESTLENS_VERSION },
-    { capabilities: { tools: {} } },
+    { capabilities: { tools: {}, resources: {} } },
   );
 
-  server.setRequestHandler(ListToolsRequestSchema, async () => ({ tools: [...MCP_TOOLS] }));
-  server.setRequestHandler(CallToolRequestSchema, async (request) => {
-    const { name, arguments: args } = request.params;
-    return handleToolCall(name, args as Record<string, unknown> | undefined);
-  });
+  registerStructuredTool(server, 'attestlens_scan', scanInputSchema, scanOutputSchema);
+  registerStructuredTool(server, 'attestlens_scan_url', scanUrlInputSchema, scanUrlOutputSchema);
+  registerStructuredTool(server, 'attestlens_audit', auditInputSchema, auditOutputSchema);
+  registerStructuredTool(server, 'attestlens_map', mapInputSchema, mapOutputSchema);
+  registerStructuredTool(server, 'attestlens_opinion', opinionInputSchema, opinionOutputSchema);
+  registerStructuredTool(server, 'attestlens_check', checkInputSchema, checkOutputSchema);
+  registerStructuredTool(server, 'attestlens_compliance_check', complianceCheckInputSchema, complianceCheckOutputSchema);
+  registerStructuredTool(server, 'attestlens_reform', reformInputSchema, reformOutputSchema);
+  registerResourceHandlers(server);
 
   return server;
 }
