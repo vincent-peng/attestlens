@@ -6,6 +6,7 @@
  */
 
 import { z } from 'zod';
+import { reformImpactAssessmentSchema } from './reform.js';
 
 // ─── Enums ───────────────────────────────────────────────────────────────────
 
@@ -27,6 +28,7 @@ export const ScanSource = z.enum([
   'url-scan',
   'manual',
   'questionnaire',
+  'reform-2026',
 ]);
 export type ScanSource = z.infer<typeof ScanSource>;
 
@@ -426,6 +428,7 @@ export const ComplianceReport = z.object({
   breachReadiness: BreachReadiness.optional(),
   consultantNarrative: ConsultantNarrative.optional(),
   complianceOpinion: ComplianceOpinion.optional(),
+  reformImpactAssessment: reformImpactAssessmentSchema.optional(),
   remediation: z.array(RemediationItem),
   metadata: z.object({
     scannerVersions: z.record(z.string(), z.string()),
@@ -520,3 +523,6 @@ export function calculateRiskLevel(findings: AttestLensFinding[]): 'low' | 'medi
   if (highs >= 1) return 'medium';
   return 'low';
 }
+
+export { ReformProvision, ReformProvisionInfo, reformProvisionSchema, reformFindingSchema, reformImpactAssessmentSchema } from './reform.js';
+export type { ReformFinding, ReformImpactAssessment } from './reform.js';

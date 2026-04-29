@@ -16,6 +16,7 @@ describe('ScanSource', () => {
       'url-scan',
       'manual',
       'questionnaire',
+      'reform-2026',
     ]);
     expect(ScanSource.options).not.toContain('shannon');
   });

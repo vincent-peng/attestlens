@@ -284,6 +284,9 @@ describe('CLI external enrichment option', () => {
           enabled: false,
           path: 'gitleaks',
         },
+        reform: {
+          enabled: false,
+        },
       });
     }
   });
@@ -304,6 +307,9 @@ describe('CLI external enrichment option', () => {
       gitleaks: {
         enabled: false,
         path: 'gitleaks',
+      },
+      reform: {
+        enabled: false,
       },
     });
   });
@@ -329,6 +335,9 @@ describe('CLI external enrichment option', () => {
         enabled: false,
         path: 'gitleaks',
       },
+      reform: {
+        enabled: false,
+      },
     });
   });
 
@@ -351,6 +360,9 @@ describe('CLI external enrichment option', () => {
       gitleaks: {
         enabled: true,
         path: '/usr/local/bin/gitleaks',
+      },
+      reform: {
+        enabled: false,
       },
     });
   });
