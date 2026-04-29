@@ -8,7 +8,7 @@
 
 ## Current Focus
 
-**Building Layer 2: Compliance Service** — transforming scanner output into opinion-grade, OAIC-ready compliance assessments.
+**Building Layer 2: Compliance Service** — Phase 2 (agent-native) done, Phase 3 (reform module) next.
 
 See `docs/YC-RFS-EVOLUTION.md` for the full product thesis and `ATTESTLENS-EXECUTION-PLAN.md` (workspace root) for the phased build plan.
 
@@ -18,18 +18,17 @@ See `docs/YC-RFS-EVOLUTION.md` for the full product thesis and `ATTESTLENS-EXECU
 
 | Layer | Status | What |
 |-------|--------|------|
-| **1: Agent Infrastructure** | ✅ Shipped | MCP server (4 tools), CLI, structured JSON, fixPrompt, continuous monitoring |
-| **2: Compliance Service** | 🔨 Next | Opinion-grade assessments, agent-native enhancements, reform module, SMB tier |
+| **1: Agent Infrastructure** | ✅ Shipped | MCP server (6 tools), CLI, structured JSON, remediation, continuous monitoring |
+| **2: Compliance Service** | 🔨 Building | Opinion-grade assessments ✅, agent-native ✅, reform module next, SMB tier next |
 | **3: Compliance Brain** | 🔮 Defer | Emerges from monitoring data — don't build separately |
 
 ---
 
-## Baseline (main, commit 61c15bc)
+## Baseline (main, commit ab8f6f5)
 
-- 367 tests passing, `tsc --noEmit` clean
-- 25,272 lines of TS across 70 source files
-- CLI: scan, audit, report, attest, monitor
-- MCP server: attestlens_scan, attestlens_scan_url, attestlens_audit, attestlens_map, attestlens_opinion
+- 377 tests passing, `tsc --noEmit` clean
+- CLI: scan, audit, report, attest, monitor + agent format
+- MCP server: attestlens_scan, attestlens_scan_url, attestlens_audit, attestlens_map, attestlens_opinion, attestlens_check
 - Continuous monitoring: webhook receiver, baselines, regression detection, job queue, reporter
 - All M3 scanner enhancements shipped (OSV, provenance, confidence, timeouts, behavioral, gitleaks, SAST-lite, IaC, dedup, maturity)
 
