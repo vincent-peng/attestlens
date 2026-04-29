@@ -22,6 +22,28 @@ function makeRuleFreshness() {
   };
 }
 
+function makeFinding(overrides: Record<string, unknown> = {}) {
+  return {
+    id: 'FIND-APP11',
+    source: 'guardvibe' as const,
+    sourceRule: 'VS-HARDKEY',
+    severity: 'critical' as const,
+    category: 'Security',
+    title: 'Hardcoded key',
+    description: 'A hardcoded key is present in source code',
+    file: 'app.ts',
+    line: 12,
+    fix: 'Move the secret to a server-side environment variable.',
+    appMappings: [],
+    evidence: {
+      timestamp: new Date().toISOString(),
+      scannerVersion: '0.1.0',
+      rawOutput: {},
+    },
+    ...overrides,
+  };
+}
+
 describe('MCP Server', () => {
   let tempDir: string;
 
@@ -73,6 +95,7 @@ describe('MCP Server', () => {
       const scanTool = MCP_TOOLS.find((tool) => tool.name === 'attestlens_scan');
       const auditTool = MCP_TOOLS.find((tool) => tool.name === 'attestlens_audit');
       const urlTool = MCP_TOOLS.find((tool) => tool.name === 'attestlens_scan_url');
+      const checkTool = MCP_TOOLS.find((tool) => tool.name === 'attestlens_check');
 
       expect(scanTool?.inputSchema.properties).toHaveProperty('externalEnrichment');
       expect(auditTool?.inputSchema.properties).toHaveProperty('externalEnrichment');
@@ -95,6 +118,66 @@ describe('MCP Server', () => {
       expect(scanTool?.inputSchema.properties).toHaveProperty('gitleaksPath');
       expect(auditTool?.inputSchema.properties).toHaveProperty('gitleaksPath');
       expect(urlTool?.inputSchema.properties).not.toHaveProperty('gitleaksPath');
+      expect((auditTool?.inputSchema.properties as any).format.enum).toContain('agent');
+      expect(checkTool?.inputSchema.required).toEqual(['path', 'principle']);
+      expect(checkTool?.inputSchema.properties).toHaveProperty('principle');
+      expect(checkTool?.inputSchema.properties).toHaveProperty('strict');
+    });
+
+    it('returns structured single-principle output from attestlens_check', async () => {
+      vi.spyOn(ScannerOrchestrator.prototype, 'scan').mockResolvedValue({
+        findings: [
+          makeFinding(),
+        ],
+        results: [
+          {
+            source: 'guardvibe',
+            version: '1.0.0',
+            timestamp: new Date().toISOString(),
+            findings: [
+              makeFinding(),
+            ],
+            errors: [],
+            durationMs: 12,
+          },
+        ],
+        errors: [],
+        totalDurationMs: 12,
+        ruleFreshness: makeRuleFreshness(),
+      });
+
+      const response = await handleToolCall('attestlens_check', {
+        path: tempDir,
+        principle: 'APP_11',
+      });
+      const payload = JSON.parse(response.content[0].text);
+
+      expect(payload).toEqual(expect.objectContaining({
+        principle: 'APP_11',
+        verdict: 'NON_COMPLIANT',
+        score: expect.any(Number),
+        confidence: expect.any(String),
+        findings: [
+          {
+            id: 'FIND-APP11',
+            severity: 'critical',
+            title: 'Hardcoded key',
+            fix: 'Move the secret to a server-side environment variable.',
+          },
+        ],
+        remediations: ['Move the secret to a server-side environment variable.'],
+      }));
+    });
+
+    it('rejects invalid attestlens_check principles', async () => {
+      const scanSpy = vi.spyOn(ScannerOrchestrator.prototype, 'scan');
+
+      await expect(handleToolCall('attestlens_check', {
+        path: tempDir,
+        principle: 'APP_99',
+      })).rejects.toThrow('invalid APP principle');
+
+      expect(scanSpy).not.toHaveBeenCalled();
     });
 
     it('returns URL scan output keyed by targetUrl', async () => {
@@ -243,6 +326,31 @@ describe('MCP Server', () => {
 
       expect(payload.metadata.ruleFreshness.cachePath).toBeUndefined();
       expect(response.content[0].text).not.toContain('/Users/alice');
+    });
+
+    it('returns agent audits as machine-readable JSON', async () => {
+      vi.spyOn(ScannerOrchestrator.prototype, 'scan').mockResolvedValue({
+        findings: [],
+        results: [],
+        errors: [],
+        totalDurationMs: 10,
+        ruleFreshness: makeRuleFreshness(),
+      });
+
+      const response = await handleToolCall('attestlens_audit', {
+        path: tempDir,
+        format: 'agent',
+        opinion: true,
+      });
+      const payload = JSON.parse(response.content[0].text);
+
+      expect(payload.schema).toBe('attestlens-agent-v1');
+      expect(payload).toEqual(expect.objectContaining({
+        verdict: expect.any(String),
+        confidence: expect.any(String),
+        score: expect.any(Number),
+        actions: expect.any(Array),
+      }));
     });
 
     it('keeps MCP scan external enrichment disabled by default', async () => {

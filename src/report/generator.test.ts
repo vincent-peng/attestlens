@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { buildComplianceReport, generateHTMLReport, generateJSONReport, generateMarkdownReport, generatePDFReport } from './generator.js';
+import { buildComplianceReport, generateAgentReport, generateHTMLReport, generateJSONReport, generateMarkdownReport, generatePDFReport } from './generator.js';
 import type { AttestLensFinding, QuestionnaireSession } from '../schema/index.js';
 import type { ReportOptions } from './generator.js';
 import {
@@ -344,6 +344,85 @@ describe('generateJSONReport', () => {
       mode: 'artifact_only',
       incomplete: true,
     }));
+  });
+});
+
+describe('generateAgentReport', () => {
+  it('returns the agent schema version', () => {
+    const report = buildComplianceReport([], defaultOptions, 1000);
+    const parsed = JSON.parse(generateAgentReport(report));
+
+    expect(parsed.schema).toBe('attestlens-agent-v1');
+  });
+
+  it('includes actions only for non-compliant controls', () => {
+    const report = buildComplianceReport([
+      makeFinding({ id: 'F-APP11-001', severity: 'critical', sourceRule: 'VS-HARDKEY' }),
+    ], defaultOptions, 1000);
+    const parsed = JSON.parse(generateAgentReport(report));
+
+    expect(parsed.actions.length).toBeGreaterThan(0);
+    expect(parsed.actions.some((action: any) => (
+      action.verdict === 'NON_COMPLIANT' || action.verdict === 'UNKNOWN'
+    ))).toBe(true);
+    for (const action of parsed.actions) {
+      expect(action).toEqual(expect.objectContaining({
+        principle: expect.any(String),
+        verdict: expect.stringMatching(/^(NON_COMPLIANT|UNKNOWN)$/),
+        score: expect.any(Number),
+        action: expect.any(String),
+      }));
+      expect(action).toHaveProperty('remediation');
+      expect(action.remediation === null || typeof action.remediation === 'string').toBe(true);
+    }
+  });
+
+  it('includes remediation from the most severe linked finding fix', () => {
+    const report = buildComplianceReport([
+      makeFinding({
+        id: 'F-APP11-HIGH',
+        severity: 'high',
+        sourceRule: 'VS-HARDKEY',
+        fix: 'Rotate the exposed key.',
+      }),
+      makeFinding({
+        id: 'F-APP11-CRITICAL',
+        severity: 'critical',
+        sourceRule: 'VS-ENV',
+        fix: 'Move the credential into a managed secret store.',
+      }),
+    ], defaultOptions, 1000);
+    const parsed = JSON.parse(generateAgentReport(report));
+
+    expect(parsed.actions).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        remediation: 'Move the credential into a managed secret store.',
+      }),
+    ]));
+  });
+
+  it('includes opinion verdict, confidence, and summary when available', () => {
+    const report = buildComplianceReport([
+      makeFinding({ id: 'F-APP11-001', severity: 'critical', sourceRule: 'VS-HARDKEY' }),
+    ], {
+      ...defaultOptions,
+      includeOpinion: true,
+    }, 1000);
+    const parsed = JSON.parse(generateAgentReport(report));
+
+    expect(parsed.verdict).toBe('NON_COMPLIANT');
+    expect(parsed.confidence).toBe(report.complianceOpinion?.overallConfidence);
+    expect(parsed.summary).toContain('NON COMPLIANT');
+    expect(parsed.summary).toContain('principles non-compliant');
+  });
+
+  it('uses fallback values when no opinion is available', () => {
+    const report = buildComplianceReport([], defaultOptions, 1000);
+    const parsed = JSON.parse(generateAgentReport(report));
+
+    expect(parsed.verdict).toBe('UNKNOWN');
+    expect(parsed.confidence).toBe('LOW');
+    expect(parsed.summary).toBe('No opinion available');
   });
 });
 

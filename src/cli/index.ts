@@ -19,10 +19,12 @@ import { ScannerOrchestrator, type ScannerOrchestratorOptions } from '../scanner
 import { mapAllFindings } from '../mapping/engine.js';
 import {
   buildComplianceReport,
+  generateAgentReport,
   generateHTMLReport,
   generateJSONReport,
   generateMarkdownReport,
   generatePDFReport,
+  SUPPORTED_REPORT_FORMATS,
 } from '../report/generator.js';
 import { updateRuleCache } from '../scanner/rules/index.js';
 import {
@@ -66,7 +68,7 @@ program
   .description('Scan a project directory or URL for privacy compliance findings')
   .argument('<target>', 'Path to project directory or URL (https://...)')
   .option('-o, --output <dir>', 'Output directory', './attestlens-reports')
-  .option('-f, --format <formats>', 'Output formats (json,html,markdown,pdf)', 'json,html')
+  .option('-f, --format <formats>', 'Output formats (json,html,markdown,pdf,agent)', 'json,html')
   .option('--strict', 'Treat UNKNOWN controls as FAIL')
   .option('--no-guardvibe', 'Disable GuardVibe scanner')
   .option('--no-mcp-scan', 'Disable mcp-scan')
@@ -134,7 +136,7 @@ program
   .argument('<target>', 'Path to project directory or URL (https://...)')
   .option('-n, --name <name>', 'Project name', '')
   .option('-o, --output <dir>', 'Output directory', './attestlens-reports')
-  .option('-f, --format <formats>', 'Output formats (json,html,markdown,pdf)', 'html,json')
+  .option('-f, --format <formats>', 'Output formats (json,html,markdown,pdf,agent)', 'html,json')
   .option('--strict', 'Treat UNKNOWN controls as FAIL')
   .option('--no-guardvibe', 'Disable GuardVibe scanner')
   .option('--no-mcp-scan', 'Disable mcp-scan')
@@ -150,25 +152,29 @@ program
   .option('--opinion', 'Include compliance opinion in report')
 
   .action(async (targetInput: string, options: any) => {
-    console.log(chalk.bold.cyan('\n🔍 AttestLens — Privacy Act Compliance Audit\n'));
-
     try {
+      const reportFormats = parseReportFormats(options.format);
+      const agentOutput = isAgentReportFormat(reportFormats);
+      if (!agentOutput) {
+        console.log(chalk.bold.cyan('\n🔍 AttestLens — Privacy Act Compliance Audit\n'));
+      }
       const target = await resolveCliTarget(targetInput, options.name);
       const projectName = target.name;
-      await maybeAutoUpdateRules(options);
+      await maybeAutoUpdateRules(options, agentOutput);
       const orchestrator = createOrchestrator(target.kind, options);
-      const spinner = ora(`Running compliance scan for ${target.kind === 'url' ? 'URL' : 'project'}...`).start();
+      const spinner = agentOutput
+        ? undefined
+        : ora(`Running compliance scan for ${target.kind === 'url' ? 'URL' : 'project'}...`).start();
       const startTime = Date.now();
 
       const scanResult = await orchestrator.scan(target.value);
       const urlScanFailure = target.kind === 'url' ? getUrlScanFailureMessage(scanResult) : null;
       if (urlScanFailure) {
-        spinner.fail('Audit failed');
+        spinner?.fail('Audit failed');
         throw new Error(urlScanFailure);
       }
       const duration = Date.now() - startTime;
 
-      const reportFormats = parseReportFormats(options.format);
       const reportOptions: ReportOptions = {
         targetName: projectName,
         targetPath: target.kind === 'path' ? target.value : undefined,
@@ -185,7 +191,34 @@ program
         scanResult.results.map(r => [r.source, r.version])
       );
 
-      spinner.succeed(`Audit complete in ${(duration / 1000).toFixed(1)}s`);
+      if (agentOutput) {
+        console.log(generateAgentReport(report));
+        // Exit 1 for NON_COMPLIANT verdict or failing controls without opinion
+        const verdict = report.complianceOpinion?.overallVerdict;
+        if (verdict === 'NON_COMPLIANT') {
+          process.exit(1);
+        }
+        if (!verdict) {
+          // No opinion available — fail on any failing controls
+          const failCount = report.appControls.filter(c => c.status === 'fail').length;
+          if (failCount > 0) {
+            process.exit(1);
+          }
+          // In strict mode, UNKNOWN controls also fail
+          if (options.strict) {
+            const unknownCount = report.appControls.filter(c => c.status === 'unknown').length;
+            if (unknownCount > 0) {
+              process.exit(1);
+            }
+          }
+        }
+        if (verdict === 'PARTIALLY_COMPLIANT' && options.strict) {
+          process.exit(1);
+        }
+        return;
+      }
+
+      spinner?.succeed(`Audit complete in ${(duration / 1000).toFixed(1)}s`);
 
       // Display summary
       console.log('');
@@ -248,7 +281,7 @@ program
   .option('--resume <file>', 'Resume an existing attestation session JSON')
   .option('-n, --name <name>', 'Target name', '')
   .option('-o, --output <dir>', 'Output directory', './attestlens-reports')
-  .option('-f, --format <formats>', 'Output formats (json,html,markdown,pdf)', 'html,json,markdown,pdf')
+  .option('-f, --format <formats>', 'Output formats (json,html,markdown,pdf,agent)', 'html,json,markdown,pdf')
   .option('--assessment-mode <mode>', 'Frozen assessment basis (artifact_only, codebase_only, operator_attested)')
   .option('--strict', 'Treat unresolved controls as FAIL after questionnaire merge')
   .option('--no-guardvibe', 'Disable GuardVibe scanner')
@@ -304,6 +337,10 @@ program
       };
 
       const report = buildComplianceReport(scanData.findings || scanData, reportOptions, 0);
+      if (isAgentReportFormat(reportFormats)) {
+        console.log(generateAgentReport(report));
+        return;
+      }
       await writeReportFiles(report, reportOptions);
 
       console.log(chalk.green('✅ Report generated successfully.'));
@@ -385,14 +422,26 @@ async function resolveCliTarget(targetInput: string, explicitName?: string): Pro
   };
 }
 
-async function maybeAutoUpdateRules(options: any): Promise<void> {
+async function maybeAutoUpdateRules(options: any, quiet = false): Promise<void> {
   if (!options.autoUpdate) {
     return;
   }
 
   const source = process.env.ATTESTLENS_RULE_SOURCE;
   if (!source) {
-    console.log(chalk.gray('Rule auto-update skipped: ATTESTLENS_RULE_SOURCE is not set. Using cached or embedded rules.'));
+    if (!quiet) {
+      console.log(chalk.gray('Rule auto-update skipped: ATTESTLENS_RULE_SOURCE is not set. Using cached or embedded rules.'));
+    }
+    return;
+  }
+
+  if (quiet) {
+    try {
+      await updateRuleCache({ source });
+    } catch (error: any) {
+      // Machine-readable modes must keep stdout clean; write warning to stderr instead.
+      process.stderr.write(`Warning: Rule auto-update failed: ${error.message}. Continuing with cached or embedded rules.\n`);
+    }
     return;
   }
 
@@ -893,7 +942,7 @@ function formatUrlScanFailure(error: ScannerError): string {
 }
 
 function parseReportFormats(rawFormats: string): ReportFormat[] {
-  const supported = new Set<ReportFormat>(['json', 'html', 'markdown', 'pdf']);
+  const supported = new Set<ReportFormat>(SUPPORTED_REPORT_FORMATS);
   const formats = rawFormats
     .split(',')
     .map(value => value.trim().toLowerCase())
@@ -909,7 +958,15 @@ function parseReportFormats(rawFormats: string): ReportFormat[] {
     }
   }
 
+  if (formats.includes('agent') && formats.length > 1) {
+    throw new Error('The agent report format must be requested by itself');
+  }
+
   return formats as ReportFormat[];
+}
+
+function isAgentReportFormat(formats: ReportFormat[]): boolean {
+  return formats.length === 1 && formats[0] === 'agent';
 }
 
 function resolveReportTarget(
@@ -978,6 +1035,8 @@ async function writeReportFiles(
       case 'pdf':
         await fs.writeFile(filePath, await generatePDFReport(report, reportOptions, questionnaireSession));
         outputs.push({ label: 'PDF report', path: filePath });
+        break;
+      case 'agent':
         break;
     }
   }

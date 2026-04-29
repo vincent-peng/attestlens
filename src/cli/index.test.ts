@@ -198,6 +198,42 @@ describe('CLI URL handling', () => {
   });
 });
 
+describe('CLI agent report format', () => {
+  it('prints agent JSON to stdout and exits 1 for non-compliant opinions', async () => {
+    const projectDir = await fs.mkdtemp(path.join(os.tmpdir(), 'attestlens-cli-agent-'));
+
+    try {
+      await fs.writeFile(
+        path.join(projectDir, 'index.ts'),
+        'const secret_key = "abcdefghijklmnop";\n',
+      );
+
+      const result = await runCli([
+        'audit',
+        projectDir,
+        '-f',
+        'agent',
+        '--opinion',
+        '--no-mcp-scan',
+        '--no-supply-chain',
+        '--no-behavioral',
+        '--no-iac',
+      ]);
+      const payload = JSON.parse(result.stdout);
+
+      expect(result.code).toBe(1);
+      expect(payload.schema).toBe('attestlens-agent-v1');
+      expect(payload.verdict).toBe('NON_COMPLIANT');
+      expect(payload.actions.some((action: { principle: string }) => action.principle === 'APP_11')).toBe(true);
+      expect(result.stdout.trim()).toMatch(/^\{/);
+      expect(result.stdout).not.toContain('Privacy Act Compliance Audit');
+      expect(result.stdout).not.toContain('Report generated successfully');
+    } finally {
+      await fs.rm(projectDir, { recursive: true, force: true });
+    }
+  });
+});
+
 describe('CLI external enrichment option', () => {
   it('exposes explicit external enrichment on scan, audit, and attest flows', async () => {
     const scanHelp = await runCli(['scan', '--help']);

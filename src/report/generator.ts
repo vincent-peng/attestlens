@@ -29,7 +29,7 @@ import { sanitizeTargetPathForOutput, sanitizeTargetUrlForOutput } from '../util
 
 const ATTESTLENS_VERSION = '0.2.0';
 
-export const SUPPORTED_REPORT_FORMATS = ['json', 'html', 'markdown', 'pdf'] as const;
+export const SUPPORTED_REPORT_FORMATS = ['json', 'html', 'markdown', 'pdf', 'agent'] as const;
 export type ReportFormat = (typeof SUPPORTED_REPORT_FORMATS)[number];
 type BreachReadiness = NonNullable<ComplianceReport['breachReadiness']>;
 type BreachReadinessFactor = BreachReadiness['topFactors'][number];
@@ -1244,6 +1244,57 @@ function formatRuleFreshnessLine(ruleFreshness: RuleFreshness): string {
 
 export function generateJSONReport(report: ComplianceReport): string {
   return JSON.stringify(report, null, 2);
+}
+
+// ─── Agent Report Generator ───────────────────────────────────────────────────
+
+export function generateAgentReport(report: ComplianceReport): string {
+  const opinion = report.complianceOpinion;
+  const severityOrder: Severity[] = ['critical', 'high', 'medium', 'low', 'info'];
+  const actions: Array<{
+    principle: string;
+    verdict: string;
+    score: number;
+    action: string;
+    remediation: string | null;
+  }> = [];
+
+  for (const control of report.appControls) {
+    if (control.status === 'pass') {
+      continue;
+    }
+
+    const topFinding = control.findings
+      .map((id) => report.findings.find((finding) => finding.id === id))
+      .filter((finding): finding is AttestLensFinding => Boolean(finding))
+      .sort((left, right) => (
+        severityOrder.indexOf(left.severity) - severityOrder.indexOf(right.severity)
+      ))[0];
+
+    actions.push({
+      principle: control.principle,
+      verdict: control.status === 'fail' ? 'NON_COMPLIANT' : 'UNKNOWN',
+      score: control.score,
+      action: control.status === 'fail'
+        ? `Fix ${control.findings.length} finding(s) to achieve compliance`
+        : `Provide evidence for ${control.shortName}`,
+      remediation: topFinding?.fix ?? null,
+    });
+  }
+
+  const result = {
+    schema: 'attestlens-agent-v1',
+    verdict: opinion?.overallVerdict ?? 'UNKNOWN',
+    confidence: opinion?.overallConfidence ?? 'LOW',
+    score: report.overallScore,
+    riskLevel: report.riskLevel,
+    actions,
+    summary: opinion
+      ? `${opinion.overallVerdict.replace(/_/g, ' ')} - ${opinion.principles.filter((principle) => principle.verdict === 'NON_COMPLIANT').length} of ${opinion.principles.length} principles non-compliant`
+      : 'No opinion available',
+  };
+
+  return JSON.stringify(result, null, 2);
 }
 
 // ─── Markdown Report Generator ────────────────────────────────────────────────
