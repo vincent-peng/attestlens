@@ -14,6 +14,8 @@
 
 import crypto from 'node:crypto';
 import { lookup } from 'node:dns/promises';
+import http from 'node:http';
+import https from 'node:https';
 import { isIP } from 'node:net';
 import { URL } from 'node:url';
 import type { AttestLensFinding, ScanSource, Severity } from '../schema/index.js';
@@ -30,6 +32,12 @@ const MAX_HTML_SIZE = 5 * 1024 * 1024; // 5MB HTML limit
 const MAX_TOTAL_JS_SIZE = 10 * 1024 * 1024; // 10MB total JS limit
 const PROBE_DELAY_MS = 500; // 500ms between infrastructure probes
 const MAX_REDIRECTS = 5;
+const DNS_PIN_ENV = 'ATTESTLENS_URL_SCAN_DNS_PIN';
+
+interface ResolvedAddress {
+  address: string;
+  family: number;
+}
 
 interface GuardedFetchResult {
   status: number;
@@ -592,28 +600,22 @@ This addresses APP 11.1 (Security).`,
     let method = options.method ?? 'GET';
 
     for (let redirectCount = 0; redirectCount <= MAX_REDIRECTS; redirectCount++) {
-      try {
-        await this.assertPublicScanTarget(currentUrl);
-      } catch (err) {
-        if (err instanceof BlockedUrlError && options.blockBehavior === 'throw') {
-          throw err;
-        }
-        return null;
-      }
-
       let response: Response;
       const controller = new AbortController();
       const timeout = setTimeout(() => controller.abort(), options.timeoutMs);
       const abort = () => controller.abort();
       options.signal?.addEventListener('abort', abort, { once: true });
       try {
-        response = await fetch(currentUrl.href, {
+        const resolvedAddresses = await this.resolvePublicScanTarget(currentUrl);
+        response = await this.fetchResolved(currentUrl, resolvedAddresses, {
           method,
           headers,
           signal: controller.signal,
-          redirect: 'manual',
         });
-      } catch {
+      } catch (err) {
+        if (err instanceof BlockedUrlError && options.blockBehavior === 'throw') {
+          throw err;
+        }
         return null;
       } finally {
         clearTimeout(timeout);
@@ -709,6 +711,10 @@ This addresses APP 11.1 (Security).`,
   }
 
   private async assertPublicScanTarget(url: URL): Promise<void> {
+    await this.resolvePublicScanTarget(url);
+  }
+
+  private async resolvePublicScanTarget(url: URL): Promise<ResolvedAddress[]> {
     if (!['http:', 'https:'].includes(url.protocol)) {
       throw new BlockedUrlError(url.href, `Unsupported protocol: ${url.protocol}`);
     }
@@ -732,10 +738,13 @@ This addresses APP 11.1 (Security).`,
           `Target resolves to a private/internal IP: ${hostname}. SSRF protection.`,
         );
       }
-      return;
+      return [{ address: hostname, family: isIP(hostname) }];
     }
 
     const addresses = await this.lookupHostname(hostname);
+    // Known limitation when ATTESTLENS_URL_SCAN_DNS_PIN is false: this DNS
+    // validation can pass, then the default fetch path can resolve the hostname
+    // again. A rebinding host could swap to a private IP between those steps.
     for (const entry of addresses) {
       if (!this.isPublicIpAddress(entry.address)) {
         throw new BlockedUrlError(
@@ -744,6 +753,101 @@ This addresses APP 11.1 (Security).`,
         );
       }
     }
+    if (addresses.length === 0) {
+      throw new BlockedUrlError(url.href, `Target did not resolve: ${hostname}. SSRF protection.`);
+    }
+    return addresses;
+  }
+
+  private async fetchResolved(
+    url: URL,
+    resolvedAddresses: ResolvedAddress[],
+    options: { method: string; headers: Headers; signal: AbortSignal },
+  ): Promise<Response> {
+    if (!this.isDnsPinningEnabled()) {
+      return fetch(url.href, {
+        method: options.method,
+        headers: options.headers,
+        signal: options.signal,
+        redirect: 'manual',
+      });
+    }
+
+    const [pinnedAddress] = resolvedAddresses;
+    if (!pinnedAddress) {
+      throw new BlockedUrlError(url.href, 'Target did not resolve. SSRF protection.');
+    }
+    return this.fetchWithPinnedDns(url, pinnedAddress, options);
+  }
+
+  private isDnsPinningEnabled(): boolean {
+    const value = process.env[DNS_PIN_ENV]?.trim().toLowerCase();
+    return value === '1' || value === 'true' || value === 'yes' || value === 'on';
+  }
+
+  private async fetchWithPinnedDns(
+    url: URL,
+    pinnedAddress: ResolvedAddress,
+    options: { method: string; headers: Headers; signal: AbortSignal },
+  ): Promise<Response> {
+    return new Promise<Response>((resolve, reject) => {
+      const client = url.protocol === 'https:' ? https : http;
+      const requestHeaders = Object.fromEntries(options.headers.entries());
+      const request = client.request({
+        protocol: url.protocol,
+        hostname: url.hostname,
+        port: url.port || undefined,
+        path: `${url.pathname}${url.search}`,
+        method: options.method,
+        headers: requestHeaders,
+        lookup: (_hostname, _lookupOptions, callback) => {
+          callback(null, pinnedAddress.address, pinnedAddress.family);
+        },
+      }, (incoming) => {
+        const chunks: Buffer[] = [];
+        incoming.on('data', (chunk: Buffer | string) => {
+          chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+        });
+        incoming.on('end', () => {
+          cleanup();
+          const responseHeaders = new Headers();
+          for (const [name, value] of Object.entries(incoming.headers)) {
+            if (Array.isArray(value)) {
+              for (const item of value) {
+                responseHeaders.append(name, item);
+              }
+            } else if (value !== undefined) {
+              responseHeaders.set(name, String(value));
+            }
+          }
+          resolve(new Response(Buffer.concat(chunks), {
+            status: incoming.statusCode ?? 599,
+            statusText: incoming.statusMessage,
+            headers: responseHeaders,
+          }));
+        });
+      });
+
+      const cleanup = () => {
+        options.signal.removeEventListener('abort', abort);
+        request.removeListener('error', onError);
+      };
+      const onError = (error: Error) => {
+        cleanup();
+        reject(error);
+      };
+      const abort = () => {
+        request.destroy(new Error('Request aborted'));
+      };
+
+      request.on('error', onError);
+      if (options.signal.aborted) {
+        abort();
+        return;
+      }
+      options.signal.addEventListener('abort', abort, { once: true });
+      request.end();
+    });
   }
 
   private async lookupHostname(hostname: string): Promise<Array<{ address: string; family: number }>> {
