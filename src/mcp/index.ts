@@ -284,6 +284,14 @@ function getAllowedRoots(): string[] {
     .filter(Boolean);
 }
 
+function isPathWithinRoot(target: string, root: string): boolean {
+  if (target === root) {
+    return true;
+  }
+  const relative = path.relative(root, target);
+  return relative !== '' && !relative.startsWith('..') && !path.isAbsolute(relative);
+}
+
 export async function validatePath(targetPath: unknown): Promise<string | ToolErrorResponse> {
   if (!targetPath || typeof targetPath !== 'string') {
     return makeToolError('path is required');
@@ -293,34 +301,46 @@ export async function validatePath(targetPath: unknown): Promise<string | ToolEr
   }
 
   const resolved = path.resolve(targetPath);
+  const resolvedRoots: string[] = [];
+  const canonicalRoots: string[] = [];
+  for (const root of getAllowedRoots()) {
+    const resolvedRoot = path.resolve(root);
+    try {
+      canonicalRoots.push(await fs.realpath(resolvedRoot));
+      resolvedRoots.push(resolvedRoot);
+    } catch {
+      // Missing or unreadable roots are inactive.
+    }
+  }
+
+  if (canonicalRoots.length === 0) {
+    return makeToolError('no valid allowed roots configured');
+  }
+
+  const isCandidate = resolvedRoots.some((root) => isPathWithinRoot(resolved, root));
+  if (!isCandidate) {
+    return makeToolError('path is outside allowed workspace roots');
+  }
+
   let realTarget: string;
   try {
     realTarget = await fs.realpath(resolved);
   } catch {
-    return makeToolError(`path does not exist: ${sanitizeTargetPathForOutput(resolved)}`);
+    return makeToolError('path is outside allowed workspace roots');
   }
 
   let stat;
   try {
     stat = await fs.stat(realTarget);
   } catch {
-    return makeToolError(`path does not exist: ${sanitizeTargetPathForOutput(resolved)}`);
+    return makeToolError('path is outside allowed workspace roots');
   }
 
   if (!stat.isDirectory()) {
-    return makeToolError(`path is not a directory: ${sanitizeTargetPathForOutput(resolved)}`);
+    return makeToolError('path is not a directory');
   }
 
-  const realRoots = await Promise.all(getAllowedRoots().map(async (root) => {
-    const resolvedRoot = path.resolve(root);
-    try {
-      return await fs.realpath(resolvedRoot);
-    } catch {
-      return resolvedRoot;
-    }
-  }));
-
-  const isAllowed = realRoots.some((root) => realTarget === root || realTarget.startsWith(root + path.sep));
+  const isAllowed = canonicalRoots.some((root) => isPathWithinRoot(realTarget, root));
   if (!isAllowed) {
     return makeToolError('path is outside allowed workspace roots');
   }

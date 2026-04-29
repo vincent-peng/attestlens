@@ -6,6 +6,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { McpError } from '@modelcontextprotocol/sdk/types.js';
 
+import { GuardVibeAdapter } from '../scanner/guardvibe.js';
+import { McpScanAdapter } from '../scanner/mcp-scan.js';
 import { ScannerOrchestrator } from '../scanner/orchestrator.js';
 import { MCP_TOOLS, handleToolCall, validatePath, validateUrl } from './index.js';
 
@@ -87,6 +89,15 @@ describe('MCP Server', () => {
       });
     });
 
+    it('returns error when no valid allowed roots are configured', async () => {
+      process.env.ATTESTLENS_ALLOWED_ROOTS = '/nonexistent/path/that/does/not/exist';
+
+      await expect(validatePath('/anything')).resolves.toEqual({
+        content: [{ type: 'text', text: 'no valid allowed roots configured' }],
+        isError: true,
+      });
+    });
+
     it('rejects shell metacharacters', async () => {
       await expect(validatePath(`${tempDir};rm -rf /`)).resolves.toEqual({
         content: [{ type: 'text', text: 'path contains invalid characters' }],
@@ -144,6 +155,15 @@ describe('MCP Server', () => {
   describe('handleToolCall', () => {
     beforeEach(() => {
       process.env.ATTESTLENS_ALLOWED_ROOTS = tempDir;
+      vi.spyOn(McpScanAdapter.prototype, 'isAvailable').mockResolvedValue(false);
+      vi.spyOn(GuardVibeAdapter.prototype, 'scan').mockResolvedValue({
+        source: 'guardvibe',
+        version: 'test',
+        timestamp: new Date().toISOString(),
+        findings: [],
+        errors: [],
+        durationMs: 0,
+      });
     });
 
     it('exposes explicit enrichment, typosquat, behavioral, iac, gitleaks, and timeout options on MCP scan tools', () => {
@@ -198,17 +218,16 @@ describe('MCP Server', () => {
       await expect(handleToolCall('attestlens_unknown', {})).rejects.toThrow(McpError);
     });
 
-    it('returns sanitized isError responses for path validation failures', async () => {
+    it('returns generic error for paths outside allowed roots (no oracle leak)', async () => {
       const missingPath = path.join(tempDir, 'missing-project');
       const scanSpy = vi.spyOn(ScannerOrchestrator.prototype, 'scan');
 
       const response = await handleToolCall('attestlens_scan', { path: missingPath });
 
       expect(response).toEqual({
-        content: [{ type: 'text', text: 'path does not exist: missing-project' }],
+        content: [{ type: 'text', text: 'path is outside allowed workspace roots' }],
         isError: true,
       });
-      expect(response.content[0].text).not.toContain(tempDir);
       expect(scanSpy).not.toHaveBeenCalled();
     });
 
