@@ -1,3 +1,4 @@
+import { symlinkSync } from 'node:fs';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -9,7 +10,7 @@ import { McpError } from '@modelcontextprotocol/sdk/types.js';
 import { GuardVibeAdapter } from '../scanner/guardvibe.js';
 import { McpScanAdapter } from '../scanner/mcp-scan.js';
 import { ScannerOrchestrator } from '../scanner/orchestrator.js';
-import { TOOL_DEFINITIONS, handleToolCall, validatePath, validateUrl } from './index.js';
+import { TOOL_DEFINITIONS, handleToolCall, validatePath, validateUrl } from '../mcp/index.js';
 
 function makeRuleFreshness() {
   return {
@@ -43,6 +44,25 @@ function makeFinding(overrides: Record<string, unknown> = {}) {
       rawOutput: {},
     },
     ...overrides,
+  };
+}
+
+function makeSuccessfulScanResult(source: 'guardvibe' | 'url-scan' = 'guardvibe') {
+  return {
+    findings: [],
+    results: [
+      {
+        source,
+        version: 'test',
+        timestamp: new Date().toISOString(),
+        findings: [],
+        errors: [],
+        durationMs: 0,
+      },
+    ],
+    errors: [],
+    totalDurationMs: 0,
+    ruleFreshness: makeRuleFreshness(),
   };
 }
 
@@ -757,6 +777,181 @@ describe('MCP Server', () => {
         expect.objectContaining({ method: 'POST' }),
       );
     });
+  });
+});
+
+describe('MCP Contract Tests', () => {
+  let tempDir: string;
+
+  const expectedToolContracts = {
+    attestlens_scan: {
+      title: 'Project Compliance Scan',
+      openWorldHint: true,
+    },
+    attestlens_scan_url: {
+      title: 'Live Site Compliance Scan',
+      openWorldHint: true,
+    },
+    attestlens_audit: {
+      title: 'Full Compliance Audit',
+      openWorldHint: true,
+    },
+    attestlens_map: {
+      title: 'Map Findings to APP/NDB',
+      openWorldHint: false,
+    },
+    attestlens_opinion: {
+      title: 'Compliance Opinion',
+      openWorldHint: false,
+    },
+    attestlens_check: {
+      title: 'Single Principle Compliance Check',
+      openWorldHint: false,
+    },
+    attestlens_compliance_check: {
+      title: 'Compliance Check for Australian Businesses',
+      openWorldHint: false,
+    },
+    attestlens_reform: {
+      title: 'Privacy Act Reform Impact Assessment',
+      openWorldHint: false,
+    },
+  } satisfies Record<(typeof TOOL_DEFINITIONS)[number]['name'], { title: string; openWorldHint: boolean }>;
+
+  const successfulToolCalls = [
+    {
+      name: 'attestlens_scan',
+      args: (projectDir: string) => ({ path: projectDir }),
+    },
+    {
+      name: 'attestlens_scan_url',
+      args: () => ({ url: 'https://example.com/privacy' }),
+    },
+    {
+      name: 'attestlens_audit',
+      args: (projectDir: string) => ({ path: projectDir, format: 'json' }),
+    },
+    {
+      name: 'attestlens_map',
+      args: () => ({ findings: [makeFinding()] }),
+    },
+    {
+      name: 'attestlens_opinion',
+      args: (projectDir: string) => ({ path: projectDir }),
+    },
+    {
+      name: 'attestlens_check',
+      args: (projectDir: string) => ({ path: projectDir, principle: 'APP_11' }),
+    },
+    {
+      name: 'attestlens_compliance_check',
+      args: (projectDir: string) => ({ path: projectDir }),
+    },
+    {
+      name: 'attestlens_reform',
+      args: (projectDir: string) => ({ path: projectDir }),
+    },
+  ] satisfies Array<{
+    name: (typeof TOOL_DEFINITIONS)[number]['name'];
+    args: (projectDir: string) => Record<string, unknown>;
+  }>;
+
+  beforeEach(async () => {
+    tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'attestlens-mcp-contract-'));
+    process.env.ATTESTLENS_ALLOWED_ROOTS = tempDir;
+    vi.spyOn(ScannerOrchestrator.prototype, 'scan').mockImplementation(async (target: string) => (
+      target.startsWith('http')
+        ? makeSuccessfulScanResult('url-scan')
+        : makeSuccessfulScanResult('guardvibe')
+    ));
+  });
+
+  afterEach(async () => {
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+    delete process.env.ATTESTLENS_ALLOWED_ROOTS;
+    await fs.rm(tempDir, { recursive: true, force: true });
+  });
+
+  it('publishes read-only annotations and correct open-world hints for every tool', () => {
+    expect(TOOL_DEFINITIONS).toHaveLength(8);
+
+    for (const tool of TOOL_DEFINITIONS) {
+      const expected = expectedToolContracts[tool.name];
+      const annotations = tool.annotations as typeof tool.annotations & { title?: unknown };
+
+      expect(tool.name.startsWith('attestlens_')).toBe(true);
+      expect(annotations.title ?? tool.title).toBe(expected.title);
+      expect(tool.annotations.readOnlyHint).toBe(true);
+      expect(tool.annotations.openWorldHint).toBe(expected.openWorldHint);
+    }
+  });
+
+  it('marks validation failures as MCP tool errors without structured content', async () => {
+    const invalidCalls = [
+      {
+        label: 'missing required path',
+        args: {},
+      },
+      {
+        label: 'invalid path characters',
+        args: { path: `${tempDir};rm -rf /` },
+      },
+      {
+        label: 'path outside allowed roots',
+        args: { path: path.dirname(tempDir) },
+      },
+    ];
+
+    for (const { label, args } of invalidCalls) {
+      const response = await handleToolCall('attestlens_scan', args);
+
+      expect(response.isError, label).toBe(true);
+      expect(response, label).not.toHaveProperty('structuredContent');
+    }
+  });
+
+  it('does not mark successful responses as MCP tool errors', async () => {
+    const response = await handleToolCall('attestlens_scan', { path: tempDir });
+
+    expect(response.isError).not.toBe(true);
+  });
+
+  it('returns structured content for every successful tool response', async () => {
+    for (const toolCall of successfulToolCalls) {
+      const response = await handleToolCall(toolCall.name, toolCall.args(tempDir));
+
+      expect(response.isError, toolCall.name).not.toBe(true);
+      expect(response, toolCall.name).toHaveProperty('structuredContent');
+      expect(response.structuredContent, toolCall.name).not.toBeNull();
+      expect(typeof response.structuredContent, toolCall.name).toBe('object');
+
+      if (toolCall.name === 'attestlens_audit') {
+        expect(response.structuredContent).toEqual(expect.objectContaining({
+          format: 'json',
+          content: expect.any(String),
+        }));
+      }
+    }
+  });
+
+  it('blocks symlink escapes without leaking the symlink target path', async () => {
+    const allowedProject = path.join(tempDir, 'allowed-project');
+    const outsideRoot = path.join(tempDir, 'outside-root');
+    const escapeLink = path.join(allowedProject, 'escape-link');
+    await fs.mkdir(allowedProject);
+    await fs.mkdir(outsideRoot);
+    symlinkSync(outsideRoot, escapeLink, 'dir');
+    process.env.ATTESTLENS_ALLOWED_ROOTS = allowedProject;
+
+    const response = await handleToolCall('attestlens_scan', { path: escapeLink });
+    const errorText = response.content[0]?.text ?? '';
+    const realOutsideRoot = await fs.realpath(outsideRoot);
+
+    expect(response.isError).toBe(true);
+    expect(errorText).not.toContain(outsideRoot);
+    expect(errorText).not.toContain(realOutsideRoot);
+    expect(response).not.toHaveProperty('structuredContent');
   });
 });
 
