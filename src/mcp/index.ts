@@ -12,7 +12,12 @@ import { pathToFileURL } from 'node:url';
 
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
-import { ErrorCode, McpError } from '@modelcontextprotocol/sdk/types.js';
+import {
+  ErrorCode,
+  ListResourcesRequestSchema as ResourcesListSchema,
+  McpError,
+  ReadResourceRequestSchema as ResourcesReadSchema,
+} from '@modelcontextprotocol/sdk/types.js';
 import { z } from 'zod';
 
 import { mapAllFindings } from '../mapping/engine.js';
@@ -49,6 +54,15 @@ type ToolResponse = {
   isError?: boolean;
 };
 type ToolErrorResponse = ToolResponse & { isError: true };
+type ToolCallExtra = {
+  signal?: AbortSignal;
+};
+type AllowedRootResource = {
+  uri: string;
+  name: string;
+  description: string;
+  path: string;
+};
 
 const LOCAL_READ_ONLY_ANNOTATIONS = {
   readOnlyHint: true,
@@ -366,6 +380,33 @@ function getAllowedRoots(): string[] {
     .filter(Boolean);
 }
 
+async function getAllowedRootResources(): Promise<AllowedRootResource[]> {
+  const resources: AllowedRootResource[] = [];
+  const seen = new Set<string>();
+
+  for (const root of getAllowedRoots()) {
+    try {
+      const realRoot = await fs.realpath(path.resolve(root));
+      const stat = await fs.stat(realRoot);
+      if (!stat.isDirectory() || seen.has(realRoot)) {
+        continue;
+      }
+
+      seen.add(realRoot);
+      resources.push({
+        uri: pathToFileURL(realRoot).href,
+        name: path.basename(realRoot) || realRoot,
+        description: 'Allowed scan root directory',
+        path: realRoot,
+      });
+    } catch {
+      // Missing or unreadable roots are inactive.
+    }
+  }
+
+  return resources;
+}
+
 function isPathWithinRoot(target: string, root: string): boolean {
   if (target === root) {
     return true;
@@ -482,6 +523,14 @@ function createOrchestrator(
     orchestrator.disable('supply-chain');
   }
   return orchestrator;
+}
+
+function runScan(
+  orchestrator: ScannerOrchestrator,
+  target: string,
+  signal?: AbortSignal,
+): ReturnType<ScannerOrchestrator['scan']> {
+  return orchestrator.scan(target, undefined, { signal });
 }
 
 function parseScannerTimeoutMs(value: unknown): number | undefined | ToolErrorResponse {
@@ -636,7 +685,7 @@ async function renderAuditContent(
   }
 }
 
-export async function handleToolCall(name: string, args: Record<string, unknown> | undefined): Promise<ToolResponse> {
+export async function handleToolCall(name: string, args: Record<string, unknown> | undefined, extra: ToolCallExtra = {}): Promise<ToolResponse> {
   switch (name) {
     case 'attestlens_scan': {
       const targetPath = await validatePath(args?.path);
@@ -656,7 +705,7 @@ export async function handleToolCall(name: string, args: Record<string, unknown>
       }
 
       const orchestrator = createOrchestrator('path', { externalEnrichment, includeTyposquat, behavioral, iac, includeGitleaks, gitleaksPath, scannerTimeoutMs });
-      const result = await orchestrator.scan(targetPath);
+      const result = await runScan(orchestrator, targetPath, extra.signal);
 
       return makeJsonToolResponse({
         targetType: 'path',
@@ -677,7 +726,7 @@ export async function handleToolCall(name: string, args: Record<string, unknown>
       }
 
       const orchestrator = createOrchestrator('url', { scannerTimeoutMs });
-      const result = await orchestrator.scan(targetUrl);
+      const result = await runScan(orchestrator, targetUrl, extra.signal);
       const urlScanFailure = getUrlScanFailureError(result);
       if (urlScanFailure) {
         return urlScanFailure;
@@ -714,7 +763,7 @@ export async function handleToolCall(name: string, args: Record<string, unknown>
 
       const orchestrator = createOrchestrator('path', { externalEnrichment, includeTyposquat, behavioral, iac, includeGitleaks, gitleaksPath, scannerTimeoutMs });
       const startTime = Date.now();
-      const scanResult = await orchestrator.scan(targetPath);
+      const scanResult = await runScan(orchestrator, targetPath, extra.signal);
       const duration = Date.now() - startTime;
 
       const reportOptions: ReportOptions = {
@@ -806,7 +855,7 @@ export async function handleToolCall(name: string, args: Record<string, unknown>
 
       const orchestrator = createOrchestrator('path', {});
       const startTime = Date.now();
-      const scanResult = await orchestrator.scan(targetPath);
+      const scanResult = await runScan(orchestrator, targetPath, extra.signal);
       const duration = Date.now() - startTime;
 
       const reportOptions: ReportOptions = {
@@ -845,7 +894,7 @@ export async function handleToolCall(name: string, args: Record<string, unknown>
 
       const orchestrator = createOrchestrator('path', {});
       const startTime = Date.now();
-      const scanResult = await orchestrator.scan(targetPath);
+      const scanResult = await runScan(orchestrator, targetPath, extra.signal);
       const duration = Date.now() - startTime;
 
       const reportOptions: ReportOptions = {
@@ -912,7 +961,7 @@ export async function handleToolCall(name: string, args: Record<string, unknown>
         includeGitleaks: false,
         reform,
       });
-      const scanResult = await orchestrator.scan(targetPath);
+      const scanResult = await runScan(orchestrator, targetPath, extra.signal);
       const duration = scanResult.totalDurationMs;
 
       const reportOptions: ReportOptions = {
@@ -988,7 +1037,7 @@ export async function handleToolCall(name: string, args: Record<string, unknown>
 
       const orchestrator = createOrchestrator('path', { reform: true });
       const startTime = Date.now();
-      const scanResult = await orchestrator.scan(targetPath);
+      const scanResult = await runScan(orchestrator, targetPath, extra.signal);
       const duration = Date.now() - startTime;
 
       const reportOptions: ReportOptions = {
@@ -1039,13 +1088,50 @@ function registerStructuredTool(
     inputSchema,
     outputSchema,
     annotations: definition.annotations,
-  }, async (args) => handleToolCall(name, args as Record<string, unknown>));
+  }, async (args, extra) => handleToolCall(name, args as Record<string, unknown>, { signal: extra.signal }));
+}
+
+function registerResourceHandlers(server: McpServer): void {
+  server.server.setRequestHandler(ResourcesListSchema, async () => {
+    const resources = await getAllowedRootResources();
+    return {
+      resources: resources.map(({ uri, name, description }) => ({
+        uri,
+        name,
+        description,
+      })),
+    };
+  });
+
+  server.server.setRequestHandler(ResourcesReadSchema, async (request) => {
+    const resources = await getAllowedRootResources();
+    const requestedUri = new URL(request.params.uri).href;
+    const resource = resources.find((candidate) => candidate.uri === requestedUri);
+    if (!resource) {
+      throw new McpError(ErrorCode.InvalidParams, `Resource ${requestedUri} not found`);
+    }
+
+    return {
+      contents: [
+        {
+          uri: resource.uri,
+          mimeType: 'text/plain',
+          text: [
+            resource.description,
+            `Name: ${resource.name}`,
+            'AttestLens can scan files under this root when a tool call targets it.',
+            'Directory contents are intentionally not exposed through MCP resources.',
+          ].join('\n'),
+        },
+      ],
+    };
+  });
 }
 
 export function createServer(): McpServer {
   const server = new McpServer(
     { name: 'attestlens', version: ATTESTLENS_VERSION },
-    { capabilities: { tools: {} } },
+    { capabilities: { tools: {}, resources: {} } },
   );
 
   registerStructuredTool(server, 'attestlens_scan', scanInputSchema, scanOutputSchema);
@@ -1056,6 +1142,7 @@ export function createServer(): McpServer {
   registerStructuredTool(server, 'attestlens_check', checkInputSchema, checkOutputSchema);
   registerStructuredTool(server, 'attestlens_compliance_check', complianceCheckInputSchema, complianceCheckOutputSchema);
   registerStructuredTool(server, 'attestlens_reform', reformInputSchema, reformOutputSchema);
+  registerResourceHandlers(server);
 
   return server;
 }

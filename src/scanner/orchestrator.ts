@@ -34,6 +34,10 @@ export interface ScannerOrchestratorOptions {
   onProgress?: (event: ScannerProgressEvent) => void;
 }
 
+export type ScanOptions = {
+  signal?: AbortSignal;
+};
+
 export class ScannerOrchestrator {
   private registry: Map<ScanSource, ScannerRegistryEntry> = new Map();
   private rulePackOptions: RulePackLoadOptions;
@@ -70,7 +74,7 @@ export class ScannerOrchestrator {
     if (entry) entry.enabled = false;
   }
 
-  async scan(targetPath: string, sources?: ScanSource[]): Promise<OrchestratedScanResult> {
+  async scan(targetPath: string, sources?: ScanSource[], options?: ScanOptions): Promise<OrchestratedScanResult> {
     const startTime = Date.now();
     const allFindings: AttestLensFinding[] = [];
     const results: ScannerResult[] = [];
@@ -90,16 +94,20 @@ export class ScannerOrchestrator {
         return entry.adapter.name !== 'url-scan';
       });
 
+    throwIfScanAborted(options?.signal);
+
     // Run all enabled scanners in parallel
     const scanPromises = enabledAdapters.map(async (entry) => {
       const source = entry.adapter.name;
       const adapterStartTime = Date.now();
+      throwIfScanAborted(options?.signal);
       this.emitProgress({
         source,
         phase: 'start',
         message: `Starting ${source}`,
       });
 
+      throwIfScanAborted(options?.signal);
       const available = await entry.adapter.isAvailable();
       if (!available) {
         const error = {
@@ -121,22 +129,42 @@ export class ScannerOrchestrator {
       const timeoutMs = this.getAdapterTimeoutMs(source);
       const controller = new AbortController();
       let timeout: ReturnType<typeof setTimeout> | undefined;
+      let removeAbortListener: (() => void) | undefined;
 
       try {
+        const racePromises: Array<Promise<ScannerResult> | Promise<never>> = [];
+
+        if (options?.signal) {
+          const abortPromise = new Promise<never>((_, reject) => {
+            const abort = () => {
+              controller.abort();
+              reject(createScanAbortError());
+            };
+
+            options.signal!.addEventListener('abort', abort, { once: true });
+            removeAbortListener = () => options.signal!.removeEventListener('abort', abort);
+          });
+          racePromises.push(abortPromise);
+        }
+
         const timeoutPromise = new Promise<never>((_, reject) => {
           timeout = setTimeout(() => {
             reject(new ScannerTimeoutError(source, timeoutMs));
             controller.abort();
           }, timeoutMs);
         });
-        const result = await Promise.race([
+
+        throwIfScanAborted(options?.signal);
+        racePromises.push(
           entry.adapter.scan(targetPath, {
             rulePack: rulePack.manifest,
             signal: controller.signal,
             onProgress: (event) => this.emitProgress(event),
           }),
           timeoutPromise,
-        ]);
+        );
+
+        const result = await Promise.race(racePromises);
         if (timeout) clearTimeout(timeout);
         entry.lastRun = new Date().toISOString();
         entry.lastResult = result;
@@ -157,6 +185,9 @@ export class ScannerOrchestrator {
         return result;
       } catch (error: any) {
         if (timeout) clearTimeout(timeout);
+        if (isScanAbortError(error)) {
+          throw error;
+        }
         if (error instanceof ScannerTimeoutError) {
           const scannerError = {
             source,
@@ -188,12 +219,17 @@ export class ScannerOrchestrator {
           elapsedMs: Date.now() - adapterStartTime,
         });
         return null;
+      } finally {
+        removeAbortListener?.();
       }
     });
 
     const scanResults = await Promise.allSettled(scanPromises);
 
     for (const result of scanResults) {
+      if (result.status === 'rejected' && isScanAbortError(result.reason)) {
+        throw result.reason;
+      }
       if (result.status === 'fulfilled' && result.value) {
         results.push(result.value);
         allFindings.push(...result.value.findings);
@@ -424,6 +460,20 @@ const CANONICAL_RULE_TYPES: Record<string, string> = {
   'VS-SAST-017': 'csrf-gap',
   'VS-SAST-018': 'open-redirect',
 };
+
+function throwIfScanAborted(signal?: AbortSignal): void {
+  if (signal?.aborted) {
+    throw createScanAbortError();
+  }
+}
+
+function createScanAbortError(): DOMException {
+  return new DOMException('Scan aborted', 'AbortError');
+}
+
+function isScanAbortError(error: unknown): boolean {
+  return error instanceof DOMException && error.name === 'AbortError';
+}
 
 class ScannerTimeoutError extends Error {
   constructor(

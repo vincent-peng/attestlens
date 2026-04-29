@@ -428,7 +428,7 @@ describe('MCP Server', () => {
           'reform-2026': '1.0.0',
         },
       }));
-      expect(scanSpy).toHaveBeenCalledWith(tempDir);
+      expect(scanSpy).toHaveBeenCalledWith(tempDir, undefined, { signal: undefined });
     });
 
     it('returns URL scan output keyed by targetUrl', async () => {
@@ -496,7 +496,7 @@ describe('MCP Server', () => {
       expect(payload.findings[0].sourceRule).toBe('AL-URL-001');
       expect(payload.ruleFreshness.cachePath).toBeUndefined();
       expect(JSON.stringify(payload)).not.toContain('/Users/alice');
-      expect(scanSpy).toHaveBeenCalledWith('https://user:pass@example.com/path?token=abc#frag');
+      expect(scanSpy).toHaveBeenCalledWith('https://user:pass@example.com/path?token=abc#frag', undefined, { signal: undefined });
       expect(disableSpy).toHaveBeenCalledWith('guardvibe');
       expect(disableSpy).toHaveBeenCalledWith('mcp-scan');
       expect(disableSpy).toHaveBeenCalledWith('supply-chain');
