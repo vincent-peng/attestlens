@@ -96,7 +96,7 @@ export const MCP_TOOLS = [
       },
       required: ['path'],
     },
-    annotations: LOCAL_READ_ONLY_ANNOTATIONS,
+    annotations: URL_READ_ONLY_ANNOTATIONS,
   },
   {
     name: 'attestlens_scan_url',
@@ -168,7 +168,7 @@ export const MCP_TOOLS = [
       },
       required: ['path'],
     },
-    annotations: LOCAL_READ_ONLY_ANNOTATIONS,
+    annotations: URL_READ_ONLY_ANNOTATIONS,
   },
   {
     name: 'attestlens_map',

@@ -133,7 +133,7 @@ describe('MCP Server', () => {
       for (const tool of MCP_TOOLS) {
         expect(tool.title.length).toBeGreaterThan(0);
         expect(tool.annotations.readOnlyHint).toBe(true);
-        expect(tool.annotations.openWorldHint).toBe(tool.name === 'attestlens_scan_url');
+        expect(tool.annotations.openWorldHint).toBe(tool.name === 'attestlens_scan_url' || tool.name === 'attestlens_scan' || tool.name === 'attestlens_audit');
       }
     });
 
