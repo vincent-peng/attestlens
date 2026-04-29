@@ -283,7 +283,7 @@ export function validateUrl(targetUrl: string): string {
 
 function createOrchestrator(
   targetKind: 'path' | 'url',
-  options: { externalEnrichment?: boolean; includeTyposquat?: boolean; behavioral?: boolean; iac?: boolean; includeGitleaks?: boolean; gitleaksPath?: string; scannerTimeoutMs?: number } = {},
+  options: { externalEnrichment?: boolean; includeTyposquat?: boolean; behavioral?: boolean; iac?: boolean; includeGitleaks?: boolean; gitleaksPath?: string; scannerTimeoutMs?: number; reform?: boolean } = {},
 ): ScannerOrchestrator {
   const externalEnrichment = targetKind === 'path' && options.externalEnrichment === true;
   const orchestratorOptions: ScannerOrchestratorOptions = {
@@ -302,6 +302,9 @@ function createOrchestrator(
     gitleaks: {
       enabled: targetKind === 'path' && options.includeGitleaks === true,
       path: options.gitleaksPath || 'gitleaks',
+    },
+    reform: {
+      enabled: targetKind === 'path' && options.reform === true,
     },
   };
   const orchestrator = new ScannerOrchestrator(orchestratorOptions);
@@ -709,7 +712,7 @@ export async function handleToolCall(name: string, args: Record<string, unknown>
       const targetPath = await validatePath(args?.path as string);
       const strict = args?.strict === true;
 
-      const orchestrator = createOrchestrator('path', {});
+      const orchestrator = createOrchestrator('path', { reform: true });
       const startTime = Date.now();
       const scanResult = await orchestrator.scan(targetPath);
       const duration = Date.now() - startTime;

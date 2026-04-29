@@ -12,6 +12,10 @@ import path from 'node:path';
 import type { APPMapping, APPPrinciple, AttestLensFinding, ScanSource, Severity } from '../schema/index.js';
 import type { ScannerAdapter, ScannerContext, ScannerError, ScannerResult } from './types.js';
 
+export interface ReformAdapterOptions {
+  enabled?: boolean;
+}
+
 type ReformProvision =
   | 'STATUTORY_TORT'
   | 'CHILDREN_PRIVACY_CODE'
@@ -396,6 +400,11 @@ const REFORM_RULES: ReformRule[] = [
 export class ReformAdapter implements ScannerAdapter {
   readonly name: ScanSource = 'reform-2026';
   readonly version = '0.1.0';
+  private readonly options: Required<Pick<ReformAdapterOptions, never>>;
+
+  constructor(options: ReformAdapterOptions = {}) {
+    this.options = options as Required<Pick<ReformAdapterOptions, never>>;
+  }
 
   async isAvailable(): Promise<boolean> {
     return true;

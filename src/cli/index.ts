@@ -510,6 +510,9 @@ export function buildScannerOrchestratorOptions(options: any): ScannerOrchestrat
       enabled: options.includeGitleaks === true,
       path: options.gitleaksPath || 'gitleaks',
     },
+    reform: {
+      enabled: options.reform === true,
+    },
   };
 }
 

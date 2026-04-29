@@ -20,7 +20,7 @@ import { BehavioralAdapter, type BehavioralAdapterOptions } from './behavioral.j
 import { GitleaksAdapter, type GitleaksAdapterOptions } from './gitleaks.js';
 import { IacAdapter, type IacAdapterOptions } from './iac.js';
 import { UrlScanAdapter } from './url-scan.js';
-import { ReformAdapter } from './reform.js';
+import { ReformAdapter, type ReformAdapterOptions } from './reform.js';
 import { loadRulePack, type RulePackLoadOptions } from './rules/index.js';
 
 export interface ScannerOrchestratorOptions {
@@ -29,6 +29,7 @@ export interface ScannerOrchestratorOptions {
   behavioral?: BehavioralAdapterOptions;
   gitleaks?: GitleaksAdapterOptions;
   iac?: IacAdapterOptions;
+  reform?: ReformAdapterOptions;
   adapterTimeoutMs?: number | Partial<Record<ScanSource, number>>;
   onProgress?: (event: ScannerProgressEvent) => void;
 }
@@ -52,7 +53,7 @@ export class ScannerOrchestrator {
     this.register(new IacAdapter(options.iac), options.iac?.enabled !== false);
     // URL scanner registered but only activated when URL input detected
     this.register(new UrlScanAdapter());
-    this.register(new ReformAdapter());
+    this.register(new ReformAdapter(options.reform), options.reform?.enabled === true);
   }
 
   register(adapter: ScannerAdapter, enabled = true): void {
@@ -397,7 +398,7 @@ const SOURCE_PRIORITY: Record<ScanSource, number> = {
   'vibe-check': 9,
   manual: 10,
   questionnaire: 11,
-  'reform-2026': 13,
+  'reform-2026': 12,
 };
 
 const CANONICAL_RULE_TYPES: Record<string, string> = {
