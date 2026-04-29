@@ -9,7 +9,7 @@ import { McpError } from '@modelcontextprotocol/sdk/types.js';
 import { GuardVibeAdapter } from '../scanner/guardvibe.js';
 import { McpScanAdapter } from '../scanner/mcp-scan.js';
 import { ScannerOrchestrator } from '../scanner/orchestrator.js';
-import { MCP_TOOLS, handleToolCall, validatePath, validateUrl } from './index.js';
+import { TOOL_DEFINITIONS, handleToolCall, validatePath, validateUrl } from './index.js';
 
 function makeRuleFreshness() {
   return {
@@ -44,6 +44,34 @@ function makeFinding(overrides: Record<string, unknown> = {}) {
     },
     ...overrides,
   };
+}
+
+function expectJsonStructuredPayload(response: {
+  content: Array<{ type: 'text'; text: string }>;
+  structuredContent?: Record<string, unknown>;
+}) {
+  const payload = JSON.parse(response.content[0].text);
+  expect(response.structuredContent).toEqual(payload);
+  return payload;
+}
+
+function expectAuditStructuredEnvelope(
+  response: {
+    content: Array<{ type: 'text'; text: string }>;
+    structuredContent?: Record<string, unknown>;
+  },
+  format: string,
+) {
+  expect(response.structuredContent).toEqual({
+    format,
+    content: response.content[0].text,
+    metadata: expect.objectContaining({
+      targetName: expect.any(String),
+      targetPath: expect.any(String),
+      scanDurationMs: expect.any(Number),
+      scannerVersions: expect.any(Object),
+    }),
+  });
 }
 
 describe('MCP Server', () => {
@@ -166,46 +194,42 @@ describe('MCP Server', () => {
       });
     });
 
-    it('exposes explicit enrichment, typosquat, behavioral, iac, gitleaks, and timeout options on MCP scan tools', () => {
-      const scanTool = MCP_TOOLS.find((tool) => tool.name === 'attestlens_scan');
-      const auditTool = MCP_TOOLS.find((tool) => tool.name === 'attestlens_audit');
-      const urlTool = MCP_TOOLS.find((tool) => tool.name === 'attestlens_scan_url');
-      const checkTool = MCP_TOOLS.find((tool) => tool.name === 'attestlens_check');
-      const complianceCheckTool = MCP_TOOLS.find((tool) => tool.name === 'attestlens_compliance_check');
+    it('publishes tool definitions without legacy JSON-schema input shapes', () => {
+      expect(TOOL_DEFINITIONS.map((tool) => tool.name)).toEqual([
+        'attestlens_scan',
+        'attestlens_scan_url',
+        'attestlens_audit',
+        'attestlens_map',
+        'attestlens_opinion',
+        'attestlens_check',
+        'attestlens_compliance_check',
+        'attestlens_reform',
+      ]);
 
-      expect(scanTool?.inputSchema.properties).toHaveProperty('externalEnrichment');
-      expect(auditTool?.inputSchema.properties).toHaveProperty('externalEnrichment');
-      expect(urlTool?.inputSchema.properties).not.toHaveProperty('externalEnrichment');
-      expect(scanTool?.inputSchema.properties).toHaveProperty('includeTyposquat');
-      expect(auditTool?.inputSchema.properties).toHaveProperty('includeTyposquat');
-      expect(urlTool?.inputSchema.properties).not.toHaveProperty('includeTyposquat');
-      expect(scanTool?.inputSchema.properties).toHaveProperty('scannerTimeoutMs');
-      expect(auditTool?.inputSchema.properties).toHaveProperty('scannerTimeoutMs');
-      expect(urlTool?.inputSchema.properties).toHaveProperty('scannerTimeoutMs');
-      expect(scanTool?.inputSchema.properties).toHaveProperty('behavioral');
-      expect(auditTool?.inputSchema.properties).toHaveProperty('behavioral');
-      expect(urlTool?.inputSchema.properties).not.toHaveProperty('behavioral');
-      expect(scanTool?.inputSchema.properties).toHaveProperty('iac');
-      expect(auditTool?.inputSchema.properties).toHaveProperty('iac');
-      expect(urlTool?.inputSchema.properties).not.toHaveProperty('iac');
-      expect(scanTool?.inputSchema.properties).toHaveProperty('includeGitleaks');
-      expect(auditTool?.inputSchema.properties).toHaveProperty('includeGitleaks');
-      expect(urlTool?.inputSchema.properties).not.toHaveProperty('includeGitleaks');
-      expect(scanTool?.inputSchema.properties).toHaveProperty('gitleaksPath');
-      expect(auditTool?.inputSchema.properties).toHaveProperty('gitleaksPath');
-      expect(urlTool?.inputSchema.properties).not.toHaveProperty('gitleaksPath');
-      expect((auditTool?.inputSchema.properties as any).format.enum).toContain('agent');
-      expect(checkTool?.inputSchema.required).toEqual(['path', 'principle']);
-      expect(checkTool?.inputSchema.properties).toHaveProperty('principle');
-      expect(checkTool?.inputSchema.properties).toHaveProperty('strict');
+      const scanTool = TOOL_DEFINITIONS.find((tool) => tool.name === 'attestlens_scan');
+      const auditTool = TOOL_DEFINITIONS.find((tool) => tool.name === 'attestlens_audit');
+      const urlTool = TOOL_DEFINITIONS.find((tool) => tool.name === 'attestlens_scan_url');
+      const checkTool = TOOL_DEFINITIONS.find((tool) => tool.name === 'attestlens_check');
+      const complianceCheckTool = TOOL_DEFINITIONS.find((tool) => tool.name === 'attestlens_compliance_check');
+
+      expect(scanTool?.title).toBe('Project Compliance Scan');
+      expect(scanTool?.description).toContain('Scan a project directory');
+      expect(auditTool?.title).toBe('Full Compliance Audit');
+      expect(auditTool?.description).toContain('generates a compliance report');
+      expect(urlTool?.title).toBe('Live Site Compliance Scan');
+      expect(urlTool?.description).toContain('public URL');
+      expect(checkTool?.title).toBe('Single Principle Compliance Check');
+      expect(checkTool?.description).toContain('single APP principle');
       expect(complianceCheckTool?.title).toBe('Compliance Check for Australian Businesses');
-      expect(complianceCheckTool?.inputSchema.required).toEqual(['path']);
-      expect(complianceCheckTool?.inputSchema.properties).toHaveProperty('strict');
-      expect(complianceCheckTool?.inputSchema.properties).toHaveProperty('reform');
+      expect(complianceCheckTool?.description).toContain('plain-English compliance check');
+
+      for (const tool of TOOL_DEFINITIONS) {
+        expect(tool).not.toHaveProperty('inputSchema');
+      }
     });
 
     it('publishes read-only tool annotations and marks URL scanning as open-world', () => {
-      for (const tool of MCP_TOOLS) {
+      for (const tool of TOOL_DEFINITIONS) {
         expect(tool.title.length).toBeGreaterThan(0);
         expect(tool.annotations.readOnlyHint).toBe(true);
         expect(tool.annotations.destructiveHint).toBe(false);
@@ -257,7 +281,7 @@ describe('MCP Server', () => {
         path: tempDir,
         principle: 'APP_11',
       });
-      const payload = JSON.parse(response.content[0].text);
+      const payload = expectJsonStructuredPayload(response);
 
       expect(payload).toEqual(expect.objectContaining({
         principle: 'APP_11',
@@ -341,7 +365,7 @@ describe('MCP Server', () => {
         path: tempDir,
         reform: true,
       });
-      const payload = JSON.parse(response.content[0].text);
+      const payload = expectJsonStructuredPayload(response);
 
       expect(payload).toEqual(expect.objectContaining({
         readinessScore: expect.any(Number),
@@ -444,7 +468,7 @@ describe('MCP Server', () => {
         url: 'https://user:pass@example.com/path?token=abc#frag',
         strict: true,
       });
-      const payload = JSON.parse(response.content[0].text);
+      const payload = expectJsonStructuredPayload(response);
 
       expect(payload.targetType).toBe('url');
       expect(payload.targetUrl).toBe('https://example.com/path');
@@ -513,6 +537,7 @@ describe('MCP Server', () => {
         path: tempDir,
         format: 'pdf',
       });
+      expectAuditStructuredEnvelope(response, 'pdf');
       const payload = JSON.parse(response.content[0].text);
 
       expect(payload.format).toBe('pdf');
@@ -534,6 +559,7 @@ describe('MCP Server', () => {
         path: tempDir,
         format: 'json',
       });
+      expectAuditStructuredEnvelope(response, 'json');
       const payload = JSON.parse(response.content[0].text);
 
       expect(payload.metadata.ruleFreshness.cachePath).toBeUndefined();
@@ -554,6 +580,7 @@ describe('MCP Server', () => {
         format: 'agent',
         opinion: true,
       });
+      expectAuditStructuredEnvelope(response, 'agent');
       const payload = JSON.parse(response.content[0].text);
 
       expect(payload.schema).toBe('attestlens-agent-v1');
@@ -573,7 +600,7 @@ describe('MCP Server', () => {
       vi.stubGlobal('fetch', fetchMock);
 
       const response = await handleToolCall('attestlens_scan', { path: tempDir });
-      const payload = JSON.parse(response.content[0].text);
+      const payload = expectJsonStructuredPayload(response);
 
       expect(payload.targetType).toBe('path');
       expect(fetchMock).not.toHaveBeenCalled();
@@ -604,7 +631,7 @@ describe('MCP Server', () => {
         path: tempDir,
         externalEnrichment: true,
       });
-      const payload = JSON.parse(response.content[0].text);
+      const payload = expectJsonStructuredPayload(response);
 
       expect(payload.targetType).toBe('path');
       expect(fetchMock).toHaveBeenCalledWith(
@@ -621,7 +648,7 @@ describe('MCP Server', () => {
       await writeMcpPackageProject(tempDir, 'lodas');
 
       const response = await handleToolCall('attestlens_scan', { path: tempDir });
-      const payload = JSON.parse(response.content[0].text);
+      const payload = expectJsonStructuredPayload(response);
 
       expect(payload.findings.some((finding: { sourceRule: string }) => finding.sourceRule === 'VS-SC-004')).toBe(false);
       expect(payload.errors.some((error: { code?: string }) => error.code === 'EXPERIMENTAL_TYPOSQUAT')).toBe(false);
@@ -634,7 +661,7 @@ describe('MCP Server', () => {
         path: tempDir,
         includeTyposquat: true,
       });
-      const payload = JSON.parse(response.content[0].text);
+      const payload = expectJsonStructuredPayload(response);
 
       expect(payload.findings.some((finding: { sourceRule: string }) => finding.sourceRule === 'VS-SC-004')).toBe(true);
       expect(payload.errors.some((error: { code?: string }) => error.code === 'EXPERIMENTAL_TYPOSQUAT')).toBe(true);
@@ -668,11 +695,11 @@ describe('MCP Server', () => {
       await writeMcpBehavioralProject(tempDir);
 
       const enabledResponse = await handleToolCall('attestlens_scan', { path: tempDir });
-      const enabledPayload = JSON.parse(enabledResponse.content[0].text);
+      const enabledPayload = expectJsonStructuredPayload(enabledResponse);
       expect(enabledPayload.findings.some((finding: { sourceRule: string }) => finding.sourceRule === 'VS-BH-001')).toBe(true);
 
       const disabledResponse = await handleToolCall('attestlens_scan', { path: tempDir, behavioral: false });
-      const disabledPayload = JSON.parse(disabledResponse.content[0].text);
+      const disabledPayload = expectJsonStructuredPayload(disabledResponse);
       expect(disabledPayload.findings.some((finding: { sourceRule: string }) => finding.sourceRule === 'VS-BH-001')).toBe(false);
     });
 
@@ -685,7 +712,7 @@ describe('MCP Server', () => {
         includeGitleaks: true,
         gitleaksPath: '/definitely/not/gitleaks',
       });
-      const payload = JSON.parse(response.content[0].text);
+      const payload = expectJsonStructuredPayload(response);
 
       expect(payload.errors.some((error: { source: string; code?: string }) => (
         error.source === 'gitleaks' && error.code === 'SCANNER_UNAVAILABLE'
@@ -720,6 +747,7 @@ describe('MCP Server', () => {
       });
 
       expect(() => JSON.parse(response.content[0].text)).not.toThrow();
+      expectAuditStructuredEnvelope(response, 'json');
       expect(fetchMock).toHaveBeenCalledWith(
         'https://registry.npmjs.org/external-audit/1.0.0',
         expect.objectContaining({ method: 'GET' }),
