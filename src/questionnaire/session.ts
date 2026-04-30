@@ -29,6 +29,10 @@ import {
   CCPA_QUESTION_BANK,
   CCPA_QUESTIONNAIRE_VERSION,
 } from './ccpa-questions.js';
+import {
+  GDPR_QUESTION_BANK,
+  GDPR_QUESTIONNAIRE_VERSION,
+} from './gdpr-questions.js';
 import { aggregatePrincipleResults } from './evaluator.js';
 import { getNextQuestion } from './flow.js';
 
@@ -113,6 +117,10 @@ function getKnownQuestionBank(version: string): Question[] | null {
 
   if (version === CCPA_QUESTIONNAIRE_VERSION) {
     return CCPA_QUESTION_BANK;
+  }
+
+  if (version === GDPR_QUESTIONNAIRE_VERSION) {
+    return GDPR_QUESTION_BANK;
   }
 
   return null;

@@ -33,7 +33,7 @@ import { buildSMBComplianceResult } from '../report/smb-generator.js';
 import type { ComplianceReportWithSMB, ReportFormat, ReportOptions } from '../report/generator.js';
 import { ScannerOrchestrator, type ScannerOrchestratorOptions } from '../scanner/orchestrator.js';
 import type { ScannerError, ScannerResult } from '../scanner/types.js';
-import { getJurisdictionUnavailableMessage } from '../scanner/rules/index.js';
+import { GDPRPrincipleInfo } from '../scanner/rules/gdpr-principles.js';
 import {
   APPInfo,
   APPPrinciple as APPPrincipleSchema,
@@ -93,7 +93,7 @@ export const TOOL_DEFINITIONS = [
   {
     name: 'attestlens_scan',
     title: 'Project Compliance Scan',
-    description: 'Scan a project directory for Australian Privacy Act (APP/NDB) compliance findings.',
+    description: 'Scan a project directory for privacy compliance findings across supported jurisdictions.',
     annotations: URL_READ_ONLY_ANNOTATIONS,
   },
   {
@@ -105,13 +105,13 @@ export const TOOL_DEFINITIONS = [
   {
     name: 'attestlens_audit',
     title: 'Full Compliance Audit',
-    description: 'Full APP/NDB compliance audit. Scans a project, maps findings to Australian Privacy Act obligations, and generates a compliance report.',
+    description: 'Full compliance audit. Scans a project, maps findings to supported jurisdiction obligations, and generates a compliance report.',
     annotations: URL_READ_ONLY_ANNOTATIONS,
   },
   {
     name: 'attestlens_map',
-    title: 'Map Findings to APP/NDB',
-    description: 'Map a list of security findings to APP/NDB obligations.',
+    title: 'Map Findings to Regulation Controls',
+    description: 'Map a list of security findings to supported jurisdiction obligations.',
     annotations: LOCAL_READ_ONLY_ANNOTATIONS,
   },
   {
@@ -123,7 +123,7 @@ export const TOOL_DEFINITIONS = [
   {
     name: 'attestlens_check',
     title: 'Single Principle Compliance Check',
-    description: 'Check a single APP principle compliance. Runs a full compliance scan and returns results for a single APP principle. Returns { principle, verdict, score, findings, remediations }.',
+    description: 'Check a single regulation principle. Runs a full compliance scan and returns { principle, verdict, score, findings, remediations }.',
     annotations: LOCAL_READ_ONLY_ANNOTATIONS,
   },
   {
@@ -245,6 +245,7 @@ const regulationMappingOutputSchema = z.object({
   obligation: z.string(),
   status: ControlStatus,
   confidence: z.number(),
+  citation: z.string().optional(),
 });
 
 const serializedFindingOutputSchema = z.object({
@@ -638,10 +639,18 @@ function parseJurisdiction(value: unknown): JurisdictionType | ToolErrorResponse
 }
 
 function validateJurisdictionAvailability(jurisdiction: JurisdictionType): true | ToolErrorResponse {
-  if (jurisdiction === 'eu-gdpr') {
-    return makeToolError(getJurisdictionUnavailableMessage(jurisdiction));
-  }
+  Jurisdiction.parse(jurisdiction);
   return true;
+}
+
+function getJurisdictionAssessmentLabel(jurisdiction: JurisdictionType): string {
+  if (jurisdiction === 'us-ccpa') {
+    return 'CCPA';
+  }
+  if (jurisdiction === 'eu-gdpr') {
+    return 'GDPR';
+  }
+  return 'AU Privacy Act';
 }
 
 function validateRegulationPrinciple(
@@ -657,8 +666,15 @@ function validateRegulationPrinciple(
     return validatePrinciple(value);
   }
 
-  if (typeof value !== 'string' || !/^CCPA_(?:100|105|106|110|115|120|121|125|130|135|145|150)$/.test(value)) {
-    return makeToolError(`invalid CCPA principle: ${String(value)}. Valid principles: CCPA_100, CCPA_105, CCPA_106, CCPA_110, CCPA_115, CCPA_120, CCPA_121, CCPA_125, CCPA_130, CCPA_135, CCPA_145, CCPA_150`);
+  if (jurisdiction === 'us-ccpa') {
+    if (typeof value !== 'string' || !/^CCPA_(?:100|105|106|110|115|120|121|125|130|135|145|150)$/.test(value)) {
+      return makeToolError(`invalid CCPA principle: ${String(value)}. Valid principles: CCPA_100, CCPA_105, CCPA_106, CCPA_110, CCPA_115, CCPA_120, CCPA_121, CCPA_125, CCPA_130, CCPA_135, CCPA_145, CCPA_150`);
+    }
+    return value;
+  }
+
+  if (typeof value !== 'string' || !Object.prototype.hasOwnProperty.call(GDPRPrincipleInfo, value)) {
+    return makeToolError(`invalid GDPR principle: ${String(value)}. Valid principles: ${Object.keys(GDPRPrincipleInfo).join(', ')}`);
   }
   return value;
 }
@@ -1186,7 +1202,7 @@ export async function handleToolCall(name: string, args: Record<string, unknown>
         return jurisdictionAvailability;
       }
       if (jurisdiction !== 'au-privacy-act') {
-        return makeToolError('SMB compliance check is currently AU-only; use `audit --jurisdiction us-ccpa` for CCPA assessments.');
+        return makeToolError(`SMB compliance check is currently AU-only; use \`audit --jurisdiction ${jurisdiction}\` for ${getJurisdictionAssessmentLabel(jurisdiction)} assessments.`);
       }
 
       const orchestrator = createOrchestrator('path', {

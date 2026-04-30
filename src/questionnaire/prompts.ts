@@ -9,6 +9,7 @@ import {
   type QuestionnaireResponse,
 } from '../schema/index.js';
 import { CCPAPrincipleInfo } from '../scanner/rules/ccpa-principles.js';
+import { GDPRPrincipleInfo } from '../scanner/rules/gdpr-principles.js';
 
 export type AttestationPromptResult =
   | { kind: 'save_and_exit' }
@@ -77,6 +78,10 @@ function getPrincipleLabel(principle: string): string {
 
   if (Object.prototype.hasOwnProperty.call(CCPAPrincipleInfo, principle)) {
     return CCPAPrincipleInfo[principle as keyof typeof CCPAPrincipleInfo].shortName;
+  }
+
+  if (Object.prototype.hasOwnProperty.call(GDPRPrincipleInfo, principle)) {
+    return GDPRPrincipleInfo[principle as keyof typeof GDPRPrincipleInfo].shortName;
   }
 
   return principle;

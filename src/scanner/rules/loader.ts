@@ -15,13 +15,14 @@ import {
   type RulePackSource,
 } from '../../schema/index.js';
 import { CCPAPrincipleInfo } from './ccpa-principles.js';
-import { buildEmbeddedCCPARulePack, buildEmbeddedJurisdictionPack, buildEmbeddedRulePack } from './embedded.js';
+import { GDPRPrincipleInfo } from './gdpr-principles.js';
+import { buildEmbeddedCCPARulePack, buildEmbeddedGDPRRulePack, buildEmbeddedJurisdictionPack, buildEmbeddedRulePack } from './embedded.js';
 
 export const RULE_PACK_CACHE_FILENAME = 'latest.json';
 export const RULE_PACK_STALE_AFTER_DAYS = 14;
 export const RULE_PACK_FETCH_TIMEOUT_MS = 10_000;
 export const RULE_PACK_MAX_BYTES = 1_000_000;
-export const AVAILABLE_JURISDICTIONS: readonly Jurisdiction[] = ['au-privacy-act', 'us-ccpa'];
+export const AVAILABLE_JURISDICTIONS: readonly Jurisdiction[] = ['au-privacy-act', 'us-ccpa', 'eu-gdpr'];
 
 export interface LoadedRulePack {
   manifest: RulePackManifestType;
@@ -128,13 +129,15 @@ export async function loadJurisdictionPacks(
       continue;
     }
 
-    const manifest = buildUnavailableRulePack(jurisdiction, now);
-    packs.set(jurisdiction, {
-      manifest,
-      jurisdictionManifest: buildUnavailableJurisdictionPack(jurisdiction, now),
-      freshness: buildRuleFreshness(manifest, 'embedded', now),
-      warnings: [getJurisdictionUnavailableMessage(jurisdiction)],
-    });
+    if (jurisdiction === 'eu-gdpr') {
+      const manifest = validateRulePackManifest(buildEmbeddedGDPRRulePack());
+      packs.set(jurisdiction, {
+        manifest,
+        jurisdictionManifest: buildEmbeddedJurisdictionPack('eu-gdpr'),
+        freshness: buildRuleFreshness(manifest, 'embedded', now),
+        warnings: [],
+      });
+    }
   }
 
   return packs;
@@ -336,6 +339,22 @@ function buildJurisdictionManifestFromRulePack(manifest: RulePackManifestType): 
     });
   }
 
+  if (manifest.jurisdiction === 'eu-gdpr') {
+    return JurisdictionPackManifest.parse({
+      schemaVersion: '2.0',
+      version: manifest.version,
+      jurisdiction: 'eu-gdpr',
+      generated: manifest.generated,
+      principles: Object.entries(GDPRPrincipleInfo).map(([id, info]) => ({
+        id,
+        shortName: info.shortName,
+        obligation: info.obligation,
+        citation: info.citation,
+      })),
+      rules: manifest.rules,
+    });
+  }
+
   if (manifest.jurisdiction !== 'au-privacy-act') {
     return JurisdictionPackManifest.parse({
       schemaVersion: '2.0',
@@ -361,29 +380,8 @@ function buildJurisdictionManifestFromRulePack(manifest: RulePackManifestType): 
   });
 }
 
-function buildUnavailableRulePack(jurisdiction: Jurisdiction, now: Date): RulePackManifestType {
-  return RulePackManifest.parse({
-    schemaVersion: '1.0',
-    version: 'unavailable',
-    generated: now.toISOString(),
-    jurisdiction,
-    rules: [],
-  });
-}
-
-function buildUnavailableJurisdictionPack(jurisdiction: Jurisdiction, now: Date): JurisdictionPackManifestType {
-  return JurisdictionPackManifest.parse({
-    schemaVersion: '2.0',
-    version: 'unavailable',
-    jurisdiction,
-    generated: now.toISOString(),
-    principles: [],
-    rules: [],
-  });
-}
-
 export function getJurisdictionUnavailableMessage(jurisdiction: Jurisdiction): string {
-  return `jurisdiction '${jurisdiction}' is not yet available. Available jurisdictions: ${AVAILABLE_JURISDICTIONS.join(', ')}`;
+  return `All jurisdictions are available: ${AVAILABLE_JURISDICTIONS.join(', ')}. Requested jurisdiction: ${jurisdiction}`;
 }
 
 function buildRuleFreshness(

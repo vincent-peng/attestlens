@@ -158,6 +158,26 @@ describe('buildComplianceReport', () => {
     expect(report.complianceOpinion?.principles.some((principle) => principle.principle === 'CCPA_100')).toBe(true);
   });
 
+  it('generates GDPR subset reports with GDPR controls and scope note', () => {
+    const findings = [
+      makeFinding({ id: 'F-1', severity: 'critical', sourceRule: 'VS-HARDKEY', title: 'Hardcoded key' }),
+    ];
+    const report = buildComplianceReport(findings, {
+      ...defaultOptions,
+      jurisdiction: 'eu-gdpr',
+      includeOpinion: true,
+    }, 1000);
+    const markdown = generateMarkdownReport(report);
+
+    expect(report.appControls).toEqual([]);
+    expect(report.regulationControls?.some((control) => control.principle === 'GDPR_Art32' && control.status === 'fail')).toBe(true);
+    expect(markdown).toContain('General Data Protection Regulation (GDPR) — Subset Compliance Report');
+    expect(markdown).toContain('This assessment covers a subset of GDPR articles');
+    expect(markdown).toContain('GDPR_Art32');
+    expect(report.disclaimer).toContain('Other articles are deferred');
+    expect(report.complianceOpinion?.principles.some((principle) => principle.principle === 'GDPR_Art32')).toBe(true);
+  });
+
   it('should include remediation items', () => {
     const findings = [
       makeFinding({ id: 'F-1', severity: 'critical', sourceRule: 'VS-HARDKEY', title: 'Hardcoded key' }),

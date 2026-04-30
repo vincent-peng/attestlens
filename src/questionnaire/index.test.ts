@@ -14,6 +14,7 @@ import type {
 } from '../schema/index.js';
 import {
   CCPA_QUESTION_BANK,
+  GDPR_QUESTION_BANK,
   LEGACY_QUESTION_BANK_V1,
   LEGACY_QUESTIONNAIRE_VERSION,
   PRE_REMEDIATION_QUESTION_BANK_V2,
@@ -123,6 +124,13 @@ describe('question bank coverage and flow', () => {
     expect(getQuestionBankForJurisdiction('us-ccpa')[0]?.appPrinciple).toBe('CCPA_100');
   });
 
+  it('orders the GDPR question bank by GDPR principle order', () => {
+    expect(getQuestionBankForJurisdiction('eu-gdpr').map((question) => question.id)).toEqual(
+      GDPR_QUESTION_BANK.map((question) => question.id),
+    );
+    expect(getQuestionBankForJurisdiction('eu-gdpr')[0]?.appPrinciple).toBe('GDPR_Art3');
+  });
+
   it('evaluates CCPA no-discrimination as a control where yes fails and no passes', () => {
     const question = CCPA_QUESTION_BANK.find((candidate) => candidate.id === 'Q-CCPA125-001')!;
 
@@ -145,6 +153,54 @@ describe('question bank coverage and flow', () => {
       status: 'pass',
       rationale: expect.stringContaining('Applicability confirmed'),
     }));
+  });
+
+  it('evaluates GDPR applicability gates as pass-on-no gates', () => {
+    for (const questionId of [
+      'Q-GDPR-Art3-001',
+      'Q-GDPR-Art9-001',
+      'Q-GDPR-Art22-001',
+      'Q-GDPR-Art44-001',
+    ]) {
+      const question = GDPR_QUESTION_BANK.find((candidate) => candidate.id === questionId)!;
+
+      expect(evaluateResponse(question, makeResponse(question.id, false))).toEqual(expect.objectContaining({
+        status: 'pass',
+        rationale: expect.stringContaining('Applicability gate satisfied'),
+      }));
+      expect(evaluateResponse(question, makeResponse(question.id, true))).toEqual(expect.objectContaining({
+        status: 'pass',
+        rationale: expect.stringContaining('Applicability confirmed'),
+      }));
+    }
+  });
+
+  it('evaluates GDPR control answers as pass/fail paths', () => {
+    const question = GDPR_QUESTION_BANK.find((candidate) => candidate.id === 'Q-GDPR-Art32-001')!;
+
+    expect(evaluateResponse(question, makeResponse(question.id, true))).toEqual(expect.objectContaining({
+      status: 'pass',
+    }));
+    expect(evaluateResponse(question, makeResponse(question.id, false))).toEqual(expect.objectContaining({
+      status: 'fail',
+    }));
+  });
+
+  it('gates GDPR special category and transfer follow-ups behind applicability answers', () => {
+    expect(getApplicableQuestionsForPrinciple('GDPR_Art9', [], GDPR_QUESTION_BANK).map((question) => question.id)).toEqual([
+      'Q-GDPR-Art9-001',
+    ]);
+    expect(getApplicableQuestionsForPrinciple('GDPR_Art9', [
+      makeResponse('Q-GDPR-Art9-001', true),
+    ], GDPR_QUESTION_BANK).map((question) => question.id)).toEqual([
+      'Q-GDPR-Art9-001',
+      'Q-GDPR-Art9-002',
+    ]);
+    expect(getApplicableQuestionsForPrinciple('GDPR_Art44', [
+      makeResponse('Q-GDPR-Art44-001', false),
+    ], GDPR_QUESTION_BANK).map((question) => question.id)).toEqual([
+      'Q-GDPR-Art44-001',
+    ]);
   });
 
   it('skips APP 7 follow-ups when direct marketing is not used', () => {

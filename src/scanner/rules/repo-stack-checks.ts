@@ -4,6 +4,7 @@ import path from 'node:path';
 
 import type { AttestLensFinding, RulePackManifest, Severity } from '../../schema/index.js';
 import { scanCcpaChecks } from './ccpa-checks.js';
+import { scanGdprChecks } from './gdpr-checks.js';
 import { scanSastLiteFiles } from './sast-lite.js';
 
 interface RepoFile {
@@ -27,6 +28,9 @@ const REPO_EXTENSIONS = [
   '.sql',
   '.html',
   '.htm',
+  '.md',
+  '.mdx',
+  '.txt',
 ] as const;
 
 const EXCLUDE_DIRS = new Set([
@@ -121,6 +125,9 @@ export async function scanRepoStackChecks(
   if (shouldRunCcpaChecks(activeRulePack)) {
     findings.push(...scanCcpaChecks(repoFiles, scannerVersion));
   }
+  if (shouldRunGdprChecks(activeRulePack)) {
+    findings.push(...scanGdprChecks(repoFiles, scannerVersion));
+  }
 
   return findings;
 }
@@ -128,6 +135,11 @@ export async function scanRepoStackChecks(
 function shouldRunCcpaChecks(activeRulePack?: RulePackManifest): boolean {
   return activeRulePack?.jurisdiction === 'us-ccpa'
     || activeRulePack?.rules.some((rule) => rule.id.startsWith('CCPA-')) === true;
+}
+
+function shouldRunGdprChecks(activeRulePack?: RulePackManifest): boolean {
+  return activeRulePack?.jurisdiction === 'eu-gdpr'
+    || activeRulePack?.rules.some((rule) => rule.id.startsWith('GDPR-')) === true;
 }
 
 async function collectRepoFiles(targetPath: string): Promise<RepoFile[]> {

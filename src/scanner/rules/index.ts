@@ -3,6 +3,8 @@ export {
   EMBEDDED_RULE_PACK_VERSION,
   buildEmbeddedCCPAPack,
   buildEmbeddedCCPARulePack,
+  buildEmbeddedGDPRPack,
+  buildEmbeddedGDPRRulePack,
   buildEmbeddedJurisdictionPack,
   buildEmbeddedRulePack,
 } from './embedded.js';
@@ -11,8 +13,15 @@ export {
   scanCcpaChecks,
 } from './ccpa-checks.js';
 export {
+  GDPR_CHECKS,
+  scanGdprChecks,
+} from './gdpr-checks.js';
+export {
   CCPAPrincipleInfo,
 } from './ccpa-principles.js';
+export {
+  GDPRPrincipleInfo,
+} from './gdpr-principles.js';
 export {
   getExecutableGuardVibeStaticRuleSet,
   getExecutableGuardVibeStaticRules,

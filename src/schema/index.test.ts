@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import {
   CCPAPrinciple,
+  GDPRPrinciple,
   JurisdictionPackManifest,
   RegulationMapping,
   RuleDefinition,
@@ -86,6 +87,12 @@ describe('Rule pack schemas', () => {
     expect(() => CCPAPrinciple.parse('CCPA_999')).toThrow();
   });
 
+  it('validates GDPR subset principles', () => {
+    expect(GDPRPrinciple.parse('GDPR_Art3')).toBe('GDPR_Art3');
+    expect(GDPRPrinciple.parse('GDPR_Art44')).toBe('GDPR_Art44');
+    expect(() => GDPRPrinciple.parse('GDPR_Art99')).toThrow();
+  });
+
   it('validates v2 jurisdiction pack manifests', () => {
     const manifest = JurisdictionPackManifest.parse({
       schemaVersion: '2.0',
@@ -151,6 +158,40 @@ describe('Rule pack schemas', () => {
 
     expect(manifest.jurisdiction).toBe('us-ccpa');
     expect(manifest.rules[0]!.regulationMappings?.[0]?.principle).toBe('CCPA_100');
+  });
+
+  it('validates v2 GDPR jurisdiction pack manifests', () => {
+    const manifest = JurisdictionPackManifest.parse({
+      schemaVersion: '2.0',
+      version: '2026.04.30',
+      jurisdiction: 'eu-gdpr',
+      generated: '2026-04-30T00:00:00.000Z',
+      principles: [{
+        id: 'GDPR_Art32',
+        shortName: 'Security of Processing',
+        obligation: 'Implement appropriate security controls',
+        citation: 'GDPR Art. 32(1)',
+      }],
+      rules: [{
+        id: 'GDPR-TEST-001',
+        category: 'gdpr-security',
+        severity: 'high',
+        title: 'Test GDPR rule',
+        description: 'A test GDPR rule',
+        addedIn: '2026.04.30',
+        regulationMappings: [{
+          jurisdiction: 'eu-gdpr',
+          principle: 'GDPR_Art32',
+          obligation: 'Implement appropriate security controls',
+          status: 'fail',
+          confidence: 0.9,
+          citation: 'GDPR Art. 32(1)',
+        }],
+      }],
+    });
+
+    expect(manifest.jurisdiction).toBe('eu-gdpr');
+    expect(manifest.rules[0]!.regulationMappings?.[0]?.principle).toBe('GDPR_Art32');
   });
 
   it('accepts rule definitions with regulationMappings and appMappings', () => {

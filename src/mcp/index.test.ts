@@ -295,7 +295,7 @@ describe('MCP Server', () => {
       expect(urlTool?.title).toBe('Live Site Compliance Scan');
       expect(urlTool?.description).toContain('public URL');
       expect(checkTool?.title).toBe('Single Principle Compliance Check');
-      expect(checkTool?.description).toContain('single APP principle');
+      expect(checkTool?.description).toContain('single regulation principle');
       expect(complianceCheckTool?.title).toBe('Compliance Check for Australian Businesses');
       expect(complianceCheckTool?.description).toContain('plain-English compliance check');
 
@@ -435,7 +435,49 @@ describe('MCP Server', () => {
       }));
     });
 
-    it('supports CCPA jurisdiction for MCP scan, audit, and opinion tools', async () => {
+    it('supports GDPR jurisdiction for attestlens_check', async () => {
+      vi.spyOn(ScannerOrchestrator.prototype, 'scan').mockResolvedValue({
+        findings: [
+          makeFinding(),
+        ],
+        results: [
+          {
+            source: 'guardvibe',
+            version: '1.0.0',
+            timestamp: new Date().toISOString(),
+            findings: [
+              makeFinding(),
+            ],
+            errors: [],
+            durationMs: 12,
+          },
+        ],
+        errors: [],
+        totalDurationMs: 12,
+        ruleFreshness: makeRuleFreshness(),
+      });
+
+      const response = await handleToolCall('attestlens_check', {
+        path: tempDir,
+        jurisdiction: 'eu-gdpr',
+        principle: 'GDPR_Art32',
+      });
+      const payload = expectJsonStructuredPayload(response);
+
+      expect(payload).toEqual(expect.objectContaining({
+        jurisdiction: 'eu-gdpr',
+        principle: 'GDPR_Art32',
+        verdict: 'NON_COMPLIANT',
+        findings: [
+          expect.objectContaining({
+            id: 'FIND-APP11',
+            severity: 'critical',
+          }),
+        ],
+      }));
+    });
+
+    it('supports CCPA and GDPR jurisdictions for MCP scan, audit, and opinion tools', async () => {
       const scanSpy = vi.spyOn(ScannerOrchestrator.prototype, 'scan').mockResolvedValue({
         findings: [
           makeFinding(),
@@ -460,6 +502,9 @@ describe('MCP Server', () => {
         { name: 'attestlens_scan', args: { path: tempDir, jurisdiction: 'us-ccpa' } },
         { name: 'attestlens_audit', args: { path: tempDir, jurisdiction: 'us-ccpa', format: 'json' } },
         { name: 'attestlens_opinion', args: { path: tempDir, jurisdiction: 'us-ccpa' } },
+        { name: 'attestlens_scan', args: { path: tempDir, jurisdiction: 'eu-gdpr' } },
+        { name: 'attestlens_audit', args: { path: tempDir, jurisdiction: 'eu-gdpr', format: 'json' } },
+        { name: 'attestlens_opinion', args: { path: tempDir, jurisdiction: 'eu-gdpr' } },
       ];
 
       for (const toolCall of toolCalls) {
@@ -467,7 +512,7 @@ describe('MCP Server', () => {
 
         expect(response.isError, toolCall.name).not.toBe(true);
       }
-      expect(scanSpy).toHaveBeenCalledTimes(3);
+      expect(scanSpy).toHaveBeenCalledTimes(6);
     });
 
     it('includes CCPA regulation mappings in attestlens_scan results', async () => {
@@ -505,6 +550,41 @@ describe('MCP Server', () => {
       ))).toBe(true);
     });
 
+    it('includes GDPR regulation mappings in attestlens_scan results', async () => {
+      vi.spyOn(ScannerOrchestrator.prototype, 'scan').mockResolvedValue({
+        findings: [
+          makeFinding(),
+        ],
+        results: [
+          {
+            source: 'guardvibe',
+            version: '1.0.0',
+            timestamp: new Date().toISOString(),
+            findings: [
+              makeFinding(),
+            ],
+            errors: [],
+            durationMs: 12,
+          },
+        ],
+        errors: [],
+        totalDurationMs: 12,
+        ruleFreshness: makeRuleFreshness(),
+      });
+
+      const response = await handleToolCall('attestlens_scan', {
+        path: tempDir,
+        jurisdiction: 'eu-gdpr',
+      });
+      const payload = expectJsonStructuredPayload(response);
+
+      expect(payload.controls.every((control: any) => control.jurisdiction === 'eu-gdpr')).toBe(true);
+      expect(payload.controls.some((control: any) => control.jurisdiction === 'eu-gdpr' && control.principle === 'GDPR_Art32')).toBe(true);
+      expect(payload.findings[0].regulationMappings.some((mapping: any) => (
+        mapping.jurisdiction === 'eu-gdpr' && mapping.principle === 'GDPR_Art32'
+      ))).toBe(true);
+    });
+
     it('maps findings to CCPA controls with attestlens_map jurisdiction input', async () => {
       const response = await handleToolCall('attestlens_map', {
         jurisdiction: 'us-ccpa',
@@ -527,6 +607,30 @@ describe('MCP Server', () => {
         status: 'fail',
       }));
       expect(payload.regulationMappings['us-ccpa:CCPA_150']).toEqual(expect.objectContaining({
+        status: 'fail',
+      }));
+      expect(payload.appMappings).toEqual({});
+    });
+
+    it('maps findings to GDPR controls with attestlens_map jurisdiction input', async () => {
+      const response = await handleToolCall('attestlens_map', {
+        jurisdiction: 'eu-gdpr',
+        findings: [
+          {
+            id: 'FIND-GDPR-SECRET',
+            source: 'guardvibe',
+            sourceRule: 'VS-HARDKEY',
+            severity: 'critical',
+            category: 'Security',
+            title: 'Hardcoded API key',
+            description: 'A hardcoded API key is present in source code',
+          },
+        ],
+      });
+      const payload = expectJsonStructuredPayload(response);
+
+      expect(payload.jurisdiction).toBe('eu-gdpr');
+      expect(payload.regulationMappings['eu-gdpr:GDPR_Art32']).toEqual(expect.objectContaining({
         status: 'fail',
       }));
       expect(payload.appMappings).toEqual({});
@@ -1147,7 +1251,7 @@ describe('MCP Contract Tests', () => {
       openWorldHint: true,
     },
     attestlens_map: {
-      title: 'Map Findings to APP/NDB',
+      title: 'Map Findings to Regulation Controls',
       openWorldHint: false,
     },
     attestlens_opinion: {

@@ -2,6 +2,8 @@ import { APPInfo, JurisdictionPackManifest, RulePackManifest, appMappingToRegula
 import type { APPMapping, Jurisdiction, RuleDefinition, JurisdictionPackManifest as JurisdictionPackManifestType, RulePackManifest as RulePackManifestType } from '../../schema/index.js';
 import { CCPA_CHECKS } from './ccpa-checks.js';
 import { CCPAPrincipleInfo } from './ccpa-principles.js';
+import { GDPR_CHECKS } from './gdpr-checks.js';
+import { GDPRPrincipleInfo } from './gdpr-principles.js';
 import { KEY_PATTERNS } from './exposed-keys.js';
 import { INFRA_CHECKS } from './infra-checks.js';
 import { JS_PATTERNS } from './js-analysis.js';
@@ -11,6 +13,8 @@ export const EMBEDDED_RULE_PACK_VERSION = '2026.04.28';
 export const EMBEDDED_RULE_PACK_GENERATED = '2026-04-28T00:00:00.000Z';
 export const EMBEDDED_CCPA_PACK_VERSION = '2026.04.30';
 export const EMBEDDED_CCPA_PACK_GENERATED = '2026-04-30T00:00:00.000Z';
+export const EMBEDDED_GDPR_PACK_VERSION = '2026.04.30';
+export const EMBEDDED_GDPR_PACK_GENERATED = '2026-04-30T00:00:00.000Z';
 
 const app11Mapping: APPMapping = {
   principle: 'APP_11',
@@ -468,9 +472,39 @@ export function buildEmbeddedCCPAPack(): JurisdictionPackManifestType {
   });
 }
 
+export function buildEmbeddedGDPRRulePack(): RulePackManifestType {
+  return RulePackManifest.parse({
+    schemaVersion: '1.0',
+    version: EMBEDDED_GDPR_PACK_VERSION,
+    generated: EMBEDDED_GDPR_PACK_GENERATED,
+    jurisdiction: 'eu-gdpr',
+    rules: normalizeRuleDefinitions(GDPR_CHECKS),
+  });
+}
+
+export function buildEmbeddedGDPRPack(): JurisdictionPackManifestType {
+  const rulePack = buildEmbeddedGDPRRulePack();
+  return JurisdictionPackManifest.parse({
+    schemaVersion: '2.0',
+    version: EMBEDDED_GDPR_PACK_VERSION,
+    jurisdiction: 'eu-gdpr',
+    generated: EMBEDDED_GDPR_PACK_GENERATED,
+    principles: Object.entries(GDPRPrincipleInfo).map(([id, info]) => ({
+      id,
+      shortName: info.shortName,
+      obligation: info.obligation,
+      citation: info.citation,
+    })),
+    rules: rulePack.rules,
+  });
+}
+
 export function buildEmbeddedJurisdictionPack(jurisdiction: Jurisdiction = 'au-privacy-act'): JurisdictionPackManifestType {
   if (jurisdiction === 'us-ccpa') {
     return buildEmbeddedCCPAPack();
+  }
+  if (jurisdiction === 'eu-gdpr') {
+    return buildEmbeddedGDPRPack();
   }
   if (jurisdiction !== 'au-privacy-act') {
     throw new Error(`No embedded jurisdiction pack for ${jurisdiction}`);

@@ -4,6 +4,11 @@ export {
   getCCPAQuestionsForPrinciples,
 } from './ccpa-questions.js';
 export {
+  GDPR_QUESTION_BANK,
+  GDPR_QUESTIONNAIRE_VERSION,
+  getGDPRQuestionsForPrinciples,
+} from './gdpr-questions.js';
+export {
   LEGACY_QUESTION_BANK_V1,
   LEGACY_QUESTIONNAIRE_VERSION,
   PRE_REMEDIATION_QUESTION_BANK_V2,
