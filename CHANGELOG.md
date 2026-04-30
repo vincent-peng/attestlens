@@ -2,6 +2,34 @@
 
 ## 0.3.0 (2026-04-30)
 
+### Phase 8: EU GDPR Subset Pack
+
+- 14 GDPR principles (GDPR_Art3 through GDPR_Art44)
+- 9 GDPR mapping rules (MAP-GDPR-001 through MAP-GDPR-009)
+- 6 GDPR scanner rules (GDPR-CONSENT-001, GDPR-PRIVACY-001, GDPR-TRANSFER-001, GDPR-DPIA-001, GDPR-ART22-001, GDPR-SEC-001)
+- 17 GDPR questionnaire questions (4 applicability gates)
+- Embedded GDPR jurisdiction pack
+- Multi-jurisdiction report generator (AU + US + EU sections)
+- Special-category value redaction in scanner findings
+- Advisory findings preserve questionnaire routing
+
+### Phase 7: US CCPA/CPRA Pack
+
+- 12 CCPA/CPRA principles (CCPA_100 through CCPA_150)
+- 9 CCPA mapping rules
+- 6 CCPA scanner rules (DNS, privacy policy, GPC, sensitive PI, security)
+- 11 CCPA questionnaire questions (including applicability gates)
+- Embedded CCPA jurisdiction pack
+
+### Phase 6: Jurisdiction Abstraction
+
+- Jurisdiction, RegulationPrinciple, RegulationMapping schemas
+- JurisdictionPackManifest v2
+- --jurisdiction flag on all CLI commands and MCP tools
+- Multi-jurisdiction report framework
+- Fail-closed jurisdiction pack loading
+- Backward-compatible AU-only defaults preserved
+
 ### Phase 5A: MCP Protocol Hardening
 
 - McpServer migration with Zod input/output schemas

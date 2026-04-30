@@ -3,7 +3,7 @@
 **Date:** 2026-04-18 (updated 2026-04-29)
 **Purpose:** Competitive landscape reference data. For current product positioning, see `docs/YC-RFS-EVOLUTION.md`.
 
-> **Note:** This doc was written pre-YC-RFS positioning. The competitive landscape data is still valid. The product strategy has shifted from "compete with vibe scanners" to "AI compliance service positioned at 3 YC RFS categories." See `docs/YC-RFS-EVOLUTION.md`.
+> **Note:** This competitive analysis was conducted pre-internationalization (April 2026). AttestLens now supports multi-jurisdiction compliance (AU + US CCPA + EU GDPR). The competitive landscape data remains valid but the product positioning has evolved. See `docs/YC-RFS-EVOLUTION.md` and `docs/INTERNATIONAL-STRATEGY.md` for current positioning.
 
 ---
 
@@ -450,7 +450,7 @@ Their Juice Shop report is the gold standard for security report quality:
 
 See `docs/SHANNON-ADAPTER-SPEC.md` for the deferred research note and future design constraints.
 
-**Important:** Shannon integration is exploratory and explicitly out of scope for the current shipped roadmap. It should not widen current CLI, MCP, or schema contracts until post-`v0.2.0` prioritization and a full trust-boundary design are approved.
+**Important:** Shannon integration is exploratory and explicitly out of scope for the current shipped roadmap. It should not widen current CLI, MCP, or schema contracts until future prioritization and a full trust-boundary design are approved.
 
 **Core idea:** Import Shannon scan results (JSON) → auto-map findings to APP/NDB → generate compliance attestation pack. "From pentest to attestation in 5 minutes."
 
