@@ -633,8 +633,8 @@ describe('GDPR_MAPPING_RULES', () => {
       ruleId: 'MAP-GDPR-006',
       finding: makeFinding({ category: 'Data Leak', title: 'Data leak exposure', severity: 'high' }),
       principle: 'GDPR_Art33',
-      status: 'fail',
-      confidence: 0.80,
+      status: 'unknown',
+      confidence: 0.50,
       citation: 'GDPR Art. 33(1)',
     },
     {
@@ -888,7 +888,8 @@ describe('mapAllFindings', () => {
     const art33 = controls.find(c => c.jurisdiction === 'eu-gdpr' && c.principle === 'GDPR_Art33');
     expect(controls).toHaveLength(14);
     expect(art32?.status).toBe('fail');
-    expect(art33?.status).toBe('fail');
+    expect(art33?.status).toBe('unknown');
+    expect(art33?.questionnaireRequired).toBe(true);
     expect(unmapped).toEqual([]);
   });
 

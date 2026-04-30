@@ -1151,8 +1151,8 @@ export const GDPR_MAPPING_RULES: MappingRule[] = [
     },
     jurisdiction: 'eu-gdpr',
     regulationPrinciple: 'GDPR_Art33',
-    status: 'fail',
-    confidence: 0.80,
+    status: 'unknown',
+    confidence: 0.50,
     rationale: 'Breach, leak, or exposure findings may indicate a personal data breach pathway requiring supervisory authority notification assessment.',
     citation: 'GDPR Art. 33(1)',
   },
@@ -1544,10 +1544,10 @@ export function mapAllFindings(
 
   // Final pass: set questionnaire requirements
   for (const control of controlMap.values()) {
-    if (control.findings.length === 0 && control.status === 'unknown') {
-      control.questionnaireRequired = true;
-    } else if (control.status === 'fail') {
+    if (control.status === 'fail') {
       control.questionnaireRequired = false;
+    } else if (control.status === 'unknown') {
+      control.questionnaireRequired = true;
     } else if (control.findings.length > 0) {
       control.questionnaireRequired = false;
     }

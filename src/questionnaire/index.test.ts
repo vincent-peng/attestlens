@@ -30,6 +30,7 @@ import {
   buildQuestionSetHash,
   buildSessionPaths,
   createQuestionnaireSession,
+  deriveQuestionnairePrinciples,
   evaluateResponse,
   getApplicableQuestionsForPrinciple,
   getQuestionBankForJurisdiction,
@@ -201,6 +202,44 @@ describe('question bank coverage and flow', () => {
     ], GDPR_QUESTION_BANK).map((question) => question.id)).toEqual([
       'Q-GDPR-Art44-001',
     ]);
+  });
+
+  it('routes advisory GDPR findings to the questionnaire principles that resolve them', () => {
+    const cases = [
+      { ruleId: 'GDPR-CONSENT-001', principle: 'GDPR_Art6', obligation: 'Lawful basis' },
+      { ruleId: 'GDPR-TRANSFER-001', principle: 'GDPR_Art44', obligation: 'International transfers' },
+      { ruleId: 'GDPR-DPIA-001', principle: 'GDPR_Art35', obligation: 'DPIA' },
+      { ruleId: 'GDPR-ART22-001', principle: 'GDPR_Art22', obligation: 'Automated decisions' },
+    ] as const;
+
+    for (const testCase of cases) {
+      const finding: AttestLensFinding = {
+        id: `F-${testCase.ruleId}`,
+        source: 'guardvibe',
+        sourceRule: testCase.ruleId,
+        severity: 'medium',
+        category: 'gdpr-advisory',
+        title: testCase.ruleId,
+        description: 'Advisory GDPR scanner finding',
+        file: 'src/app.ts',
+        line: 1,
+        appMappings: [],
+        regulationMappings: [{
+          jurisdiction: 'eu-gdpr',
+          principle: testCase.principle,
+          obligation: testCase.obligation,
+          status: 'unknown',
+          confidence: 0.5,
+        }],
+        evidence: {
+          timestamp: new Date().toISOString(),
+          scannerVersion: 'test',
+          rawOutput: {},
+        },
+      };
+
+      expect(deriveQuestionnairePrinciples([finding], 'eu-gdpr')).toContain(testCase.principle);
+    }
   });
 
   it('skips APP 7 follow-ups when direct marketing is not used', () => {

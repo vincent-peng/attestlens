@@ -69,15 +69,15 @@
 
 ### Scoped Coverage (not full GDPR)
 
-We explicitly cover these articles only:
+We explicitly cover these 14 principle IDs covering selected articles/article ranges only:
 
 | Article | Title | Clearway Principle ID | Agent-Relevant Check |
 |---|---|---|---|
-| Art. 3 | Territorial scope | `GDPR_Art3` | Does the app process EU residents' data? If so, GDPR applies regardless of where the processor is located |
+| Art. 3 | Territorial scope | `GDPR_Art3` | Is the controller/processor established in the EU, or offering goods/services to, or monitoring the behaviour of, data subjects in the Union? |
 | Art. 5 | Principles of processing | `GDPR_Art5` | Lawfulness, fairness, transparency, purpose limitation, data minimization, accuracy, storage limitation, integrity/confidentiality, accountability |
 | Art. 6 | Lawful basis for processing | `GDPR_Art6` | Is there a valid legal basis (consent/contract/legal obligation/vital interests/public interest/legitimate interest) for each processing activity? |
-| Art. 9 | Special categories of data | `GDPR_Art9` | Is sensitive data (racial, health, biometric, sexual) being processed? If so, is explicit consent or exemption documented? |
-| Art. 13–14 | Information to data subjects | `GDPR_Art13` / `GDPR_Art14` | Is there a privacy notice that includes "meaningful information about the logic involved" in automated processing? |
+| Art. 9 | Special categories of data | `GDPR_Art9` | Is special category data (racial/ethnic origin, political opinions, philosophical beliefs, religious beliefs, trade union membership, genetic data, biometric identification data, health data, sex life, or sexual orientation) being processed? If so, is explicit consent or exemption documented? |
+| Art. 13–14 | Information to data subjects | `GDPR_Art13` (covers Art. 13-14 in this subset model) | Is there a privacy notice that includes "meaningful information about the logic involved" in automated processing? |
 | Art. 15 | Right of access | `GDPR_Art15` | Can data subjects access their data + info about automated decision-making logic? |
 | Art. 17 | Right to erasure | `GDPR_Art17` | Can data subjects request deletion? Is there a mechanism? |
 | Art. 22 | Automated individual decision-making | `GDPR_Art22` | Are there solely automated decisions with legal/significant effects? If so, is there human oversight, right to contest? |

@@ -123,4 +123,53 @@ describe('GDPR_CHECKS', () => {
       })],
     }));
   });
+
+  it('redacts health condition values from GDPR-SEC-001 evidence', () => {
+    const findings = scanGdprChecks([
+      { relativePath: 'data/patient.json', content: '{"name":"Ada","health_condition":"asthma"}' },
+    ], 'test');
+    const finding = findings.find((candidate) => candidate.sourceRule === 'GDPR-SEC-001');
+
+    expect(finding?.code).toContain('health_condition');
+    expect(finding?.code).toContain('[REDACTED]');
+    expect(finding?.code).not.toContain('asthma');
+  });
+
+  it('redacts sexual orientation values from GDPR-SEC-001 evidence', () => {
+    const findings = scanGdprChecks([
+      { relativePath: 'data/profile.json', content: '{"sexual_orientation":"bisexual"}' },
+    ], 'test');
+    const finding = findings.find((candidate) => candidate.sourceRule === 'GDPR-SEC-001');
+
+    expect(finding?.code).toContain('sexual_orientation');
+    expect(finding?.code).toContain('[REDACTED]');
+    expect(finding?.code).not.toContain('bisexual');
+  });
+
+  it('detects additional Article 9 special category keys', () => {
+    const cases = [
+      'political_opinion',
+      'political_affiliation',
+      'trade_union',
+      'trade_union_member',
+      'union_membership',
+      'genetic_data',
+      'genetic_test',
+      'philosophical_belief',
+      'philosophy',
+      'sex_life',
+    ];
+
+    for (const key of cases) {
+      const findings = scanGdprChecks([
+        { relativePath: `data/${key}.json`, content: `{"${key}":"sample-value"}` },
+      ], 'test');
+      const finding = findings.find((candidate) => candidate.sourceRule === 'GDPR-SEC-001');
+
+      expect(finding, key).toBeDefined();
+      expect(finding?.code).toContain(key);
+      expect(finding?.code).toContain('[REDACTED]');
+      expect(finding?.code).not.toContain('sample-value');
+    }
+  });
 });

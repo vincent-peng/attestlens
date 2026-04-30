@@ -3,7 +3,7 @@ import type { GDPRPrinciple } from '../../schema/index.js';
 export const GDPRPrincipleInfo: Record<GDPRPrinciple, { shortName: string; obligation: string; citation: string }> = {
   GDPR_Art3: {
     shortName: 'Territorial Scope',
-    obligation: 'If processing EU residents\' data, GDPR applies regardless of processor location',
+    obligation: 'GDPR applies to controllers/processors established in the EU, or offering goods/services to, or monitoring the behaviour of, data subjects in the Union',
     citation: 'GDPR Art. 3',
   },
   GDPR_Art5: {
@@ -18,7 +18,7 @@ export const GDPRPrincipleInfo: Record<GDPRPrinciple, { shortName: string; oblig
   },
   GDPR_Art9: {
     shortName: 'Special Categories',
-    obligation: 'Special category data (racial, health, biometric, sexual) requires explicit consent or documented exemption under Art 9(2)',
+    obligation: 'Special category data (racial/ethnic origin, political opinions, philosophical beliefs, religious beliefs, trade union membership, genetic data, biometric data for identification, health data, sex life, sexual orientation) requires explicit consent or a documented Art 9(2) exemption',
     citation: 'GDPR Art. 9',
   },
   GDPR_Art13: {

@@ -381,7 +381,7 @@ function buildJurisdictionManifestFromRulePack(manifest: RulePackManifestType): 
 }
 
 export function getJurisdictionUnavailableMessage(jurisdiction: Jurisdiction): string {
-  return `All jurisdictions are available: ${AVAILABLE_JURISDICTIONS.join(', ')}. Requested jurisdiction: ${jurisdiction}`;
+  return `No embedded rule pack loaded for requested jurisdiction '${jurisdiction}'. Available jurisdictions: ${AVAILABLE_JURISDICTIONS.join(', ')}`;
 }
 
 function buildRuleFreshness(

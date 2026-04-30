@@ -10,7 +10,9 @@ export interface GdprCheckFile {
 
 const GDPR_RULE_VERSION = '2026.04.30';
 const GDPR_APPLICABILITY_ADVISORY =
-  'Advisory only: confirm GDPR applies and the business processes EU residents\' data before treating as a failure.';
+  'Advisory only: confirm GDPR applies under Art. 3 before treating as a failure.';
+const SPECIAL_CATEGORY_FIELD_PATTERN = String.raw`health[_ -]?(?:condition|data|record)?|medical[_ -]?record|diagnosis|biometric[_ -]?(?:template|data|identification)|fingerprint|faceprint|racial[_ -]?origin|ethnic(?:ity|[_ -]?origin)?|religious[_ -]?(?:belief|data)?|political[_ -]?(?:opinion|affiliation)|trade[_ -]?union(?:[_ -]?(?:member|membership))?|union[_ -]?membership|genetic[_ -]?(?:data|test)|philosophical[_ -]?belief|philosophy|sexual[_ -]?orientation|sex[_ -]?life`;
+const SPECIAL_CATEGORY_PATTERN_SOURCE = String.raw`['"]?(?:${SPECIAL_CATEGORY_FIELD_PATTERN})['"]?\s*[:=]\s*['"][^'"]{2,}`;
 
 function gdprMapping(
   principle: keyof typeof GDPRPrincipleInfo,
@@ -109,8 +111,8 @@ export const GDPR_CHECKS: RuleDefinition[] = [
     category: 'gdpr-security',
     severity: 'critical',
     title: 'Unencrypted special category data',
-    description: 'Plaintext special category data such as health, biometric, racial, religious, or sexual orientation data was found in repository data stores or fixtures.',
-    pattern: String.raw`['"]?(?:health[_ -]?(?:condition|data|record)?|medical[_ -]?record|diagnosis|biometric[_ -]?(?:template|data)|fingerprint|faceprint|racial[_ -]?origin|ethnic(?:ity|[_ -]?origin)?|religious?[_ -]?(?:belief|data)?|sexual[_ -]?orientation)['"]?\s*[:=]\s*['"][^'"]{2,}`,
+    description: 'Plaintext special category data such as racial or ethnic origin, political opinions, religious or philosophical beliefs, trade union membership, genetic, biometric, health, sex life, or sexual orientation data was found in repository data stores or fixtures.',
+    pattern: SPECIAL_CATEGORY_PATTERN_SOURCE,
     flags: 'i',
     fixPrompt: 'Remove plaintext special category data, encrypt required data at rest, and document explicit consent or the applicable Art 9(2) exemption.',
     appMappings: [],
@@ -137,7 +139,8 @@ const DPIA_TRIGGER_PATTERN = /profiling|automated\s+decision(?:-making)?|algorit
 const DPIA_DOCUMENTED_PATTERN = /data\s+protection\s+impact\s+assessment|\bDPIA\b|impact\s+assessment/i;
 const AUTOMATED_DECISION_PATTERN = /solely\s+automated|automated\s*decision(?:-making)?|automatedDecision|algorithmic\s+decision|profiling|credit\s+scoring|risk\s+scoring|eligibility\s+score/i;
 const HUMAN_REVIEW_PATTERN = /human\s+review|manual\s+review|human\s+intervention|appeal|contest|safeguard|meaningful\s+review|caseworker\s+review/i;
-const SPECIAL_CATEGORY_PATTERN = /['"]?(?:health[_ -]?(?:condition|data|record)?|medical[_ -]?record|diagnosis|biometric[_ -]?(?:template|data)|fingerprint|faceprint|racial[_ -]?origin|ethnic(?:ity|[_ -]?origin)?|religious?[_ -]?(?:belief|data)?|sexual[_ -]?orientation)['"]?\s*[:=]\s*['"][^'"]{2,}/i;
+const SPECIAL_CATEGORY_PATTERN = new RegExp(SPECIAL_CATEGORY_PATTERN_SOURCE, 'i');
+const SPECIAL_CATEGORY_REDACTION_PATTERN = new RegExp(String.raw`(['"]?(?:${SPECIAL_CATEGORY_FIELD_PATTERN})['"]?\s*[:=]\s*['"])[^'"]{2,}`, 'gi');
 
 export function scanGdprChecks(files: GdprCheckFile[], scannerVersion: string): AttestLensFinding[] {
   const findings: AttestLensFinding[] = [];
@@ -221,7 +224,10 @@ function makeFinding(
     throw new Error(`Unknown GDPR rule: ${ruleId}`);
   }
 
-  const payload = `${ruleId}:${file}:${line}:${code}`;
+  const redactedCode = ruleId === 'GDPR-SEC-001'
+    ? redactSpecialCategoryValues(code)
+    : code;
+  const payload = `${ruleId}:${file}:${line}:${redactedCode}`;
   return {
     id: crypto.createHash('sha256').update(payload).digest('hex').substring(0, 12),
     source: 'guardvibe',
@@ -232,7 +238,7 @@ function makeFinding(
     description: rule.description,
     file,
     line,
-    code,
+    code: redactedCode,
     fix: rule.fixPrompt,
     appMappings: [],
     regulationMappings: rule.regulationMappings,
@@ -255,8 +261,27 @@ function findFirstMatch(content: string, pattern: RegExp): { line: number; code:
     pattern.lastIndex = 0;
     const line = lines[index] || '';
     if (pattern.test(line)) {
-      return { line: index + 1, code: line.trim() };
+      const code = line.trim();
+      return {
+        line: index + 1,
+        code: pattern === SPECIAL_CATEGORY_PATTERN
+          ? redactSpecialCategoryValues(code)
+          : code,
+      };
     }
   }
   return null;
+}
+
+function redactSpecialCategoryValues(code: string): string {
+  return code
+    .split('\n')
+    .map((line) => {
+      SPECIAL_CATEGORY_PATTERN.lastIndex = 0;
+      if (!SPECIAL_CATEGORY_PATTERN.test(line)) {
+        return line;
+      }
+      return line.replace(SPECIAL_CATEGORY_REDACTION_PATTERN, '$1[REDACTED]');
+    })
+    .join('\n');
 }

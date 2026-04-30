@@ -10,7 +10,7 @@ export const GDPR_QUESTION_BANK: GDPRQuestion[] = [
   {
     id: 'Q-GDPR-Art3-001',
     appPrinciple: 'GDPR_Art3',
-    question: 'Do you process personal data of individuals residing in the EU/EEA?',
+    question: 'Are you a controller or processor established in the EU, or do you offer goods/services to or monitor the behaviour of data subjects in the Union?',
     type: 'yes_no',
     required: true,
     role: 'applicability_gate',
@@ -46,7 +46,7 @@ export const GDPR_QUESTION_BANK: GDPRQuestion[] = [
   {
     id: 'Q-GDPR-Art9-001',
     appPrinciple: 'GDPR_Art9',
-    question: 'Do you process special category data (racial/ethnic origin, health, biometric, religious, sexual orientation)?',
+    question: 'Do you process special category data (racial/ethnic origin, political opinions, philosophical beliefs, religious beliefs, trade union membership, genetic data, biometric identification data, health data, sex life, or sexual orientation)?',
     type: 'yes_no',
     required: true,
     role: 'applicability_gate',

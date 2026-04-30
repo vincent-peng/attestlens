@@ -9,6 +9,7 @@ import {
   buildFrozenSessionQuestions,
   buildQuestionSetHash,
 } from '../questionnaire/index.js';
+import { scanGdprChecks } from '../scanner/rules/gdpr-checks.js';
 
 function makeFinding(overrides: Partial<AttestLensFinding> = {}): AttestLensFinding {
   return {
@@ -176,6 +177,30 @@ describe('buildComplianceReport', () => {
     expect(markdown).toContain('GDPR_Art32');
     expect(report.disclaimer).toContain('Other articles are deferred');
     expect(report.complianceOpinion?.principles.some((principle) => principle.principle === 'GDPR_Art32')).toBe(true);
+  });
+
+  it('keeps GDPR-SEC-001 special-category values redacted across report formats', () => {
+    const findings = scanGdprChecks([
+      { relativePath: 'data/patient.json', content: '{"health_condition":"asthma"}' },
+    ], 'test').filter((finding) => finding.sourceRule === 'GDPR-SEC-001');
+    const reportOptions: ReportOptions = {
+      ...defaultOptions,
+      jurisdiction: 'eu-gdpr',
+      formats: ['json', 'html', 'markdown'],
+    };
+    const report = buildComplianceReport(findings, reportOptions, 1000);
+
+    const outputs = [
+      generateJSONReport(report),
+      generateHTMLReport(report, reportOptions),
+      generateMarkdownReport(report),
+    ];
+
+    for (const output of outputs) {
+      expect(output).toContain('health_condition');
+      expect(output).toContain('[REDACTED]');
+      expect(output).not.toContain('asthma');
+    }
   });
 
   it('should include remediation items', () => {

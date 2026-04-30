@@ -1846,6 +1846,12 @@ export function generateMarkdownReport(
     lines.push(`- **File:** ${f.file || 'N/A'}${f.line ? `:${f.line}` : ''}`);
     lines.push('');
     lines.push(f.description);
+    if (f.code) {
+      lines.push('');
+      lines.push('```');
+      lines.push(f.code);
+      lines.push('```');
+    }
     if (f.fix) {
       lines.push('');
       lines.push(`**Suggested Fix:** ${f.fix}`);

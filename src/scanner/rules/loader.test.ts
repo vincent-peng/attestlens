@@ -314,6 +314,8 @@ describe('rule pack loader', () => {
 
   it('treats all declared jurisdictions as available', () => {
     expect(AVAILABLE_JURISDICTIONS).toEqual(['au-privacy-act', 'us-ccpa', 'eu-gdpr']);
-    expect(getJurisdictionUnavailableMessage('eu-gdpr')).toContain('All jurisdictions are available');
+    expect(getJurisdictionUnavailableMessage('eu-gdpr')).toBe(
+      "No embedded rule pack loaded for requested jurisdiction 'eu-gdpr'. Available jurisdictions: au-privacy-act, us-ccpa, eu-gdpr",
+    );
   });
 });
