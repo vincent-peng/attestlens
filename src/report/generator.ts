@@ -12,6 +12,7 @@ import type {
   AttestLensFinding,
   APPControl,
   APPPrinciple,
+  Jurisdiction,
   ReportAssessment,
   ComplianceReport,
   AssessmentMode,
@@ -20,6 +21,7 @@ import type {
   Severity,
   QuestionnaireSession,
   RuleFreshness,
+  RegulationControl,
   ReformImpactAssessment,
   ReformProvision as ReformProvisionName,
 } from '../schema/index.js';
@@ -32,7 +34,7 @@ import {
   calculateRiskLevel,
   reformProvisionSchema,
 } from '../schema/index.js';
-import { mapAllFindingsAU } from '../mapping/engine.js';
+import { mapAllFindings } from '../mapping/engine.js';
 import { getQuestionById } from '../questionnaire/index.js';
 import { buildComplianceOpinion } from '../opinion/engine.js';
 import { sanitizeTargetPathForOutput, sanitizeTargetUrlForOutput } from '../utils/target.js';
@@ -62,6 +64,7 @@ export interface ReportOptions {
   includeReform?: boolean; // Include Privacy Act 2026 reform impact assessment
   includeSMB?: boolean; // Include plain-English SMB compliance result
   ruleFreshness?: RuleFreshness;
+  jurisdiction?: Jurisdiction;
   branding?: {
     logo?: string;
     primaryColor?: string;
@@ -77,34 +80,47 @@ export function buildComplianceReport(
   durationMs: number,
   questionnaireSession?: QuestionnaireSession,
 ): ComplianceReport {
-  // Step 1: Map findings to APP obligations.
+  const jurisdiction = options.jurisdiction ?? 'au-privacy-act';
+
+  // Step 1: Map findings to regulation obligations.
   // When questionnaire results are present, keep UNKNOWN controls as-is
   // until the questionnaire merge has a chance to resolve them.
-  const { controls: appControls } = mapAllFindingsAU(findings, questionnaireSession ? false : options.strictMode);
+  const { controls: regulationControls } = mapAllFindings(findings, {
+    strictMode: questionnaireSession ? false : options.strictMode,
+    jurisdictions: [jurisdiction],
+  });
+  const activeControls = regulationControls;
   const mappedFindings = findings; // findings now have appMappings populated by mapAllFindings
 
   // Step 2: Merge questionnaire outcomes, then apply strict mode to anything
   // still unresolved.
   if (questionnaireSession) {
-    mergeQuestionnaireResults(appControls, questionnaireSession);
+    mergeQuestionnaireResults(activeControls, questionnaireSession);
 
     if (options.strictMode) {
-      applyStrictModeToUnknownControls(appControls);
+      applyStrictModeToUnknownControls(activeControls);
     }
   }
 
-  const assessment = buildReportAssessment(questionnaireSession, appControls);
+  const appControls = activeControls
+    .filter((control): control is RegulationControl & { jurisdiction: 'au-privacy-act'; principle: APPPrinciple } => (
+      control.jurisdiction === 'au-privacy-act'
+      && Object.prototype.hasOwnProperty.call(APPInfo, control.principle)
+    ))
+    .map(regulationControlToAPPControl);
+
+  const assessment = buildReportAssessment(questionnaireSession, activeControls);
 
   // Step 3: Calculate overall score and grade
-  const overallScore = applyIncompleteAssessmentScoreCap(calculateOverallScore(appControls), assessment);
+  const overallScore = applyIncompleteAssessmentScoreCap(calculateOverallScore(activeControls), assessment);
   const overallGrade = calculateGrade(overallScore);
   const riskLevel = applyIncompleteAssessmentRiskFloor(calculateRiskLevel(mappedFindings), assessment);
 
   // Step 4: Generate M2 consultant-facing assessment layers
-  const breachReadiness = buildBreachReadiness(mappedFindings, appControls, assessment, questionnaireSession);
+  const breachReadiness = buildBreachReadiness(mappedFindings, activeControls, assessment, questionnaireSession);
   const remediation = generateRemediation(mappedFindings);
   const consultantNarrative = buildConsultantNarrative(
-    appControls,
+    activeControls,
     mappedFindings,
     remediation,
     assessment,
@@ -129,6 +145,7 @@ export function buildComplianceReport(
     overallGrade,
     riskLevel,
     appControls,
+    regulationControls,
     findings: mappedFindings,
     questionnaire: questionnaireSession?.answers,
     questionnaireResults: questionnaireSession?.principleResults,
@@ -200,10 +217,10 @@ function buildDeterministicHash(
 }
 
 function mergeQuestionnaireResults(
-  controls: APPControl[],
+  controls: RegulationControl[],
   questionnaireSession: QuestionnaireSession,
 ): void {
-  const resultMap = new Map(
+  const resultMap = new Map<string, QuestionnaireSession['principleResults'][number]>(
     questionnaireSession.principleResults.map((result) => [result.principle, result]),
   );
 
@@ -227,7 +244,7 @@ function mergeQuestionnaireResults(
   }
 }
 
-function applyStrictModeToUnknownControls(controls: APPControl[]): void {
+function applyStrictModeToUnknownControls(controls: RegulationControl[]): void {
   for (const control of controls) {
     if (control.status !== 'unknown') {
       continue;
@@ -241,7 +258,7 @@ function applyStrictModeToUnknownControls(controls: APPControl[]): void {
 
 function buildReportAssessment(
   questionnaireSession: QuestionnaireSession | undefined,
-  controls: APPControl[],
+  controls: RegulationControl[],
 ): ReportAssessment | undefined {
   if (!questionnaireSession) {
     return undefined;
@@ -257,6 +274,71 @@ function buildReportAssessment(
     incomplete: unknownPrinciples.length > 0,
     unknownPrinciples,
   };
+}
+
+function regulationControlToAPPControl(
+  control: RegulationControl & { jurisdiction: 'au-privacy-act'; principle: APPPrinciple },
+): APPControl {
+  return {
+    principle: control.principle,
+    shortName: control.shortName,
+    obligation: control.obligation,
+    status: control.status,
+    score: control.score,
+    findingCount: control.findingCount,
+    findings: control.findings,
+    questionnaireRequired: control.questionnaireRequired,
+    lastAssessed: control.lastAssessed,
+  };
+}
+
+function appControlToRegulationControl(control: APPControl): RegulationControl {
+  return {
+    jurisdiction: 'au-privacy-act',
+    principle: control.principle,
+    shortName: control.shortName,
+    obligation: control.obligation,
+    status: control.status,
+    score: control.score,
+    findingCount: control.findingCount,
+    findings: control.findings,
+    questionnaireRequired: control.questionnaireRequired,
+    lastAssessed: control.lastAssessed,
+  };
+}
+
+function getReportControls(report: ComplianceReport): RegulationControl[] {
+  if (
+    report.regulationControls
+    && report.regulationControls.length > 0
+    && report.regulationControls.some((control) => control.jurisdiction !== 'au-privacy-act')
+  ) {
+    return report.regulationControls;
+  }
+
+  return report.appControls.map(appControlToRegulationControl);
+}
+
+function getReportJurisdiction(report: ComplianceReport): Jurisdiction {
+  return getReportControls(report)[0]?.jurisdiction ?? 'au-privacy-act';
+}
+
+function getFrameworkLabel(report: ComplianceReport): string {
+  return getReportJurisdiction(report) === 'us-ccpa'
+    ? 'CCPA / CPRA (California Consumer Privacy Act)'
+    : 'APP / NDB (Privacy Act 1988)';
+}
+
+function getReportTitle(report: ComplianceReport): string {
+  return getReportJurisdiction(report) === 'us-ccpa'
+    ? 'California Consumer Privacy Act (CCPA/CPRA) Compliance Report'
+    : 'Privacy Act Compliance Report';
+}
+
+function getControlChecklistTitle(report: ComplianceReport): string {
+  return getReportJurisdiction(report) === 'us-ccpa'
+    ? 'CCPA/CPRA Control Checklist'
+    : 'APP Control Checklist';
 }
 
 function applyIncompleteAssessmentScoreCap(
@@ -285,7 +367,7 @@ function applyIncompleteAssessmentRiskFloor(
 
 type InternalBreachReadinessFactor = BreachReadinessFactor & { deduction: number };
 
-const BREACH_RELEVANT_PRINCIPLES = new Set<APPPrinciple>(['APP_6', 'APP_8', 'APP_11', 'NDB']);
+const BREACH_RELEVANT_PRINCIPLES = new Set<string>(['APP_6', 'APP_8', 'APP_11', 'NDB', 'CCPA_100', 'CCPA_150']);
 const SEVERITY_RANK: Record<Severity, number> = {
   critical: 5,
   high: 4,
@@ -303,7 +385,7 @@ const SCANNER_DEDUCTIONS: Record<Severity, number> = {
 
 function buildBreachReadiness(
   findings: AttestLensFinding[],
-  controls: APPControl[],
+  controls: RegulationControl[],
   assessment: ReportAssessment | undefined,
   questionnaireSession?: QuestionnaireSession,
 ): BreachReadiness {
@@ -311,7 +393,10 @@ function buildBreachReadiness(
   const factors: InternalBreachReadinessFactor[] = [];
 
   for (const finding of findings.filter(isBreachRelevantFinding)) {
-    const principle = finding.appMappings.find((mapping) =>
+    const regulationMappings = finding.regulationMappings ?? [];
+    const principle = regulationMappings.find((mapping) =>
+      BREACH_RELEVANT_PRINCIPLES.has(mapping.principle),
+    )?.principle ?? finding.appMappings.find((mapping) =>
       BREACH_RELEVANT_PRINCIPLES.has(mapping.principle),
     )?.principle;
     factors.push({
@@ -398,6 +483,10 @@ function getBreachReadinessEvidenceBasis(
 }
 
 function isBreachRelevantFinding(finding: AttestLensFinding): boolean {
+  if ((finding.regulationMappings ?? []).some((mapping) => BREACH_RELEVANT_PRINCIPLES.has(mapping.principle))) {
+    return true;
+  }
+
   if (finding.appMappings.some((mapping) => BREACH_RELEVANT_PRINCIPLES.has(mapping.principle))) {
     return true;
   }
@@ -405,8 +494,8 @@ function isBreachRelevantFinding(finding: AttestLensFinding): boolean {
   return /security|secret|credential|auth|data flow|infrastructure/i.test(finding.category);
 }
 
-function getQuestionnaireFactorSeverity(control: APPControl, status: 'fail' | 'unknown'): Severity {
-  if (status === 'fail' && (control.principle === 'APP_11' || control.principle === 'NDB')) {
+function getQuestionnaireFactorSeverity(control: RegulationControl, status: 'fail' | 'unknown'): Severity {
+  if (status === 'fail' && (control.principle === 'APP_11' || control.principle === 'NDB' || control.principle === 'CCPA_150')) {
     return 'critical';
   }
 
@@ -417,14 +506,14 @@ function getQuestionnaireFactorSeverity(control: APPControl, status: 'fail' | 'u
   return 'medium';
 }
 
-function getQuestionnaireDeduction(control: APPControl, status: 'fail' | 'unknown'): number {
+function getQuestionnaireDeduction(control: RegulationControl, status: 'fail' | 'unknown'): number {
   if (status === 'fail') {
-    if (control.principle === 'APP_11' || control.principle === 'NDB') return 18;
+    if (control.principle === 'APP_11' || control.principle === 'NDB' || control.principle === 'CCPA_150') return 18;
     if (BREACH_RELEVANT_PRINCIPLES.has(control.principle)) return 14;
     return 8;
   }
 
-  if (control.principle === 'APP_11' || control.principle === 'NDB') return 10;
+  if (control.principle === 'APP_11' || control.principle === 'NDB' || control.principle === 'CCPA_150') return 10;
   if (BREACH_RELEVANT_PRINCIPLES.has(control.principle)) return 8;
   return 4;
 }
@@ -500,7 +589,7 @@ function getBreachReadinessSummary(
 }
 
 function buildConsultantNarrative(
-  controls: APPControl[],
+  controls: RegulationControl[],
   findings: AttestLensFinding[],
   remediation: RemediationItem[],
   assessment: ReportAssessment | undefined,
@@ -524,16 +613,16 @@ function buildConsultantNarrative(
 
 function buildExecutiveNarrative(
   breachReadiness: BreachReadiness,
-  failedControls: APPControl[],
-  unknownControls: APPControl[],
+  failedControls: RegulationControl[],
+  unknownControls: RegulationControl[],
   severeFindings: AttestLensFinding[],
 ): string {
   return `This assessment shows ${breachReadiness.level} breach readiness (${breachReadiness.score}/100). ` +
-    `${failedControls.length} APP/NDB control${failedControls.length === 1 ? '' : 's'} failed, ` +
+    `${failedControls.length} privacy control${failedControls.length === 1 ? '' : 's'} failed, ` +
     `${unknownControls.length} remain unresolved, and ${severeFindings.length} critical/high technical finding${severeFindings.length === 1 ? '' : 's'} should be prioritised before external delivery.`;
 }
 
-function buildPrincipleNarrative(control: APPControl): ConsultantNarrative['principleNarratives'][number] {
+function buildPrincipleNarrative(control: RegulationControl): ConsultantNarrative['principleNarratives'][number] {
   const findingTotal =
     control.findingCount.critical +
     control.findingCount.high +
@@ -553,7 +642,7 @@ function buildPrincipleNarrative(control: APPControl): ConsultantNarrative['prin
     principle: control.principle,
     status: control.status,
     priority,
-    summary: `${APPInfo[control.principle].shortName} is ${control.status.toUpperCase()} at ${control.score}/100 with ${findingSummary}. ${control.obligation}.`,
+    summary: `${control.shortName} is ${control.status.toUpperCase()} at ${control.score}/100 with ${findingSummary}. ${control.obligation}.`,
   };
 }
 
@@ -571,9 +660,9 @@ function buildRemediationFocus(
 
 // ─── Score Calculation ────────────────────────────────────────────────────────
 
-function calculateOverallScore(controls: APPControl[]): number {
+function calculateOverallScore(controls: RegulationControl[]): number {
   // Weighted average — security principles (APP 11, NDB) are heavier
-  const weights: Record<APPPrinciple, number> = {
+  const weights: Record<string, number> = {
     APP_1: 5,
     APP_2: 2,
     APP_3: 8,
@@ -588,6 +677,18 @@ function calculateOverallScore(controls: APPControl[]): number {
     APP_12: 4,
     APP_13: 4,
     NDB: 15, // Data breach notification is critical
+    CCPA_100: 15,
+    CCPA_105: 6,
+    CCPA_106: 6,
+    CCPA_110: 6,
+    CCPA_115: 8,
+    CCPA_120: 10,
+    CCPA_121: 10,
+    CCPA_125: 8,
+    CCPA_130: 10,
+    CCPA_135: 8,
+    CCPA_145: 3,
+    CCPA_150: 15,
   };
 
   let totalWeight = 0;
@@ -621,7 +722,7 @@ function generateRemediation(findings: AttestLensFinding[]): RemediationItem[] {
       estimatedTime: '<5 min',
       title: finding.fix ? `Fix: ${finding.title}` : finding.title,
       description: finding.description,
-      appReferences: finding.appMappings.map(m => m.principle),
+      appReferences: getFindingRegulationReferences(finding),
       fix: finding.fix,
       impact: finding.severity === 'critical' 
         ? 'Immediate compliance risk — APP 11 breach likely' 
@@ -637,7 +738,7 @@ function generateRemediation(findings: AttestLensFinding[]): RemediationItem[] {
       estimatedTime: '1-2 hours',
       title: finding.fix ? `Fix: ${finding.title}` : finding.title,
       description: finding.description,
-      appReferences: finding.appMappings.map(m => m.principle),
+      appReferences: getFindingRegulationReferences(finding),
       fix: finding.fix,
       impact: 'Compliance risk if not addressed',
     });
@@ -653,12 +754,21 @@ function generateRemediation(findings: AttestLensFinding[]): RemediationItem[] {
       estimatedTime: '1+ days',
       title: `Review ${category} practices`,
       description: `${categoryFindings.length} medium-severity findings in ${category}. Requires systematic review.`,
-      appReferences: [...new Set(categoryFindings.flatMap(f => f.appMappings.map(m => m.principle)))],
+      appReferences: [...new Set(categoryFindings.flatMap(getFindingRegulationReferences))],
       impact: 'Ongoing compliance improvement',
     });
   }
 
   return items;
+}
+
+function getFindingRegulationReferences(finding: AttestLensFinding): string[] {
+  const regulationReferences = (finding.regulationMappings ?? []).map((mapping) => mapping.principle);
+  if (regulationReferences.length > 0) {
+    return regulationReferences;
+  }
+
+  return finding.appMappings.map((mapping) => mapping.principle);
 }
 
 function groupByCategory(findings: AttestLensFinding[]): Map<string, AttestLensFinding[]> {
@@ -789,6 +899,10 @@ export function generateHTMLReport(
   const unknownAmber = '#f4a261';
   const passGreen = '#2a9d8f';
   const incompleteSummary = getAssessmentIncompleteSummary(report.assessment);
+  const reportControls = getReportControls(report);
+  const reportTitle = getReportTitle(report);
+  const frameworkLabel = getFrameworkLabel(report);
+  const checklistTitle = getControlChecklistTitle(report);
 
   const escapedTargetName = escapeHtml(report.target.name);
   const escapedTargetVersion = report.target.version ? escapeHtml(report.target.version) : undefined;
@@ -884,13 +998,13 @@ export function generateHTMLReport(
   <div class="page">
     <div class="cover-page">
       <div class="logo-placeholder">AL</div>
-      <h1 class="cover-title">Privacy Act<br>Compliance Report</h1>
+      <h1 class="cover-title">${escapeHtml(reportTitle).replace(/\s+\(/, '<br>(')}</h1>
       <p class="cover-subtitle">${escapedTargetName}</p>
       <table class="meta-table">
         <tr><th>Report ID</th><td>${escapeHtml(report.id)}</td></tr>
         <tr><th>Date</th><td>${new Date(report.timestamp).toLocaleDateString('en-AU', { year: 'numeric', month: 'long', day: 'numeric' })}</td></tr>
         <tr><th>Target</th><td>${escapedTargetName}${escapedTargetVersion ? ` v${escapedTargetVersion}` : ''}</td></tr>
-        <tr><th>Framework</th><td>APP / NDB (Privacy Act 1988)</td></tr>
+        <tr><th>Framework</th><td>${escapeHtml(frameworkLabel)}</td></tr>
         <tr><th>Scanner</th><td>AttestLens v${ATTESTLENS_VERSION}</td></tr>
         ${report.metadata.ruleFreshness ? `<tr><th>Rule Pack</th><td>${escapeHtml(formatRuleFreshnessLine(report.metadata.ruleFreshness))}</td></tr>` : ''}
         ${questionnaireSession ? `<tr><th>Assessment Basis</th><td>${escapeHtml(getAssessmentModeLabel(questionnaireSession.assessmentMode))}</td></tr>` : ''}
@@ -940,8 +1054,8 @@ export function generateHTMLReport(
     ${generateHTMLBreachReadinessSection(report)}
     ${generateHTMLReformImpactAssessmentSection(report)}
 
-    <!-- APP Control Checklist -->
-    <h2>APP Control Checklist</h2>
+    <!-- Control Checklist -->
+    <h2>${escapeHtml(checklistTitle)}</h2>
     <table class="checklist">
       <thead>
         <tr>
@@ -953,7 +1067,7 @@ export function generateHTMLReport(
         </tr>
       </thead>
       <tbody>
-        ${report.appControls.map(c => `
+        ${reportControls.map(c => `
           <tr>
             <td><strong>${c.principle}</strong></td>
             <td>${c.shortName}</td>
@@ -982,7 +1096,7 @@ export function generateHTMLReport(
         <p>${escapeHtml(f.description)}</p>
         ${f.file ? `<p style="font-size: 9pt; color: var(--text-light);">${escapeHtml(f.file)}${f.line ? `:${f.line}` : ''}</p>` : ''}
         ${f.code ? `<div class="code-block">${escapeHtml(f.code)}</div>` : ''}
-        ${f.appMappings.map(m => `<span class="app-tag">${escapeHtml(m.principle)}</span>`).join('')}
+        ${getFindingRegulationReferences(f).map(ref => `<span class="app-tag">${escapeHtml(ref)}</span>`).join('')}
         ${f.fix ? `
           <div class="fix-box">
             <div class="fix-label">✓ Suggested Fix</div>
@@ -1086,21 +1200,23 @@ function generateHTMLReformImpactAssessmentSection(report: ComplianceReport): st
 function getRiskSummary(report: ComplianceReport): string {
   const criticals = report.findings.filter(f => f.severity === 'critical').length;
   const highs = report.findings.filter(f => f.severity === 'high').length;
-  const unknowns = report.appControls.filter(c => c.status === 'unknown').length;
+  const controls = getReportControls(report);
+  const unknowns = controls.filter(c => c.status === 'unknown').length;
+  const framework = getReportJurisdiction(report) === 'us-ccpa' ? 'CCPA/CPRA' : 'APP';
 
   if (report.riskLevel === 'critical') {
     return `This project has ${criticals} critical finding${criticals > 1 ? 's' : ''} requiring immediate attention. ` +
-      `APP 11 (Security) obligations are likely breached. Immediate remediation is required.`;
+      `${framework} security obligations are likely breached. Immediate remediation is required.`;
   }
   if (report.riskLevel === 'high') {
     return `${highs} high-severity finding${highs > 1 ? 's' : ''} identified. ` +
-      `${unknowns} APP control${unknowns > 1 ? 's' : ''} require${unknowns === 1 ? 's' : ''} attestation questionnaire completion.`;
+      `${unknowns} ${framework} control${unknowns > 1 ? 's' : ''} require${unknowns === 1 ? 's' : ''} attestation questionnaire completion.`;
   }
   if (report.riskLevel === 'medium') {
-    return `Moderate risk identified. ${unknowns} APP control${unknowns > 1 ? 's' : ''} need attestation. ` +
+    return `Moderate risk identified. ${unknowns} ${framework} control${unknowns > 1 ? 's' : ''} need attestation. ` +
       `Address findings to improve compliance posture.`;
   }
-  return 'Low risk. All identified APP controls are passing. Continue monitoring and complete attestation questionnaires for unknown controls.';
+  return `Low risk. All identified ${framework} controls are passing. Continue monitoring and complete attestation questionnaires for unknown controls.`;
 }
 
 function generateHTMLConsultantNarrativeSection(report: ComplianceReport): string {
@@ -1432,9 +1548,13 @@ export function generateJSONReport(report: ComplianceReport): string {
 
 // ─── Agent Report Generator ───────────────────────────────────────────────────
 
-export function generateAgentReport(report: ComplianceReport): string {
+export function generateAgentReport(
+  report: ComplianceReport,
+  controls: Array<APPControl | RegulationControl> = getReportControls(report),
+): string {
   const opinion = report.complianceOpinion;
   const severityOrder: Severity[] = ['critical', 'high', 'medium', 'low', 'info'];
+  const reportControls = controls;
   const actions: Array<{
     principle: string;
     verdict: string;
@@ -1443,7 +1563,7 @@ export function generateAgentReport(report: ComplianceReport): string {
     remediation: string | null;
   }> = [];
 
-  for (const control of report.appControls) {
+  for (const control of reportControls) {
     if (control.status === 'pass') {
       continue;
     }
@@ -1488,12 +1608,13 @@ export function generateMarkdownReport(
   questionnaireSession?: QuestionnaireSession,
 ): string {
   const lines: string[] = [];
+  const reportControls = getReportControls(report);
 
-  lines.push(`# Privacy Act Compliance Report — ${report.target.name}`);
+  lines.push(`# ${getReportTitle(report)} — ${report.target.name}`);
   lines.push('');
   lines.push(`**Report ID:** ${report.id}`);
   lines.push(`**Date:** ${new Date(report.timestamp).toLocaleDateString('en-AU')}`);
-  lines.push(`**Framework:** APP / NDB (Privacy Act 1988)`);
+  lines.push(`**Framework:** ${getFrameworkLabel(report)}`);
   if (report.metadata.ruleFreshness) lines.push(`**Rule Pack:** ${formatRuleFreshnessLine(report.metadata.ruleFreshness)}`);
   if (report.target.url) lines.push(`**Target URL:** ${report.target.url}`);
   if (report.target.path) lines.push(`**Target Path:** ${report.target.path}`);
@@ -1563,11 +1684,11 @@ export function generateMarkdownReport(
 
   appendMarkdownReformImpactAssessment(lines, report.reformImpactAssessment);
 
-  lines.push(`### APP Control Status`);
+  lines.push(`### ${getControlChecklistTitle(report).replace('Checklist', 'Status')}`);
   lines.push('');
   lines.push(`| Principle | Obligation | Status | Score |`);
   lines.push(`|---|---|---|---|`);
-  for (const c of report.appControls) {
+  for (const c of reportControls) {
     lines.push(`| ${c.principle} | ${c.shortName} | ${c.status.toUpperCase()} | ${c.score}/100 |`);
   }
   lines.push('');
@@ -1770,7 +1891,7 @@ function renderPDFCover(
   options: ReportOptions,
   questionnaireSession?: QuestionnaireSession,
 ): void {
-  doc.fillColor('#1a2332').fontSize(26).text('Privacy Act Compliance Report');
+  doc.fillColor('#1a2332').fontSize(26).text(getReportTitle(report));
   doc.moveDown(0.5);
   doc.fillColor('#334155').fontSize(18).text(report.target.name);
   doc.moveDown(1.5);
@@ -1782,7 +1903,7 @@ function renderPDFCover(
     'Date',
     new Date(report.timestamp).toLocaleDateString('en-AU', { year: 'numeric', month: 'long', day: 'numeric' }),
   );
-  writePDFLabelValue(doc, 'Framework', 'APP / NDB (Privacy Act 1988)');
+  writePDFLabelValue(doc, 'Framework', getFrameworkLabel(report));
   writePDFLabelValue(doc, 'Scanner', `AttestLens v${ATTESTLENS_VERSION}`);
   writePDFLabelValue(
     doc,
@@ -1860,10 +1981,11 @@ function renderPDFExecutiveSummary(
   writePDFLabelValue(doc, 'Low / Info', String(report.findings.filter(f => f.severity === 'low' || f.severity === 'info').length));
 
   doc.moveDown();
-  doc.fontSize(16).fillColor('#1a2332').text('APP Control Status');
+  const reportControls = getReportControls(report);
+  doc.fontSize(16).fillColor('#1a2332').text(getControlChecklistTitle(report).replace('Checklist', 'Status'));
   doc.moveDown(0.5);
 
-  for (const control of report.appControls) {
+  for (const control of reportControls) {
     const findingCount =
       control.findingCount.critical +
       control.findingCount.high +

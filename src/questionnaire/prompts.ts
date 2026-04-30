@@ -8,6 +8,7 @@ import {
   type Question,
   type QuestionnaireResponse,
 } from '../schema/index.js';
+import { CCPAPrincipleInfo } from '../scanner/rules/ccpa-principles.js';
 
 export type AttestationPromptResult =
   | { kind: 'save_and_exit' }
@@ -47,7 +48,7 @@ function normalizeEvidenceRefs(rawValue: string): string[] | undefined {
 }
 
 function printQuestionContext(question: Question, context: AttestationPromptContext): void {
-  const principleLabel = APPInfo[question.appPrinciple].shortName;
+  const principleLabel = getPrincipleLabel(question.appPrinciple);
   console.log('');
   console.log(chalk.bold.cyan(`${question.appPrinciple} — ${principleLabel}`));
   console.log(chalk.gray(`Question ${context.progress.current} of ${context.progress.total}`));
@@ -67,6 +68,18 @@ function printQuestionContext(question: Question, context: AttestationPromptCont
       );
     }
   }
+}
+
+function getPrincipleLabel(principle: string): string {
+  if (Object.prototype.hasOwnProperty.call(APPInfo, principle)) {
+    return APPInfo[principle as keyof typeof APPInfo].shortName;
+  }
+
+  if (Object.prototype.hasOwnProperty.call(CCPAPrincipleInfo, principle)) {
+    return CCPAPrincipleInfo[principle as keyof typeof CCPAPrincipleInfo].shortName;
+  }
+
+  return principle;
 }
 
 export function createInteractivePromptRunner(): AttestationPromptRunner {

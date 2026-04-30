@@ -1,5 +1,7 @@
 import { APPInfo, JurisdictionPackManifest, RulePackManifest, appMappingToRegulationMapping } from '../../schema/index.js';
-import type { APPMapping, RuleDefinition, JurisdictionPackManifest as JurisdictionPackManifestType, RulePackManifest as RulePackManifestType } from '../../schema/index.js';
+import type { APPMapping, Jurisdiction, RuleDefinition, JurisdictionPackManifest as JurisdictionPackManifestType, RulePackManifest as RulePackManifestType } from '../../schema/index.js';
+import { CCPA_CHECKS } from './ccpa-checks.js';
+import { CCPAPrincipleInfo } from './ccpa-principles.js';
 import { KEY_PATTERNS } from './exposed-keys.js';
 import { INFRA_CHECKS } from './infra-checks.js';
 import { JS_PATTERNS } from './js-analysis.js';
@@ -7,6 +9,8 @@ import { HEADER_CHECKS } from './url-headers.js';
 
 export const EMBEDDED_RULE_PACK_VERSION = '2026.04.28';
 export const EMBEDDED_RULE_PACK_GENERATED = '2026-04-28T00:00:00.000Z';
+export const EMBEDDED_CCPA_PACK_VERSION = '2026.04.30';
+export const EMBEDDED_CCPA_PACK_GENERATED = '2026-04-30T00:00:00.000Z';
 
 const app11Mapping: APPMapping = {
   principle: 'APP_11',
@@ -437,7 +441,41 @@ export function buildEmbeddedRulePack(): RulePackManifestType {
   });
 }
 
-export function buildEmbeddedJurisdictionPack(): JurisdictionPackManifestType {
+export function buildEmbeddedCCPARulePack(): RulePackManifestType {
+  return RulePackManifest.parse({
+    schemaVersion: '1.0',
+    version: EMBEDDED_CCPA_PACK_VERSION,
+    generated: EMBEDDED_CCPA_PACK_GENERATED,
+    jurisdiction: 'us-ccpa',
+    rules: normalizeRuleDefinitions(CCPA_CHECKS),
+  });
+}
+
+export function buildEmbeddedCCPAPack(): JurisdictionPackManifestType {
+  const rulePack = buildEmbeddedCCPARulePack();
+  return JurisdictionPackManifest.parse({
+    schemaVersion: '2.0',
+    version: EMBEDDED_CCPA_PACK_VERSION,
+    jurisdiction: 'us-ccpa',
+    generated: EMBEDDED_CCPA_PACK_GENERATED,
+    principles: Object.entries(CCPAPrincipleInfo).map(([id, info]) => ({
+      id,
+      shortName: info.shortName,
+      obligation: info.obligation,
+      citation: info.citation,
+    })),
+    rules: rulePack.rules,
+  });
+}
+
+export function buildEmbeddedJurisdictionPack(jurisdiction: Jurisdiction = 'au-privacy-act'): JurisdictionPackManifestType {
+  if (jurisdiction === 'us-ccpa') {
+    return buildEmbeddedCCPAPack();
+  }
+  if (jurisdiction !== 'au-privacy-act') {
+    throw new Error(`No embedded jurisdiction pack for ${jurisdiction}`);
+  }
+
   const rulePack = buildEmbeddedRulePack();
   return JurisdictionPackManifest.parse({
     schemaVersion: '2.0',

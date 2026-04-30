@@ -5,7 +5,6 @@ import path from 'node:path';
 import { AnyQuestionnaireSession, QuestionnaireSession } from '../schema/index.js';
 import type {
   AssessmentMode,
-  APPPrinciple,
   AnyQuestionnaireSession as AnyQuestionnaireSessionType,
   AttestLensFinding,
   FrozenQuestionnaireSession,
@@ -14,6 +13,7 @@ import type {
   QuestionnairePrincipleResult,
   QuestionnaireResponse,
   QuestionnaireSession as QuestionnaireSessionType,
+  RegulationPrinciple,
   TransitionalQuestionnaireSession,
 } from '../schema/index.js';
 import {
@@ -25,6 +25,10 @@ import {
   QUESTIONNAIRE_VERSION,
   getQuestionsForPrinciples,
 } from './questions.js';
+import {
+  CCPA_QUESTION_BANK,
+  CCPA_QUESTIONNAIRE_VERSION,
+} from './ccpa-questions.js';
 import { aggregatePrincipleResults } from './evaluator.js';
 import { getNextQuestion } from './flow.js';
 
@@ -90,7 +94,7 @@ function questionsExactlyMatch(left: Question[], right: Question[]): boolean {
   );
 }
 
-function principlesExactlyMatch(left: APPPrinciple[], right: APPPrinciple[]): boolean {
+function principlesExactlyMatch(left: RegulationPrinciple[], right: RegulationPrinciple[]): boolean {
   return left.length === right.length && left.every((principle, index) => principle === right[index]);
 }
 
@@ -105,6 +109,10 @@ function getKnownQuestionBank(version: string): Question[] | null {
 
   if (version === LEGACY_QUESTIONNAIRE_VERSION) {
     return LEGACY_QUESTION_BANK_V1;
+  }
+
+  if (version === CCPA_QUESTIONNAIRE_VERSION) {
+    return CCPA_QUESTION_BANK;
   }
 
   return null;
@@ -128,8 +136,8 @@ function assertSessionQuestionRefs(
 
 function buildLegacySessionPrinciples(
   session: LegacyQuestionnaireSession | FrozenQuestionnaireSession | QuestionnaireSessionType,
-): APPPrinciple[] {
-  const principleSet = new Set<APPPrinciple>(session.principleResults.map((result) => result.principle));
+): RegulationPrinciple[] {
+  const principleSet = new Set<RegulationPrinciple>(session.principleResults.map((result) => result.principle));
 
   for (const answer of session.answers) {
     const question = LEGACY_QUESTION_BANK_V1.find((candidate) => candidate.id === answer.questionId);
@@ -144,7 +152,7 @@ function buildLegacySessionPrinciples(
 export function buildQuestionSetHash(params: {
   questionnaireVersion: string;
   findingsHash: string;
-  principles: APPPrinciple[];
+  principles: RegulationPrinciple[];
   sessionQuestions: Question[];
   assessmentMode?: AssessmentMode;
 }): string {
@@ -187,7 +195,7 @@ function upgradeLegacyQuestionnaireSession(
 function upgradeCanonicalQuestionnaireSession(
   session: TransitionalQuestionnaireSession,
   findingsHash: string,
-  expectedPrinciples: APPPrinciple[],
+  expectedPrinciples: RegulationPrinciple[],
   expectedQuestions: Question[],
   assessmentMode: AssessmentMode,
 ): QuestionnaireSessionType {
@@ -215,7 +223,7 @@ function upgradeCanonicalQuestionnaireSession(
 function upgradeFrozenQuestionnaireSession(
   session: FrozenQuestionnaireSession,
   findingsHash: string,
-  expectedPrinciples: APPPrinciple[],
+  expectedPrinciples: RegulationPrinciple[],
   expectedQuestions: Question[],
   assessmentMode: AssessmentMode,
 ): QuestionnaireSessionType {
@@ -266,7 +274,7 @@ function rebuildUpgradedQuestionnaireSession(
   params: {
     questionnaireVersion: string;
     findingsHash: string;
-    principles: APPPrinciple[];
+    principles: RegulationPrinciple[];
     sessionQuestions: Question[];
     assessmentMode: AssessmentMode;
   },
@@ -310,7 +318,7 @@ function rebuildUpgradedQuestionnaireSession(
 function validateCurrentQuestionnaireSession(
   session: QuestionnaireSessionType,
   findingsHash: string,
-  expectedPrinciples: APPPrinciple[],
+  expectedPrinciples: RegulationPrinciple[],
   expectedQuestions: Question[],
 ): QuestionnaireSessionType {
   if (session.questionnaireVersion === QUESTIONNAIRE_VERSION) {
@@ -391,7 +399,7 @@ function validateCurrentQuestionnaireSession(
 export function prepareQuestionnaireSessionForResume(params: {
   session: AnyQuestionnaireSessionType;
   findings: AttestLensFinding[];
-  expectedPrinciples: APPPrinciple[];
+  expectedPrinciples: RegulationPrinciple[];
   expectedQuestions: Question[];
   upgradeAssessmentMode?: AssessmentMode;
 }): PreparedQuestionnaireSession {
@@ -464,7 +472,7 @@ export function buildFindingsHash(findings: AttestLensFinding[]): string {
 }
 
 export function buildFrozenSessionQuestions(
-  principles: APPPrinciple[],
+  principles: RegulationPrinciple[],
   questions: Question[] = QUESTION_BANK,
 ): Question[] {
   return getQuestionsForPrinciples(principles, questions);
@@ -477,7 +485,7 @@ export function createQuestionnaireSession(params: {
   scanSnapshotPath: string;
   findingsHash: string;
   questionnaireVersion: string;
-  principles: APPPrinciple[];
+  principles: RegulationPrinciple[];
   sessionQuestions: Question[];
   principleResults: QuestionnairePrincipleResult[];
   assessmentMode: AssessmentMode;

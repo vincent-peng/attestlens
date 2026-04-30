@@ -549,7 +549,7 @@ function assertJurisdictionPacksAvailable(
     const loaded = packs.get(jurisdiction);
     const unavailableMessage = getJurisdictionUnavailableMessage(jurisdiction);
     if (
-      jurisdiction !== 'au-privacy-act'
+      !loaded
       || loaded?.manifest.version === 'unavailable'
       || loaded?.jurisdictionManifest?.version === 'unavailable'
       || loaded?.warnings.some((warning) => warning === unavailableMessage || warning.includes('not yet available'))

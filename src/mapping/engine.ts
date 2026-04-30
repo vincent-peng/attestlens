@@ -23,6 +23,7 @@ import {
   type RegulationPrinciple,
 } from '../schema/index.js';
 import { calculateMappingConfidence } from './confidence.js';
+import { CCPAPrincipleInfo } from '../scanner/rules/ccpa-principles.js';
 
 // ─── Mapping Rules ──────────────────────────────────────────────────────────
 
@@ -919,6 +920,146 @@ const NDB_RULES: MappingRule[] = [
   },
 ];
 
+export const CCPA_MAPPING_RULES: MappingRule[] = [
+  {
+    id: 'MAP-CCPA-001',
+    name: 'Hardcoded Credentials → CCPA_100',
+    sourcePatterns: {
+      ruleId: /^VG-SEC-001|^VS-HARDKEY|^MC-EXP-SEC$/,
+      category: /^(Secrets?|Credentials?)$/i,
+      title: /hardcoded.*(key|secret|token|password|credential|api.?key)/i,
+      severity: ['critical', 'high'],
+    },
+    matchMode: 'or',
+    jurisdiction: 'us-ccpa',
+    regulationPrinciple: 'CCPA_100',
+    status: 'fail',
+    confidence: 0.90,
+    rationale: 'Hardcoded credentials indicate missing reasonable security safeguards for consumer personal information.',
+    citation: 'Cal. Civ. Code §1798.100(e)',
+  },
+  {
+    id: 'MAP-CCPA-002',
+    name: 'SQL Injection → CCPA_100',
+    sourcePatterns: {
+      ruleId: /^VG-SEC-002|^VS-SQLI|^VS-SAST-004$/,
+      category: /^(Security|SAST Lite)$/i,
+      title: /sql.?injection|sql query built from request input/i,
+      severity: ['critical', 'high'],
+    },
+    matchMode: 'or',
+    jurisdiction: 'us-ccpa',
+    regulationPrinciple: 'CCPA_100',
+    status: 'fail',
+    confidence: 0.90,
+    rationale: 'SQL injection can expose consumer personal information and indicates a failure to maintain reasonable security.',
+    citation: 'Cal. Civ. Code §1798.100(e)',
+  },
+  {
+    id: 'MAP-CCPA-003',
+    name: 'XSS → CCPA_100',
+    sourcePatterns: {
+      ruleId: /^VG-SEC-006|^VS-XSS|^AL-JS-001$/,
+      category: /^(Security|JS Security)$/i,
+      title: /cross.?site.?scripting|xss|dangerously.?set.?inner.?html/i,
+      severity: ['high', 'medium'],
+    },
+    matchMode: 'or',
+    jurisdiction: 'us-ccpa',
+    regulationPrinciple: 'CCPA_100',
+    status: 'fail',
+    confidence: 0.85,
+    rationale: 'XSS can lead to unauthorized access to consumer personal information and indicates missing reasonable security controls.',
+    citation: 'Cal. Civ. Code §1798.100(e)',
+  },
+  {
+    id: 'MAP-CCPA-004',
+    name: 'Insecure Transport → CCPA_100',
+    sourcePatterns: {
+      ruleId: /^AL-URL-002$/,
+      category: /^Security Headers$/i,
+      title: /strict.?transport|hsts|https|insecure transport/i,
+      severity: ['critical', 'high', 'medium'],
+    },
+    matchMode: 'or',
+    jurisdiction: 'us-ccpa',
+    regulationPrinciple: 'CCPA_100',
+    status: 'fail',
+    confidence: 0.90,
+    rationale: 'Missing transport security can expose consumer personal information in transit and indicates missing reasonable security.',
+    citation: 'Cal. Civ. Code §1798.100(e)',
+  },
+  {
+    id: 'MAP-CCPA-005',
+    name: 'Exposed API Keys → CCPA_150',
+    sourcePatterns: {
+      ruleId: /^VG-SEC-001|^VS-HARDKEY|^MC-EXP-SEC|^AL-KEY-\d+|^VS-GL-|^VS-PUBLIC-SECRET-ENV|^VS-PLATFORM-SECRET|^VS-FB-SERVICE-ACCOUNT|^VS-SAST-001$/,
+      category: /^(Secrets?|Credentials?|Exposed Keys|Developer Credentials|SAST Lite)$/i,
+      title: /(hardcoded|exposed|committed).*(key|secret|token|credential|api.?key)|secret detected/i,
+      severity: ['critical'],
+    },
+    matchMode: 'or',
+    jurisdiction: 'us-ccpa',
+    regulationPrinciple: 'CCPA_150',
+    status: 'fail',
+    confidence: 0.85,
+    rationale: 'Critical exposed credentials can create a breach pathway for unencrypted consumer personal information.',
+    citation: 'Cal. Civ. Code §1798.150(a)',
+  },
+  {
+    id: 'MAP-CCPA-006',
+    name: 'Data Breach Vulnerabilities → CCPA_150',
+    sourcePatterns: {
+      category: /breach|leak|expos/i,
+    },
+    jurisdiction: 'us-ccpa',
+    regulationPrinciple: 'CCPA_150',
+    status: 'fail',
+    confidence: 0.80,
+    rationale: 'Breach, leak, or exposure findings may trigger CCPA private-right-of-action risk when unencrypted personal information is affected.',
+    citation: 'Cal. Civ. Code §1798.150(a)',
+  },
+  {
+    id: 'MAP-CCPA-007',
+    name: 'Unencrypted PI Storage → CCPA_150',
+    sourcePatterns: {
+      title: /unencrypted.*personal|plaintext.*(pii|sensitive|ssn)/i,
+    },
+    jurisdiction: 'us-ccpa',
+    regulationPrinciple: 'CCPA_150',
+    status: 'fail',
+    confidence: 0.85,
+    rationale: 'Plaintext or unencrypted sensitive personal information increases CCPA breach exposure.',
+    citation: 'Cal. Civ. Code §1798.150(a)',
+  },
+  {
+    id: 'MAP-CCPA-008',
+    name: 'Cross-Border Transfer → CCPA_100',
+    sourcePatterns: {
+      category: /third.party|sharing|transfer/i,
+    },
+    jurisdiction: 'us-ccpa',
+    regulationPrinciple: 'CCPA_100',
+    status: 'fail',
+    confidence: 0.70,
+    rationale: 'Third-party sharing or transfer findings may indicate missing contractual service provider restrictions.',
+    citation: 'Cal. Civ. Code §1798.100(d)',
+  },
+  {
+    id: 'MAP-CCPA-009',
+    name: 'Excessive Data Collection → CCPA_100',
+    sourcePatterns: {
+      title: /overcollection|excessive.*collection|unnecessary.*data/i,
+    },
+    jurisdiction: 'us-ccpa',
+    regulationPrinciple: 'CCPA_100',
+    status: 'fail',
+    confidence: 0.65,
+    rationale: 'Excessive collection can conflict with CCPA purpose limitation and data minimization duties.',
+    citation: 'Cal. Civ. Code §1798.100(c)',
+  },
+];
+
 // ─── All Rules ───────────────────────────────────────────────────────────────
 
 export const ALL_MAPPING_RULES: MappingRule[] = [
@@ -928,6 +1069,7 @@ export const ALL_MAPPING_RULES: MappingRule[] = [
   ...APP_8_RULES,
   ...APP_12_RULES,
   ...NDB_RULES,
+  ...CCPA_MAPPING_RULES,
 ];
 
 // ─── Mapping Engine ──────────────────────────────────────────────────────────
@@ -953,6 +1095,12 @@ export function mapFindingToRegulation(
 ): RegulationMapping[] {
   const mappings: RegulationMapping[] = [];
   const selectedJurisdictions = new Set(jurisdictions);
+
+  for (const mapping of finding.regulationMappings ?? []) {
+    if (selectedJurisdictions.has(mapping.jurisdiction)) {
+      mappings.push(mapping);
+    }
+  }
 
   for (const rule of ALL_MAPPING_RULES) {
     if (!selectedJurisdictions.has(rule.jurisdiction)) {
@@ -991,7 +1139,7 @@ export function mapFindingToRegulation(
     });
   }
 
-  return mappings;
+  return deduplicateRegulationMappings(mappings);
 }
 
 /**
@@ -1078,6 +1226,20 @@ function patternMatches(pattern: RegExp, value: string): boolean {
   return pattern.test(value);
 }
 
+function deduplicateRegulationMappings(mappings: RegulationMapping[]): RegulationMapping[] {
+  const byKey = new Map<string, RegulationMapping>();
+
+  for (const mapping of mappings) {
+    const key = `${mapping.jurisdiction}:${mapping.principle}:${mapping.status}:${mapping.citation || ''}`;
+    const existing = byKey.get(key);
+    if (!existing || mapping.confidence > existing.confidence) {
+      byKey.set(key, mapping);
+    }
+  }
+
+  return Array.from(byKey.values());
+}
+
 /**
  * Map all findings and produce jurisdiction-agnostic control assessments.
  */
@@ -1109,23 +1271,39 @@ export function mapAllFindings(
   const unmapped: AttestLensFinding[] = [];
 
   for (const jurisdiction of jurisdictions) {
-    if (jurisdiction !== 'au-privacy-act') {
-      continue;
+    if (jurisdiction === 'au-privacy-act') {
+      for (const principle of Object.keys(APPInfo) as APPPrinciple[]) {
+        controlMap.set(getControlKey(jurisdiction, principle), {
+          jurisdiction,
+          principle,
+          shortName: APPInfo[principle].shortName,
+          obligation: APPInfo[principle].obligation,
+          status: 'unknown',
+          score: 100,
+          findingCount: { critical: 0, high: 0, medium: 0, low: 0, info: 0 },
+          findings: [],
+          questionnaireRequired: true,
+          lastAssessed: new Date().toISOString(),
+        });
+      }
     }
 
-    for (const principle of Object.keys(APPInfo) as APPPrinciple[]) {
-      controlMap.set(getControlKey(jurisdiction, principle), {
-        jurisdiction,
-        principle,
-        shortName: APPInfo[principle].shortName,
-        obligation: APPInfo[principle].obligation,
-        status: 'unknown',
-        score: 100,
-        findingCount: { critical: 0, high: 0, medium: 0, low: 0, info: 0 },
-        findings: [],
-        questionnaireRequired: true,
-        lastAssessed: new Date().toISOString(),
-      });
+    if (jurisdiction === 'us-ccpa') {
+      for (const [principle, info] of Object.entries(CCPAPrincipleInfo)) {
+        controlMap.set(getControlKey(jurisdiction, principle), {
+          jurisdiction,
+          principle,
+          shortName: info.shortName,
+          obligation: info.obligation,
+          status: 'unknown',
+          score: 100,
+          findingCount: { critical: 0, high: 0, medium: 0, low: 0, info: 0 },
+          findings: [],
+          questionnaireRequired: true,
+          lastAssessed: new Date().toISOString(),
+          citation: info.citation,
+        });
+      }
     }
   }
 
@@ -1170,6 +1348,9 @@ export function mapAllFindings(
       const control = controlMap.get(getControlKey(mapping.jurisdiction, mapping.principle));
       if (!control) continue;
 
+      if (mapping.citation && !control.citation) {
+        control.citation = mapping.citation;
+      }
       control.findings.push(finding.id);
       control.findingCount[finding.severity]++;
       
@@ -1252,6 +1433,9 @@ function getRegulationObligation(jurisdiction: Jurisdiction, principle: Regulati
   if (jurisdiction === 'au-privacy-act' && Object.prototype.hasOwnProperty.call(APPInfo, principle)) {
     return APPInfo[principle as APPPrinciple].obligation;
   }
+  if (jurisdiction === 'us-ccpa' && Object.prototype.hasOwnProperty.call(CCPAPrincipleInfo, principle)) {
+    return CCPAPrincipleInfo[principle as keyof typeof CCPAPrincipleInfo].obligation;
+  }
 
   return JurisdictionInfo[jurisdiction].fullName;
 }
@@ -1259,6 +1443,9 @@ function getRegulationObligation(jurisdiction: Jurisdiction, principle: Regulati
 function getRegulationShortName(jurisdiction: Jurisdiction, principle: RegulationPrinciple): string {
   if (jurisdiction === 'au-privacy-act' && Object.prototype.hasOwnProperty.call(APPInfo, principle)) {
     return APPInfo[principle as APPPrinciple].shortName;
+  }
+  if (jurisdiction === 'us-ccpa' && Object.prototype.hasOwnProperty.call(CCPAPrincipleInfo, principle)) {
+    return CCPAPrincipleInfo[principle as keyof typeof CCPAPrincipleInfo].shortName;
   }
 
   return principle;

@@ -14,13 +14,14 @@ import {
   type RulePackManifest as RulePackManifestType,
   type RulePackSource,
 } from '../../schema/index.js';
-import { buildEmbeddedJurisdictionPack, buildEmbeddedRulePack } from './embedded.js';
+import { CCPAPrincipleInfo } from './ccpa-principles.js';
+import { buildEmbeddedCCPARulePack, buildEmbeddedJurisdictionPack, buildEmbeddedRulePack } from './embedded.js';
 
 export const RULE_PACK_CACHE_FILENAME = 'latest.json';
 export const RULE_PACK_STALE_AFTER_DAYS = 14;
 export const RULE_PACK_FETCH_TIMEOUT_MS = 10_000;
 export const RULE_PACK_MAX_BYTES = 1_000_000;
-export const AVAILABLE_JURISDICTIONS: readonly Jurisdiction[] = ['au-privacy-act'];
+export const AVAILABLE_JURISDICTIONS: readonly Jurisdiction[] = ['au-privacy-act', 'us-ccpa'];
 
 export interface LoadedRulePack {
   manifest: RulePackManifestType;
@@ -112,6 +113,17 @@ export async function loadJurisdictionPacks(
       packs.set(jurisdiction, {
         ...loaded,
         jurisdictionManifest: buildJurisdictionManifestFromRulePack(loaded.manifest),
+      });
+      continue;
+    }
+
+    if (jurisdiction === 'us-ccpa') {
+      const manifest = validateRulePackManifest(buildEmbeddedCCPARulePack());
+      packs.set(jurisdiction, {
+        manifest,
+        jurisdictionManifest: buildEmbeddedJurisdictionPack('us-ccpa'),
+        freshness: buildRuleFreshness(manifest, 'embedded', now),
+        warnings: [],
       });
       continue;
     }
@@ -308,6 +320,22 @@ function validateRulePackManifest(raw: unknown): RulePackManifestType {
 }
 
 function buildJurisdictionManifestFromRulePack(manifest: RulePackManifestType): JurisdictionPackManifestType {
+  if (manifest.jurisdiction === 'us-ccpa') {
+    return JurisdictionPackManifest.parse({
+      schemaVersion: '2.0',
+      version: manifest.version,
+      jurisdiction: 'us-ccpa',
+      generated: manifest.generated,
+      principles: Object.entries(CCPAPrincipleInfo).map(([id, info]) => ({
+        id,
+        shortName: info.shortName,
+        obligation: info.obligation,
+        citation: info.citation,
+      })),
+      rules: manifest.rules,
+    });
+  }
+
   if (manifest.jurisdiction !== 'au-privacy-act') {
     return JurisdictionPackManifest.parse({
       schemaVersion: '2.0',

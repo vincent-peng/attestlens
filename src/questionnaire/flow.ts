@@ -1,16 +1,34 @@
 import {
   APPInfo,
-  type APPPrinciple,
   type AssessmentMode,
+  type Jurisdiction,
   type Question,
   type QuestionnaireResponse,
+  type RegulationPrinciple,
 } from '../schema/index.js';
+import { CCPAPrincipleInfo } from '../scanner/rules/ccpa-principles.js';
+import { CCPA_QUESTION_BANK } from './ccpa-questions.js';
 import { QUESTION_BANK } from './questions.js';
 
 const DEFAULT_ASSESSMENT_MODE: AssessmentMode = 'operator_attested';
 
 export function getQuestionById(questionId: string, questions: Question[] = QUESTION_BANK): Question | undefined {
   return questions.find((question) => question.id === questionId);
+}
+
+export function getQuestionBankForJurisdiction(jurisdiction: Jurisdiction = 'au-privacy-act'): Question[] {
+  if (jurisdiction === 'us-ccpa') {
+    const principleRank = new Map(
+      getQuestionPrincipleOrder(Object.keys(CCPAPrincipleInfo), 'us-ccpa')
+        .map((principle, index) => [principle, index]),
+    );
+    return [...CCPA_QUESTION_BANK].sort((left, right) => (
+      (principleRank.get(left.appPrinciple) ?? Number.MAX_SAFE_INTEGER)
+      - (principleRank.get(right.appPrinciple) ?? Number.MAX_SAFE_INTEGER)
+    ));
+  }
+
+  return QUESTION_BANK;
 }
 
 function normalizeAnswers(value: QuestionnaireResponse['answer']): Array<boolean | string> {
@@ -48,7 +66,7 @@ export function getApplicableQuestions(
 }
 
 export function getApplicableQuestionsForPrinciple(
-  principle: APPPrinciple,
+  principle: RegulationPrinciple,
   responses: QuestionnaireResponse[],
   questions: Question[] = QUESTION_BANK,
   assessmentMode: AssessmentMode = DEFAULT_ASSESSMENT_MODE,
@@ -60,19 +78,26 @@ export function getApplicableQuestionsForPrinciple(
   );
 }
 
-export function getQuestionPrincipleOrder(principles: APPPrinciple[]): APPPrinciple[] {
-  const orderedPrinciples = Object.keys(APPInfo) as APPPrinciple[];
-  return orderedPrinciples.filter((principle) => principles.includes(principle));
+export function getQuestionPrincipleOrder(
+  principles: RegulationPrinciple[],
+  jurisdiction: Jurisdiction = inferJurisdictionForPrinciples(principles),
+): RegulationPrinciple[] {
+  const orderedPrinciples = jurisdiction === 'us-ccpa'
+    ? Object.keys(CCPAPrincipleInfo)
+    : Object.keys(APPInfo);
+  const requested = new Set(principles);
+  return orderedPrinciples.filter((principle) => requested.has(principle));
 }
 
 export function getNextQuestion(
-  principles: APPPrinciple[],
+  principles: RegulationPrinciple[],
   responses: QuestionnaireResponse[],
   questions: Question[] = QUESTION_BANK,
   assessmentMode: AssessmentMode = DEFAULT_ASSESSMENT_MODE,
+  jurisdiction: Jurisdiction = inferJurisdictionForPrinciples(principles),
 ): Question | undefined {
   const responsesByQuestionId = new Set(responses.map((response) => response.questionId));
-  const principleOrder = getQuestionPrincipleOrder(principles);
+  const principleOrder = getQuestionPrincipleOrder(principles, jurisdiction);
   const scopedQuestions = questions.filter((question) => principles.includes(question.appPrinciple));
 
   for (const principle of principleOrder) {
@@ -93,4 +118,10 @@ export function getNextQuestion(
   }
 
   return undefined;
+}
+
+function inferJurisdictionForPrinciples(principles: RegulationPrinciple[]): Jurisdiction {
+  return principles.some((principle) => principle.startsWith('CCPA_'))
+    ? 'us-ccpa'
+    : 'au-privacy-act';
 }

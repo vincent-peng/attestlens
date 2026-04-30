@@ -1,4 +1,9 @@
 export {
+  CCPA_QUESTION_BANK,
+  CCPA_QUESTIONNAIRE_VERSION,
+  getCCPAQuestionsForPrinciples,
+} from './ccpa-questions.js';
+export {
   LEGACY_QUESTION_BANK_V1,
   LEGACY_QUESTIONNAIRE_VERSION,
   PRE_REMEDIATION_QUESTION_BANK_V2,
@@ -22,6 +27,7 @@ export {
 export {
   getApplicableQuestions,
   getApplicableQuestionsForPrinciple,
+  getQuestionBankForJurisdiction,
   getNextQuestion,
   getQuestionById,
   getQuestionPrincipleOrder,

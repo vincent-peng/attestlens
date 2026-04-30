@@ -22,7 +22,7 @@ export class GuardVibeAdapter implements ScannerAdapter {
   private binaryPath: string;
 
   constructor(binaryPath?: string) {
-    this.binaryPath = binaryPath || 'npx';
+    this.binaryPath = binaryPath || process.env.ATTESTLENS_GUARDVIBE_PATH || 'npx';
   }
 
   async isAvailable(): Promise<boolean> {
@@ -215,7 +215,7 @@ export class GuardVibeAdapter implements ScannerAdapter {
     }
 
     try {
-      const stackFindings = await scanRepoStackChecks(targetPath, this.version);
+      const stackFindings = await scanRepoStackChecks(targetPath, this.version, context?.rulePack);
       findings.push(...stackFindings);
     } catch {
       // Stack-specific checks are best-effort only.

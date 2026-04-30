@@ -1,9 +1,18 @@
 export {
   EMBEDDED_RULE_PACK_GENERATED,
   EMBEDDED_RULE_PACK_VERSION,
+  buildEmbeddedCCPAPack,
+  buildEmbeddedCCPARulePack,
   buildEmbeddedJurisdictionPack,
   buildEmbeddedRulePack,
 } from './embedded.js';
+export {
+  CCPA_CHECKS,
+  scanCcpaChecks,
+} from './ccpa-checks.js';
+export {
+  CCPAPrincipleInfo,
+} from './ccpa-principles.js';
 export {
   getExecutableGuardVibeStaticRuleSet,
   getExecutableGuardVibeStaticRules,

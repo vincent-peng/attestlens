@@ -1,10 +1,10 @@
 import type {
-  APPPrinciple,
   AssessmentMode,
   Question,
   QuestionnaireEvaluation,
   QuestionnairePrincipleResult,
   QuestionnaireResponse,
+  RegulationPrinciple,
 } from '../schema/index.js';
 import { getApplicableQuestionsForPrinciple, getQuestionById } from './flow.js';
 import { QUESTION_BANK } from './questions.js';
@@ -208,7 +208,7 @@ export function evaluateStoredResponse(
 }
 
 export function aggregatePrincipleResults(
-  principles: APPPrinciple[],
+  principles: RegulationPrinciple[],
   responses: QuestionnaireResponse[],
   questions: Question[] = QUESTION_BANK,
   assessmentMode: AssessmentMode = DEFAULT_ASSESSMENT_MODE,

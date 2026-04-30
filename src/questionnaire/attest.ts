@@ -1,18 +1,20 @@
 import crypto from 'node:crypto';
 
-import { mapAllFindingsAU } from '../mapping/engine.js';
+import { mapAllFindings } from '../mapping/engine.js';
 import { RuleFreshness as RuleFreshnessSchema } from '../schema/index.js';
 import type {
-  APPPrinciple,
   AssessmentMode,
   AttestLensFinding,
+  Jurisdiction,
   QuestionnaireResponse,
   QuestionnaireSession,
+  RegulationPrinciple,
   RuleFreshness,
 } from '../schema/index.js';
 import type { ScannerError, ScannerResult } from '../scanner/types.js';
 import { aggregatePrincipleResults, evaluateResponse } from './evaluator.js';
-import { getApplicableQuestions, getNextQuestion } from './flow.js';
+import { getApplicableQuestions, getNextQuestion, getQuestionBankForJurisdiction } from './flow.js';
+import { CCPA_QUESTIONNAIRE_VERSION } from './ccpa-questions.js';
 import type { AttestationPromptRunner } from './prompts.js';
 import {
   QUESTIONNAIRE_VERSION,
@@ -43,12 +45,13 @@ export interface AttestationScanSnapshot {
   errors: ScannerError[];
   totalDurationMs: number;
   ruleFreshness?: RuleFreshness;
+  jurisdiction?: Jurisdiction;
 }
 
 export interface InitializedAttestationSession {
   session: QuestionnaireSession;
   paths: SessionPaths;
-  principles: APPPrinciple[];
+  principles: RegulationPrinciple[];
 }
 
 export interface QuestionProgress {
@@ -60,13 +63,13 @@ export type AttestationRunResult =
   | {
       status: 'saved';
       session: QuestionnaireSession;
-      principles: APPPrinciple[];
+      principles: RegulationPrinciple[];
       progress: QuestionProgress;
     }
   | {
       status: 'completed';
       session: QuestionnaireSession;
-      principles: APPPrinciple[];
+      principles: RegulationPrinciple[];
       progress: QuestionProgress;
     };
 
@@ -77,6 +80,7 @@ export function buildAttestationScanSnapshot(params: {
   errors?: ScannerError[];
   totalDurationMs?: number;
   ruleFreshness?: RuleFreshness;
+  jurisdiction?: Jurisdiction;
 }): AttestationScanSnapshot {
   return {
     targetType: params.target.kind,
@@ -92,11 +96,18 @@ export function buildAttestationScanSnapshot(params: {
     errors: params.errors || [],
     totalDurationMs: params.totalDurationMs ?? 0,
     ruleFreshness: params.ruleFreshness ? RuleFreshnessSchema.parse(params.ruleFreshness) : undefined,
+    jurisdiction: params.jurisdiction,
   };
 }
 
-export function deriveQuestionnairePrinciples(findings: AttestLensFinding[]): APPPrinciple[] {
-  const { controls } = mapAllFindingsAU(findings, false);
+export function deriveQuestionnairePrinciples(
+  findings: AttestLensFinding[],
+  jurisdiction: Jurisdiction = 'au-privacy-act',
+): RegulationPrinciple[] {
+  const { controls } = mapAllFindings(findings, {
+    strictMode: false,
+    jurisdictions: [jurisdiction],
+  });
   return controls
     .filter((control) => control.questionnaireRequired)
     .map((control) => control.principle);
@@ -104,17 +115,23 @@ export function deriveQuestionnairePrinciples(findings: AttestLensFinding[]): AP
 
 function buildRelevantFindings(
   findings: AttestLensFinding[],
-  principle: APPPrinciple,
+  principle: RegulationPrinciple,
+  jurisdiction: Jurisdiction,
 ): AttestLensFinding[] {
-  mapAllFindingsAU(findings, false);
+  mapAllFindings(findings, {
+    strictMode: false,
+    jurisdictions: [jurisdiction],
+  });
 
   return findings.filter((finding) =>
-    finding.appMappings.some((mapping) => mapping.principle === principle),
+    finding.regulationMappings?.some((mapping) =>
+      mapping.jurisdiction === jurisdiction && mapping.principle === principle,
+    ) || finding.appMappings.some((mapping) => mapping.principle === principle),
   );
 }
 
 function buildProgress(
-  principles: APPPrinciple[],
+  principles: RegulationPrinciple[],
   responses: QuestionnaireResponse[],
   assessmentMode: AssessmentMode,
   sessionQuestions = buildFrozenSessionQuestions(principles),
@@ -132,6 +149,12 @@ function buildProgress(
     current: Math.min(answered + 1, Math.max(total, 1)),
     total: Math.max(total, 1),
   };
+}
+
+function inferQuestionnaireJurisdiction(principles: RegulationPrinciple[]): Jurisdiction {
+  return principles.some((principle) => principle.startsWith('CCPA_'))
+    ? 'us-ccpa'
+    : 'au-privacy-act';
 }
 
 function buildResponse(
@@ -154,23 +177,29 @@ export async function initializeAttestationSession(params: {
   outputDir: string;
   strictMode: boolean;
   assessmentMode: AssessmentMode;
+  jurisdiction?: Jurisdiction;
 }): Promise<InitializedAttestationSession> {
   const sessionId = crypto.randomUUID();
+  const jurisdiction = params.jurisdiction ?? params.snapshot.jurisdiction ?? 'au-privacy-act';
   const paths = buildSessionPaths(params.outputDir, params.target.name, sessionId);
   await ensureSessionDirectory(paths);
-  await writeScanSnapshot(paths.scanSnapshotPath, params.snapshot);
+  await writeScanSnapshot(paths.scanSnapshotPath, {
+    ...params.snapshot,
+    jurisdiction,
+  });
 
-  const principles = deriveQuestionnairePrinciples(params.snapshot.findings);
-  const sessionQuestions = buildFrozenSessionQuestions(principles);
+  const principles = deriveQuestionnairePrinciples(params.snapshot.findings, jurisdiction);
+  const questionBank = getQuestionBankForJurisdiction(jurisdiction);
+  const sessionQuestions = buildFrozenSessionQuestions(principles, questionBank);
   const principleResults = aggregatePrincipleResults(principles, [], sessionQuestions, params.assessmentMode);
-  const currentQuestionId = getNextQuestion(principles, [], sessionQuestions, params.assessmentMode)?.id;
+  const currentQuestionId = getNextQuestion(principles, [], sessionQuestions, params.assessmentMode, jurisdiction)?.id;
   const session = createQuestionnaireSession({
     id: sessionId,
     target: params.target,
     strictMode: params.strictMode,
     scanSnapshotPath: paths.scanSnapshotPath,
     findingsHash: buildFindingsHash(params.snapshot.findings),
-    questionnaireVersion: QUESTIONNAIRE_VERSION,
+    questionnaireVersion: jurisdiction === 'us-ccpa' ? CCPA_QUESTIONNAIRE_VERSION : QUESTIONNAIRE_VERSION,
     principles,
     sessionQuestions,
     principleResults,
@@ -195,12 +224,13 @@ export async function runAttestationSession(params: {
   const principles = params.session.principles;
   const sessionQuestions = params.session.sessionQuestions;
   const assessmentMode = params.session.assessmentMode;
+  const jurisdiction = params.snapshot.jurisdiction ?? inferQuestionnaireJurisdiction(principles);
   let session = params.session;
   let answers = session.answers;
 
   while (true) {
     const principleResults = aggregatePrincipleResults(principles, answers, sessionQuestions, assessmentMode);
-    const nextQuestion = getNextQuestion(principles, answers, sessionQuestions, assessmentMode);
+    const nextQuestion = getNextQuestion(principles, answers, sessionQuestions, assessmentMode, jurisdiction);
 
     if (!nextQuestion) {
       session = completeQuestionnaireSession(session, answers, principleResults);
@@ -220,7 +250,7 @@ export async function runAttestationSession(params: {
     const promptResult = await params.promptRunner.prompt(nextQuestion, {
       progress,
       sessionPath: params.sessionPath,
-      relevantFindings: buildRelevantFindings(params.snapshot.findings, nextQuestion.appPrinciple),
+      relevantFindings: buildRelevantFindings(params.snapshot.findings, nextQuestion.appPrinciple, jurisdiction),
     });
 
     if (promptResult.kind === 'save_and_exit') {
@@ -240,7 +270,7 @@ export async function runAttestationSession(params: {
 
     answers = [...answers, evaluatedResponse];
     const nextPrincipleResults = aggregatePrincipleResults(principles, answers, sessionQuestions, assessmentMode);
-    const nextQuestionId = getNextQuestion(principles, answers, sessionQuestions, assessmentMode)?.id;
+    const nextQuestionId = getNextQuestion(principles, answers, sessionQuestions, assessmentMode, jurisdiction)?.id;
 
     session = updateSessionProgress(session, answers, nextPrincipleResults, nextQuestionId);
     await saveQuestionnaireSession(session, params.sessionPath);
