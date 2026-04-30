@@ -7,7 +7,9 @@ import {
   type RegulationPrinciple,
 } from '../schema/index.js';
 import { CCPAPrincipleInfo } from '../scanner/rules/ccpa-principles.js';
+import { GDPRPrincipleInfo } from '../scanner/rules/gdpr-principles.js';
 import { CCPA_QUESTION_BANK } from './ccpa-questions.js';
+import { GDPR_QUESTION_BANK } from './gdpr-questions.js';
 import { QUESTION_BANK } from './questions.js';
 
 const DEFAULT_ASSESSMENT_MODE: AssessmentMode = 'operator_attested';
@@ -23,6 +25,17 @@ export function getQuestionBankForJurisdiction(jurisdiction: Jurisdiction = 'au-
         .map((principle, index) => [principle, index]),
     );
     return [...CCPA_QUESTION_BANK].sort((left, right) => (
+      (principleRank.get(left.appPrinciple) ?? Number.MAX_SAFE_INTEGER)
+      - (principleRank.get(right.appPrinciple) ?? Number.MAX_SAFE_INTEGER)
+    ));
+  }
+
+  if (jurisdiction === 'eu-gdpr') {
+    const principleRank = new Map(
+      getQuestionPrincipleOrder(Object.keys(GDPRPrincipleInfo), 'eu-gdpr')
+        .map((principle, index) => [principle, index]),
+    );
+    return [...GDPR_QUESTION_BANK].sort((left, right) => (
       (principleRank.get(left.appPrinciple) ?? Number.MAX_SAFE_INTEGER)
       - (principleRank.get(right.appPrinciple) ?? Number.MAX_SAFE_INTEGER)
     ));
@@ -84,7 +97,9 @@ export function getQuestionPrincipleOrder(
 ): RegulationPrinciple[] {
   const orderedPrinciples = jurisdiction === 'us-ccpa'
     ? Object.keys(CCPAPrincipleInfo)
-    : Object.keys(APPInfo);
+    : jurisdiction === 'eu-gdpr'
+      ? Object.keys(GDPRPrincipleInfo)
+      : Object.keys(APPInfo);
   const requested = new Set(principles);
   return orderedPrinciples.filter((principle) => requested.has(principle));
 }
@@ -121,7 +136,11 @@ export function getNextQuestion(
 }
 
 function inferJurisdictionForPrinciples(principles: RegulationPrinciple[]): Jurisdiction {
-  return principles.some((principle) => principle.startsWith('CCPA_'))
-    ? 'us-ccpa'
-    : 'au-privacy-act';
+  if (principles.some((principle) => principle.startsWith('CCPA_'))) {
+    return 'us-ccpa';
+  }
+  if (principles.some((principle) => principle.startsWith('GDPR_'))) {
+    return 'eu-gdpr';
+  }
+  return 'au-privacy-act';
 }

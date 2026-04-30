@@ -2,6 +2,7 @@ import { describe, it, expect, vi } from 'vitest';
 import {
   ALL_MAPPING_RULES,
   CCPA_MAPPING_RULES,
+  GDPR_MAPPING_RULES,
   mapAllFindings,
   mapAllFindingsAU,
   mapFindingToAPP,
@@ -63,11 +64,18 @@ describe('ALL_MAPPING_RULES', () => {
       'CCPA_100', 'CCPA_105', 'CCPA_106', 'CCPA_110', 'CCPA_115', 'CCPA_120',
       'CCPA_121', 'CCPA_125', 'CCPA_130', 'CCPA_135', 'CCPA_145', 'CCPA_150',
     ];
+    const validGdprPrinciples = [
+      'GDPR_Art3', 'GDPR_Art5', 'GDPR_Art6', 'GDPR_Art9', 'GDPR_Art13',
+      'GDPR_Art15', 'GDPR_Art17', 'GDPR_Art22', 'GDPR_Art25', 'GDPR_Art32',
+      'GDPR_Art33', 'GDPR_Art34', 'GDPR_Art35', 'GDPR_Art44',
+    ];
     for (const rule of ALL_MAPPING_RULES) {
       if (rule.jurisdiction === 'au-privacy-act') {
         expect(validPrinciples).toContain(rule.regulationPrinciple);
       } else if (rule.jurisdiction === 'us-ccpa') {
         expect(validCcpaPrinciples).toContain(rule.regulationPrinciple);
+      } else if (rule.jurisdiction === 'eu-gdpr') {
+        expect(validGdprPrinciples).toContain(rule.regulationPrinciple);
       } else {
         throw new Error(`Unexpected jurisdiction in mapping rule: ${rule.jurisdiction}`);
       }
@@ -124,6 +132,24 @@ describe('mapFindingToRegulation', () => {
         status: 'fail',
         confidence: 0.85,
         citation: 'Cal. Civ. Code §1798.150(a)',
+      }),
+    ]));
+  });
+
+  it('maps security findings for GDPR', () => {
+    const finding = makeFinding({
+      sourceRule: 'VS-HARDKEY',
+      severity: 'critical',
+      title: 'Hardcoded secret key',
+    });
+
+    expect(mapFindingToRegulation(finding, ['eu-gdpr'])).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        jurisdiction: 'eu-gdpr',
+        principle: 'GDPR_Art32',
+        status: 'fail',
+        confidence: 0.9,
+        citation: 'GDPR Art. 32(1)',
       }),
     ]));
   });
@@ -561,6 +587,124 @@ describe('CCPA_MAPPING_RULES', () => {
   }
 });
 
+describe('GDPR_MAPPING_RULES', () => {
+  const cases = [
+    {
+      ruleId: 'MAP-GDPR-001',
+      finding: makeFinding({ sourceRule: 'VS-HARDKEY', severity: 'high', title: 'Hardcoded secret key' }),
+      principle: 'GDPR_Art32',
+      status: 'fail',
+      confidence: 0.90,
+      citation: 'GDPR Art. 32(1)',
+    },
+    {
+      ruleId: 'MAP-GDPR-002',
+      finding: makeFinding({ sourceRule: 'VS-SQLI', severity: 'high', title: 'SQL injection vulnerability' }),
+      principle: 'GDPR_Art32',
+      status: 'fail',
+      confidence: 0.90,
+      citation: 'GDPR Art. 32(1)',
+    },
+    {
+      ruleId: 'MAP-GDPR-003',
+      finding: makeFinding({ sourceRule: 'VS-XSS', severity: 'medium', title: 'Potential XSS vector' }),
+      principle: 'GDPR_Art32',
+      status: 'fail',
+      confidence: 0.85,
+      citation: 'GDPR Art. 32(1)',
+    },
+    {
+      ruleId: 'MAP-GDPR-004',
+      finding: makeFinding({ source: 'url-scan', sourceRule: 'AL-URL-002', severity: 'high', category: 'Security Headers', title: 'Missing Strict-Transport-Security Header' }),
+      principle: 'GDPR_Art32',
+      status: 'fail',
+      confidence: 0.90,
+      citation: 'GDPR Art. 32(1)',
+    },
+    {
+      ruleId: 'MAP-GDPR-005',
+      finding: makeFinding({ title: 'Plaintext SSN stored in data store', severity: 'critical' }),
+      principle: 'GDPR_Art32',
+      status: 'fail',
+      confidence: 0.85,
+      citation: 'GDPR Art. 32(1)(a)',
+    },
+    {
+      ruleId: 'MAP-GDPR-006',
+      finding: makeFinding({ category: 'Data Leak', title: 'Data leak exposure', severity: 'high' }),
+      principle: 'GDPR_Art33',
+      status: 'unknown',
+      confidence: 0.50,
+      citation: 'GDPR Art. 33(1)',
+    },
+    {
+      ruleId: 'MAP-GDPR-007',
+      finding: makeFinding({ category: 'third-party transfer', title: 'Third-party transfer', severity: 'medium' }),
+      principle: 'GDPR_Art44',
+      status: 'unknown',
+      confidence: 0.60,
+      citation: 'GDPR Art. 44',
+    },
+    {
+      ruleId: 'MAP-GDPR-008',
+      finding: makeFinding({ title: 'Excessive data collection', severity: 'medium' }),
+      principle: 'GDPR_Art5',
+      status: 'unknown',
+      confidence: 0.55,
+      citation: 'GDPR Art. 5(1)(c)',
+    },
+    {
+      ruleId: 'MAP-GDPR-009',
+      finding: makeFinding({ category: 'automated decision', title: 'Automated decision system', severity: 'medium' }),
+      principle: 'GDPR_Art22',
+      status: 'unknown',
+      confidence: 0.50,
+      citation: 'GDPR Art. 22(1)',
+    },
+  ];
+
+  it('defines all requested GDPR mapping rules', () => {
+    expect(GDPR_MAPPING_RULES.map((rule) => rule.id)).toEqual([
+      'MAP-GDPR-001',
+      'MAP-GDPR-002',
+      'MAP-GDPR-003',
+      'MAP-GDPR-004',
+      'MAP-GDPR-005',
+      'MAP-GDPR-006',
+      'MAP-GDPR-007',
+      'MAP-GDPR-008',
+      'MAP-GDPR-009',
+    ]);
+  });
+
+  for (const testCase of cases) {
+    it(`${testCase.ruleId} maps to ${testCase.principle}`, () => {
+      const mappings = mapFindingToRegulation(testCase.finding, ['eu-gdpr']);
+      expect(mappings).toContainEqual(expect.objectContaining({
+        jurisdiction: 'eu-gdpr',
+        principle: testCase.principle,
+        status: testCase.status,
+        confidence: testCase.confidence,
+        citation: testCase.citation,
+      }));
+    });
+  }
+
+  it('keeps advisory GDPR mappings as unknown', () => {
+    const advisoryMappings = [
+      mapFindingToRegulation(makeFinding({ category: 'third-party transfer', title: 'Third-party transfer' }), ['eu-gdpr']),
+      mapFindingToRegulation(makeFinding({ title: 'Excessive data collection' }), ['eu-gdpr']),
+      mapFindingToRegulation(makeFinding({ category: 'automated decision', title: 'Automated decision system' }), ['eu-gdpr']),
+    ].flat();
+
+    expect(advisoryMappings).toEqual(expect.arrayContaining([
+      expect.objectContaining({ principle: 'GDPR_Art44', status: 'unknown' }),
+      expect.objectContaining({ principle: 'GDPR_Art5', status: 'unknown' }),
+      expect.objectContaining({ principle: 'GDPR_Art22', status: 'unknown' }),
+    ]));
+  });
+});
+
 // ─── mapAllFindings Tests ─────────────────────────────────────────────────────
 
 describe('mapAllFindings', () => {
@@ -723,6 +867,32 @@ describe('mapAllFindings', () => {
     expect(unmapped).toEqual([]);
   });
 
+  it('maps GDPR security and breach findings for EU GDPR jurisdiction', () => {
+    const { controls, unmapped } = mapAllFindings([
+      makeFinding({
+        id: 'F-1',
+        sourceRule: 'VS-HARDKEY',
+        severity: 'critical',
+        title: 'Hardcoded secret key',
+      }),
+      makeFinding({
+        id: 'F-2',
+        sourceRule: 'GDPR-LEAK',
+        category: 'Data Leak',
+        severity: 'high',
+        title: 'Data leak exposure',
+      }),
+    ], { jurisdictions: ['eu-gdpr'] });
+
+    const art32 = controls.find(c => c.jurisdiction === 'eu-gdpr' && c.principle === 'GDPR_Art32');
+    const art33 = controls.find(c => c.jurisdiction === 'eu-gdpr' && c.principle === 'GDPR_Art33');
+    expect(controls).toHaveLength(14);
+    expect(art32?.status).toBe('fail');
+    expect(art33?.status).toBe('unknown');
+    expect(art33?.questionnaireRequired).toBe(true);
+    expect(unmapped).toEqual([]);
+  });
+
   it('merges selected jurisdictions while preserving AU controls', () => {
     const finding = makeFinding({
       id: 'F-1',
@@ -739,6 +909,26 @@ describe('mapAllFindings', () => {
     expect(controls.some(control => control.jurisdiction === 'us-ccpa' && control.principle === 'CCPA_100')).toBe(true);
     expect(finding.regulationMappings?.some(mapping => mapping.jurisdiction === 'au-privacy-act')).toBe(true);
     expect(finding.regulationMappings?.some(mapping => mapping.jurisdiction === 'us-ccpa')).toBe(true);
+  });
+
+  it('maps selected findings across AU, CCPA, and GDPR jurisdictions', () => {
+    const finding = makeFinding({
+      id: 'F-1',
+      sourceRule: 'VS-HARDKEY',
+      severity: 'critical',
+      title: 'Hardcoded secret key',
+    });
+
+    const { controls } = mapAllFindings([finding], {
+      jurisdictions: ['au-privacy-act', 'us-ccpa', 'eu-gdpr'],
+    });
+
+    expect(controls.some(control => control.jurisdiction === 'au-privacy-act' && control.principle === 'APP_11')).toBe(true);
+    expect(controls.some(control => control.jurisdiction === 'us-ccpa' && control.principle === 'CCPA_100')).toBe(true);
+    expect(controls.some(control => control.jurisdiction === 'eu-gdpr' && control.principle === 'GDPR_Art32')).toBe(true);
+    expect(finding.regulationMappings?.some(mapping => mapping.jurisdiction === 'au-privacy-act')).toBe(true);
+    expect(finding.regulationMappings?.some(mapping => mapping.jurisdiction === 'us-ccpa')).toBe(true);
+    expect(finding.regulationMappings?.some(mapping => mapping.jurisdiction === 'eu-gdpr')).toBe(true);
   });
 
   it('keeps the AU compatibility wrapper APP-shaped', () => {

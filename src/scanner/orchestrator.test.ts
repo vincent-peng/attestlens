@@ -57,12 +57,12 @@ describe('ScannerOrchestrator', { timeout: 20000 }, () => {
     expect(mcpScan!.enabled).toBe(true);
   });
 
-  it('rejects unavailable jurisdictions before running scanner adapters', async () => {
+  it('loads GDPR jurisdiction packs before scanning', async () => {
     const orchestrator = new ScannerOrchestrator({ jurisdictions: ['eu-gdpr'] });
+    const result = await orchestrator.scan(fixtureDir, []);
 
-    await expect(orchestrator.scan(fixtureDir, [])).rejects.toThrow(
-      "jurisdiction 'eu-gdpr' is not yet available. Available jurisdictions: au-privacy-act, us-ccpa",
-    );
+    expect(result.ruleFreshness.version).toBe('2026.04.30');
+    expect(result.errors.some((error) => error.message.includes('not yet available'))).toBe(false);
   });
 
   it('loads CCPA jurisdiction packs before scanning', async () => {

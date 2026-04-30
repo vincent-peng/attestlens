@@ -8,6 +8,7 @@ import { buildEmbeddedJurisdictionPack, buildEmbeddedRulePack } from './embedded
 import {
   RULE_PACK_FETCH_TIMEOUT_MS,
   RULE_PACK_MAX_BYTES,
+  AVAILABLE_JURISDICTIONS,
   getJurisdictionUnavailableMessage,
   getRulePackCachePath,
   loadJurisdictionPacks,
@@ -233,6 +234,18 @@ describe('rule pack loader', () => {
     expect(jurisdictionPack.rules[0]!.regulationMappings?.[0]?.jurisdiction).toBe('us-ccpa');
   });
 
+  it('builds a GDPR jurisdiction pack from embedded GDPR metadata', () => {
+    const jurisdictionPack = buildEmbeddedJurisdictionPack('eu-gdpr');
+
+    expect(jurisdictionPack.schemaVersion).toBe('2.0');
+    expect(jurisdictionPack.version).toBe('2026.04.30');
+    expect(jurisdictionPack.jurisdiction).toBe('eu-gdpr');
+    expect(jurisdictionPack.principles).toHaveLength(14);
+    expect(jurisdictionPack.principles.some((principle) => principle.id === 'GDPR_Art32')).toBe(true);
+    expect(jurisdictionPack.rules.some((rule) => rule.id === 'GDPR-SEC-001')).toBe(true);
+    expect(jurisdictionPack.rules[0]!.regulationMappings?.[0]?.jurisdiction).toBe('eu-gdpr');
+  });
+
   it('loads AU jurisdiction packs', async () => {
     const cacheDir = await makeTempDir();
     const packs = await loadJurisdictionPacks(['au-privacy-act'], {
@@ -260,19 +273,34 @@ describe('rule pack loader', () => {
     expect(ccpaPack!.warnings).toEqual([]);
   });
 
-  it('loads mixed AU and CCPA packs', async () => {
+  it('loads the embedded GDPR jurisdiction pack', async () => {
+    const packs = await loadJurisdictionPacks(['eu-gdpr'], {
+      now: new Date('2026-04-24T00:00:00.000Z'),
+    });
+    const gdprPack = packs.get('eu-gdpr');
+
+    expect(gdprPack).toBeDefined();
+    expect(gdprPack!.manifest.jurisdiction).toBe('eu-gdpr');
+    expect(gdprPack!.manifest.rules.some((rule) => rule.id === 'GDPR-CONSENT-001')).toBe(true);
+    expect(gdprPack!.jurisdictionManifest?.principles.some((principle) => principle.id === 'GDPR_Art3')).toBe(true);
+    expect(gdprPack!.warnings).toEqual([]);
+  });
+
+  it('loads mixed AU, CCPA, and GDPR packs', async () => {
     const cacheDir = await makeTempDir();
-    const packs = await loadJurisdictionPacks(['au-privacy-act', 'us-ccpa'], {
+    const packs = await loadJurisdictionPacks(['au-privacy-act', 'us-ccpa', 'eu-gdpr'], {
       cacheDir,
       now: new Date('2026-04-24T00:00:00.000Z'),
     });
 
     expect(packs.get('au-privacy-act')!.manifest.rules.length).toBeGreaterThan(0);
     expect(packs.get('us-ccpa')!.manifest.rules.length).toBeGreaterThan(0);
+    expect(packs.get('eu-gdpr')!.manifest.rules.length).toBeGreaterThan(0);
     expect(packs.get('us-ccpa')!.warnings).toEqual([]);
+    expect(packs.get('eu-gdpr')!.warnings).toEqual([]);
   });
 
-  it('loads mixed AU and GDPR packs without dropping AU rules', async () => {
+  it('loads mixed AU and GDPR packs without unavailable warnings', async () => {
     const cacheDir = await makeTempDir();
     const packs = await loadJurisdictionPacks(['au-privacy-act', 'eu-gdpr'], {
       cacheDir,
@@ -280,7 +308,14 @@ describe('rule pack loader', () => {
     });
 
     expect(packs.get('au-privacy-act')!.manifest.rules.length).toBeGreaterThan(0);
-    expect(packs.get('eu-gdpr')!.manifest.rules).toEqual([]);
-    expect(packs.get('eu-gdpr')!.warnings).toEqual([getJurisdictionUnavailableMessage('eu-gdpr')]);
+    expect(packs.get('eu-gdpr')!.manifest.rules.length).toBeGreaterThan(0);
+    expect(packs.get('eu-gdpr')!.warnings).toEqual([]);
+  });
+
+  it('treats all declared jurisdictions as available', () => {
+    expect(AVAILABLE_JURISDICTIONS).toEqual(['au-privacy-act', 'us-ccpa', 'eu-gdpr']);
+    expect(getJurisdictionUnavailableMessage('eu-gdpr')).toBe(
+      "No embedded rule pack loaded for requested jurisdiction 'eu-gdpr'. Available jurisdictions: au-privacy-act, us-ccpa, eu-gdpr",
+    );
   });
 });

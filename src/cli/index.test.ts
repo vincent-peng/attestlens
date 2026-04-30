@@ -10,6 +10,7 @@ import { describe, expect, it, vi } from 'vitest';
 import {
   buildFindingsHash,
   CCPA_QUESTIONNAIRE_VERSION,
+  GDPR_QUESTIONNAIRE_VERSION,
   LEGACY_QUESTION_BANK_V1,
   QUESTIONNAIRE_VERSION,
   loadQuestionnaireSession,
@@ -436,6 +437,12 @@ describe('CLI external enrichment option', () => {
     }));
   });
 
+  it('passes explicit GDPR jurisdiction into scanner options', () => {
+    expect(buildScannerOrchestratorOptions({ jurisdiction: 'eu-gdpr' })).toEqual(expect.objectContaining({
+      jurisdictions: ['eu-gdpr'],
+    }));
+  });
+
   it('rejects unsupported jurisdiction values in scanner options', () => {
     expect(() => buildScannerOrchestratorOptions({ jurisdiction: 'antarctica' }))
       .toThrow('Unsupported jurisdiction');
@@ -458,7 +465,7 @@ describe('CLI external enrichment option', () => {
     }
   });
 
-  it('runs scan and audit with CCPA jurisdiction', async () => {
+  it('runs scan and audit with CCPA and GDPR jurisdictions', async () => {
     const projectDir = await fs.mkdtemp(path.join(os.tmpdir(), 'attestlens-cli-jurisdiction-'));
     const outputDir = await fs.mkdtemp(path.join(os.tmpdir(), 'attestlens-cli-jurisdiction-out-'));
 
@@ -467,6 +474,8 @@ describe('CLI external enrichment option', () => {
       const commands = [
         ['scan', projectDir, '--jurisdiction', 'us-ccpa', '--no-guardvibe', '--no-mcp-scan', '--no-supply-chain', '--no-behavioral', '--no-iac'],
         ['audit', projectDir, '--jurisdiction', 'us-ccpa', '-f', 'json', '-o', outputDir, '--no-guardvibe', '--no-mcp-scan', '--no-supply-chain', '--no-behavioral', '--no-iac'],
+        ['scan', projectDir, '--jurisdiction', 'eu-gdpr', '--no-guardvibe', '--no-mcp-scan', '--no-supply-chain', '--no-behavioral', '--no-iac'],
+        ['audit', projectDir, '--jurisdiction', 'eu-gdpr', '-f', 'json', '-o', outputDir, '--no-guardvibe', '--no-mcp-scan', '--no-supply-chain', '--no-behavioral', '--no-iac'],
       ];
 
       for (const command of commands) {
@@ -541,16 +550,23 @@ describe('CLI external enrichment option', () => {
     }
   });
 
-  it('returns a not-yet-available message for unavailable CLI jurisdictions', async () => {
+  it('rejects GDPR jurisdiction for AU-only SMB compliance-check', async () => {
     const projectDir = await fs.mkdtemp(path.join(os.tmpdir(), 'attestlens-cli-jurisdiction-'));
 
     try {
       await fs.writeFile(path.join(projectDir, 'README.md'), '# Example project\n');
-      const result = await runCli(['scan', projectDir, '--jurisdiction', 'eu-gdpr']);
+      const result = await runCli([
+        'compliance-check',
+        projectDir,
+        '--jurisdiction',
+        'eu-gdpr',
+        '--non-interactive',
+      ]);
       const output = `${result.stdout}\n${result.stderr}`;
 
       expect(result.code).toBe(1);
-      expect(output).toContain("jurisdiction 'eu-gdpr' is not yet available. Available jurisdictions: au-privacy-act, us-ccpa");
+      expect(output).toContain('SMB compliance check is currently AU-only');
+      expect(output).toContain('audit --jurisdiction eu-gdpr');
     } finally {
       await fs.rm(projectDir, { recursive: true, force: true });
     }
@@ -826,6 +842,40 @@ describe('CLI attest command', { timeout: 20000 }, () => {
       expect(session.questionnaireVersion).toBe(CCPA_QUESTIONNAIRE_VERSION);
       expect(session.principles[0]).toBe('CCPA_100');
       expect(session.sessionQuestions[0]?.id).toBe('Q-CCPA100-001');
+    } finally {
+      await fs.rm(projectDir, { recursive: true, force: true });
+      await fs.rm(outputDir, { recursive: true, force: true });
+    }
+  });
+
+  it('starts a GDPR questionnaire when attest receives eu-gdpr jurisdiction', async () => {
+    const projectDir = await fs.mkdtemp(path.join(os.tmpdir(), 'attestlens-attest-gdpr-project-'));
+    const outputDir = await fs.mkdtemp(path.join(os.tmpdir(), 'attestlens-attest-gdpr-output-'));
+
+    try {
+      await fs.writeFile(path.join(projectDir, 'README.md'), '# Example project\n');
+
+      const result = await executeAttestCommand(projectDir, {
+        ...noScannerAttestOptions,
+        output: outputDir,
+        format: 'json',
+        strict: false,
+        jurisdiction: 'eu-gdpr',
+      }, makePromptRunner({ saveAfter: 0 }));
+
+      expect(result.status).toBe('saved');
+
+      const session = await loadQuestionnaireSession(result.sessionPath);
+      const snapshot = await loadScanSnapshot<any>(result.scanSnapshotPath);
+
+      expect(session.version).toBe('1.3');
+      if (session.version !== '1.3') {
+        throw new Error('Expected a frozen 1.3 questionnaire session');
+      }
+      expect(snapshot.jurisdiction).toBe('eu-gdpr');
+      expect(session.questionnaireVersion).toBe(GDPR_QUESTIONNAIRE_VERSION);
+      expect(session.principles[0]).toBe('GDPR_Art3');
+      expect(session.sessionQuestions[0]?.id).toBe('Q-GDPR-Art3-001');
     } finally {
       await fs.rm(projectDir, { recursive: true, force: true });
       await fs.rm(outputDir, { recursive: true, force: true });

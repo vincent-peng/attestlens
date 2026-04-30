@@ -24,6 +24,7 @@ import {
 } from '../schema/index.js';
 import { calculateMappingConfidence } from './confidence.js';
 import { CCPAPrincipleInfo } from '../scanner/rules/ccpa-principles.js';
+import { GDPRPrincipleInfo } from '../scanner/rules/gdpr-principles.js';
 
 // ─── Mapping Rules ──────────────────────────────────────────────────────────
 
@@ -1060,6 +1061,142 @@ export const CCPA_MAPPING_RULES: MappingRule[] = [
   },
 ];
 
+export const GDPR_MAPPING_RULES: MappingRule[] = [
+  {
+    id: 'MAP-GDPR-001',
+    name: 'Hardcoded Credentials → GDPR_Art32',
+    sourcePatterns: {
+      ruleId: /^VG-SEC-001|^VS-HARDKEY|^MC-EXP-SEC$/,
+      category: /^(Secrets?|Credentials?)$/i,
+      title: /hardcoded.*(key|secret|token|password|credential|api.?key)/i,
+      severity: ['critical', 'high'],
+    },
+    matchMode: 'or',
+    jurisdiction: 'eu-gdpr',
+    regulationPrinciple: 'GDPR_Art32',
+    status: 'fail',
+    confidence: 0.90,
+    rationale: 'Hardcoded credentials indicate missing appropriate technical and organisational security measures for personal data.',
+    citation: 'GDPR Art. 32(1)',
+  },
+  {
+    id: 'MAP-GDPR-002',
+    name: 'SQL Injection → GDPR_Art32',
+    sourcePatterns: {
+      ruleId: /^VG-SEC-002|^VS-SQLI|^VS-SAST-004$/,
+      category: /^(Security|SAST Lite)$/i,
+      title: /sql.?injection|sql query built from request input/i,
+      severity: ['critical', 'high'],
+    },
+    matchMode: 'or',
+    jurisdiction: 'eu-gdpr',
+    regulationPrinciple: 'GDPR_Art32',
+    status: 'fail',
+    confidence: 0.90,
+    rationale: 'SQL injection can compromise confidentiality, integrity, and availability of personal data under GDPR security-of-processing obligations.',
+    citation: 'GDPR Art. 32(1)',
+  },
+  {
+    id: 'MAP-GDPR-003',
+    name: 'XSS → GDPR_Art32',
+    sourcePatterns: {
+      ruleId: /^VG-SEC-006|^VS-XSS|^AL-JS-001$/,
+      category: /^(Security|JS Security)$/i,
+      title: /cross.?site.?scripting|xss|dangerously.?set.?inner.?html/i,
+      severity: ['high', 'medium'],
+    },
+    matchMode: 'or',
+    jurisdiction: 'eu-gdpr',
+    regulationPrinciple: 'GDPR_Art32',
+    status: 'fail',
+    confidence: 0.85,
+    rationale: 'XSS can allow unauthorised access to personal data and indicates missing appropriate security controls.',
+    citation: 'GDPR Art. 32(1)',
+  },
+  {
+    id: 'MAP-GDPR-004',
+    name: 'Insecure Transport → GDPR_Art32',
+    sourcePatterns: {
+      ruleId: /^AL-URL-002$/,
+      category: /^Security Headers$/i,
+      title: /strict.?transport|hsts|https|insecure transport/i,
+      severity: ['critical', 'high', 'medium'],
+    },
+    matchMode: 'or',
+    jurisdiction: 'eu-gdpr',
+    regulationPrinciple: 'GDPR_Art32',
+    status: 'fail',
+    confidence: 0.90,
+    rationale: 'Missing transport security can expose personal data in transit and indicates missing security-of-processing measures.',
+    citation: 'GDPR Art. 32(1)',
+  },
+  {
+    id: 'MAP-GDPR-005',
+    name: 'Unencrypted PI → GDPR_Art32',
+    sourcePatterns: {
+      title: /unencrypted.*personal|plaintext.*(pii|sensitive|ssn)/i,
+    },
+    jurisdiction: 'eu-gdpr',
+    regulationPrinciple: 'GDPR_Art32',
+    status: 'fail',
+    confidence: 0.85,
+    rationale: 'Plaintext or unencrypted personal data indicates missing encryption or equivalent protection under GDPR Art. 32.',
+    citation: 'GDPR Art. 32(1)(a)',
+  },
+  {
+    id: 'MAP-GDPR-006',
+    name: 'Data Breach Vulns → GDPR_Art33',
+    sourcePatterns: {
+      category: /breach|leak|expos/i,
+    },
+    jurisdiction: 'eu-gdpr',
+    regulationPrinciple: 'GDPR_Art33',
+    status: 'unknown',
+    confidence: 0.50,
+    rationale: 'Breach, leak, or exposure findings may indicate a personal data breach pathway requiring supervisory authority notification assessment.',
+    citation: 'GDPR Art. 33(1)',
+  },
+  {
+    id: 'MAP-GDPR-007',
+    name: 'Cross-Border Transfer → GDPR_Art44',
+    sourcePatterns: {
+      category: /third.party|sharing|transfer/i,
+    },
+    jurisdiction: 'eu-gdpr',
+    regulationPrinciple: 'GDPR_Art44',
+    status: 'unknown',
+    confidence: 0.60,
+    rationale: 'Third-party sharing or transfer findings require manual review to determine whether personal data leaves the EEA and whether an Art. 44-49 transfer mechanism applies.',
+    citation: 'GDPR Art. 44',
+  },
+  {
+    id: 'MAP-GDPR-008',
+    name: 'Excessive Data Collection → GDPR_Art5',
+    sourcePatterns: {
+      title: /overcollection|excessive.*collection|unnecessary.*data/i,
+    },
+    jurisdiction: 'eu-gdpr',
+    regulationPrinciple: 'GDPR_Art5',
+    status: 'unknown',
+    confidence: 0.55,
+    rationale: 'Potential overcollection requires context to determine whether data collection is limited to what is necessary for the specific purpose.',
+    citation: 'GDPR Art. 5(1)(c)',
+  },
+  {
+    id: 'MAP-GDPR-009',
+    name: 'Automated Decisions → GDPR_Art22',
+    sourcePatterns: {
+      category: /automated.*decision|profiling|algorithm/i,
+    },
+    jurisdiction: 'eu-gdpr',
+    regulationPrinciple: 'GDPR_Art22',
+    status: 'unknown',
+    confidence: 0.50,
+    rationale: 'Automated decision or profiling findings require context to determine whether decisions are solely automated and produce legal or similarly significant effects.',
+    citation: 'GDPR Art. 22(1)',
+  },
+];
+
 // ─── All Rules ───────────────────────────────────────────────────────────────
 
 export const ALL_MAPPING_RULES: MappingRule[] = [
@@ -1070,6 +1207,7 @@ export const ALL_MAPPING_RULES: MappingRule[] = [
   ...APP_12_RULES,
   ...NDB_RULES,
   ...CCPA_MAPPING_RULES,
+  ...GDPR_MAPPING_RULES,
 ];
 
 // ─── Mapping Engine ──────────────────────────────────────────────────────────
@@ -1305,6 +1443,24 @@ export function mapAllFindings(
         });
       }
     }
+
+    if (jurisdiction === 'eu-gdpr') {
+      for (const [principle, info] of Object.entries(GDPRPrincipleInfo)) {
+        controlMap.set(getControlKey(jurisdiction, principle), {
+          jurisdiction,
+          principle,
+          shortName: info.shortName,
+          obligation: info.obligation,
+          status: 'unknown',
+          score: 100,
+          findingCount: { critical: 0, high: 0, medium: 0, low: 0, info: 0 },
+          findings: [],
+          questionnaireRequired: true,
+          lastAssessed: new Date().toISOString(),
+          citation: info.citation,
+        });
+      }
+    }
   }
 
   for (const rule of ALL_MAPPING_RULES) {
@@ -1388,10 +1544,10 @@ export function mapAllFindings(
 
   // Final pass: set questionnaire requirements
   for (const control of controlMap.values()) {
-    if (control.findings.length === 0 && control.status === 'unknown') {
-      control.questionnaireRequired = true;
-    } else if (control.status === 'fail') {
+    if (control.status === 'fail') {
       control.questionnaireRequired = false;
+    } else if (control.status === 'unknown') {
+      control.questionnaireRequired = true;
     } else if (control.findings.length > 0) {
       control.questionnaireRequired = false;
     }
@@ -1436,6 +1592,9 @@ function getRegulationObligation(jurisdiction: Jurisdiction, principle: Regulati
   if (jurisdiction === 'us-ccpa' && Object.prototype.hasOwnProperty.call(CCPAPrincipleInfo, principle)) {
     return CCPAPrincipleInfo[principle as keyof typeof CCPAPrincipleInfo].obligation;
   }
+  if (jurisdiction === 'eu-gdpr' && Object.prototype.hasOwnProperty.call(GDPRPrincipleInfo, principle)) {
+    return GDPRPrincipleInfo[principle as keyof typeof GDPRPrincipleInfo].obligation;
+  }
 
   return JurisdictionInfo[jurisdiction].fullName;
 }
@@ -1446,6 +1605,9 @@ function getRegulationShortName(jurisdiction: Jurisdiction, principle: Regulatio
   }
   if (jurisdiction === 'us-ccpa' && Object.prototype.hasOwnProperty.call(CCPAPrincipleInfo, principle)) {
     return CCPAPrincipleInfo[principle as keyof typeof CCPAPrincipleInfo].shortName;
+  }
+  if (jurisdiction === 'eu-gdpr' && Object.prototype.hasOwnProperty.call(GDPRPrincipleInfo, principle)) {
+    return GDPRPrincipleInfo[principle as keyof typeof GDPRPrincipleInfo].shortName;
   }
 
   return principle;
@@ -1490,6 +1652,8 @@ function regulationControlToAPPControl(
 
 export default {
   ALL_MAPPING_RULES,
+  CCPA_MAPPING_RULES,
+  GDPR_MAPPING_RULES,
   mapFindingToAPP,
   mapFindingToRegulation,
   mapAllFindings,

@@ -109,6 +109,24 @@ export const CCPAPrinciple = z.enum([
 ]);
 export type CCPAPrinciple = z.infer<typeof CCPAPrinciple>;
 
+export const GDPRPrinciple = z.enum([
+  'GDPR_Art3',
+  'GDPR_Art5',
+  'GDPR_Art6',
+  'GDPR_Art9',
+  'GDPR_Art13',
+  'GDPR_Art15',
+  'GDPR_Art17',
+  'GDPR_Art22',
+  'GDPR_Art25',
+  'GDPR_Art32',
+  'GDPR_Art33',
+  'GDPR_Art34',
+  'GDPR_Art35',
+  'GDPR_Art44',
+]);
+export type GDPRPrinciple = z.infer<typeof GDPRPrinciple>;
+
 // ─── Core Schemas ────────────────────────────────────────────────────────────
 
 // Phase 7 will refine this into per-jurisdiction principle validation.

@@ -9,6 +9,7 @@ import {
   buildFrozenSessionQuestions,
   buildQuestionSetHash,
 } from '../questionnaire/index.js';
+import { scanGdprChecks } from '../scanner/rules/gdpr-checks.js';
 
 function makeFinding(overrides: Partial<AttestLensFinding> = {}): AttestLensFinding {
   return {
@@ -156,6 +157,50 @@ describe('buildComplianceReport', () => {
     expect(markdown).toContain('California Consumer Privacy Act (CCPA/CPRA) Compliance Report');
     expect(markdown).toContain('CCPA_100');
     expect(report.complianceOpinion?.principles.some((principle) => principle.principle === 'CCPA_100')).toBe(true);
+  });
+
+  it('generates GDPR subset reports with GDPR controls and scope note', () => {
+    const findings = [
+      makeFinding({ id: 'F-1', severity: 'critical', sourceRule: 'VS-HARDKEY', title: 'Hardcoded key' }),
+    ];
+    const report = buildComplianceReport(findings, {
+      ...defaultOptions,
+      jurisdiction: 'eu-gdpr',
+      includeOpinion: true,
+    }, 1000);
+    const markdown = generateMarkdownReport(report);
+
+    expect(report.appControls).toEqual([]);
+    expect(report.regulationControls?.some((control) => control.principle === 'GDPR_Art32' && control.status === 'fail')).toBe(true);
+    expect(markdown).toContain('General Data Protection Regulation (GDPR) — Subset Compliance Report');
+    expect(markdown).toContain('This assessment covers a subset of GDPR articles');
+    expect(markdown).toContain('GDPR_Art32');
+    expect(report.disclaimer).toContain('Other articles are deferred');
+    expect(report.complianceOpinion?.principles.some((principle) => principle.principle === 'GDPR_Art32')).toBe(true);
+  });
+
+  it('keeps GDPR-SEC-001 special-category values redacted across report formats', () => {
+    const findings = scanGdprChecks([
+      { relativePath: 'data/patient.json', content: '{"health_condition":"asthma"}' },
+    ], 'test').filter((finding) => finding.sourceRule === 'GDPR-SEC-001');
+    const reportOptions: ReportOptions = {
+      ...defaultOptions,
+      jurisdiction: 'eu-gdpr',
+      formats: ['json', 'html', 'markdown'],
+    };
+    const report = buildComplianceReport(findings, reportOptions, 1000);
+
+    const outputs = [
+      generateJSONReport(report),
+      generateHTMLReport(report, reportOptions),
+      generateMarkdownReport(report),
+    ];
+
+    for (const output of outputs) {
+      expect(output).toContain('health_condition');
+      expect(output).toContain('[REDACTED]');
+      expect(output).not.toContain('asthma');
+    }
   });
 
   it('should include remediation items', () => {

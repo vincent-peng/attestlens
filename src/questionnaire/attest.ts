@@ -15,6 +15,7 @@ import type { ScannerError, ScannerResult } from '../scanner/types.js';
 import { aggregatePrincipleResults, evaluateResponse } from './evaluator.js';
 import { getApplicableQuestions, getNextQuestion, getQuestionBankForJurisdiction } from './flow.js';
 import { CCPA_QUESTIONNAIRE_VERSION } from './ccpa-questions.js';
+import { GDPR_QUESTIONNAIRE_VERSION } from './gdpr-questions.js';
 import type { AttestationPromptRunner } from './prompts.js';
 import {
   QUESTIONNAIRE_VERSION,
@@ -152,9 +153,23 @@ function buildProgress(
 }
 
 function inferQuestionnaireJurisdiction(principles: RegulationPrinciple[]): Jurisdiction {
-  return principles.some((principle) => principle.startsWith('CCPA_'))
-    ? 'us-ccpa'
-    : 'au-privacy-act';
+  if (principles.some((principle) => principle.startsWith('CCPA_'))) {
+    return 'us-ccpa';
+  }
+  if (principles.some((principle) => principle.startsWith('GDPR_'))) {
+    return 'eu-gdpr';
+  }
+  return 'au-privacy-act';
+}
+
+function getQuestionnaireVersionForJurisdiction(jurisdiction: Jurisdiction): string {
+  if (jurisdiction === 'us-ccpa') {
+    return CCPA_QUESTIONNAIRE_VERSION;
+  }
+  if (jurisdiction === 'eu-gdpr') {
+    return GDPR_QUESTIONNAIRE_VERSION;
+  }
+  return QUESTIONNAIRE_VERSION;
 }
 
 function buildResponse(
@@ -199,7 +214,7 @@ export async function initializeAttestationSession(params: {
     strictMode: params.strictMode,
     scanSnapshotPath: paths.scanSnapshotPath,
     findingsHash: buildFindingsHash(params.snapshot.findings),
-    questionnaireVersion: jurisdiction === 'us-ccpa' ? CCPA_QUESTIONNAIRE_VERSION : QUESTIONNAIRE_VERSION,
+    questionnaireVersion: getQuestionnaireVersionForJurisdiction(jurisdiction),
     principles,
     sessionQuestions,
     principleResults,

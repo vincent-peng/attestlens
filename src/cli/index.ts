@@ -33,7 +33,7 @@ import {
   generateSMBMarkdownReport,
   type SMBComplianceResult,
 } from '../report/smb-generator.js';
-import { getJurisdictionUnavailableMessage, updateRuleCache } from '../scanner/rules/index.js';
+import { updateRuleCache } from '../scanner/rules/index.js';
 import {
   SMB_QUESTIONS,
   SMB_QUESTIONNAIRE_VERSION,
@@ -130,7 +130,7 @@ program
       const findings = result.findings;
       if (findings.length === 0) {
         console.log(chalk.green('\n✅ No compliance findings detected.'));
-        console.log(chalk.gray('   Run `attestlens audit` for a full APP control assessment.'));
+        console.log(chalk.gray(`   Run \`attestlens audit --jurisdiction ${jurisdiction}\` for a full ${getJurisdictionAssessmentLabel(jurisdiction)} control assessment.`));
         return;
       }
 
@@ -363,7 +363,7 @@ program
       const jurisdiction = parseJurisdictionOption(options.jurisdiction);
       assertJurisdictionAvailableForCli(jurisdiction);
       if (jurisdiction !== 'au-privacy-act') {
-        throw new Error('SMB compliance check is currently AU-only; use `audit --jurisdiction us-ccpa` for CCPA assessments.');
+        throw new Error(`SMB compliance check is currently AU-only; use \`audit --jurisdiction ${jurisdiction}\` for ${getJurisdictionAssessmentLabel(jurisdiction)} assessments.`);
       }
       const outputDir = path.resolve(options.output);
       const orchestrator = createOrchestrator(target.kind, options);
@@ -631,9 +631,17 @@ function parseJurisdictionOption(rawValue: unknown): JurisdictionType {
 }
 
 function assertJurisdictionAvailableForCli(jurisdiction: JurisdictionType): void {
-  if (jurisdiction === 'eu-gdpr') {
-    throw new Error(getJurisdictionUnavailableMessage(jurisdiction));
+  Jurisdiction.parse(jurisdiction);
+}
+
+function getJurisdictionAssessmentLabel(jurisdiction: JurisdictionType): string {
+  if (jurisdiction === 'us-ccpa') {
+    return 'CCPA';
   }
+  if (jurisdiction === 'eu-gdpr') {
+    return 'GDPR';
+  }
+  return 'AU Privacy Act';
 }
 
 type EffectiveControl = ComplianceReport['appControls'][number] | RegulationControl;
@@ -654,9 +662,13 @@ function inferQuestionnaireJurisdiction(
   principles: string[] | undefined,
   fallback: JurisdictionType = 'au-privacy-act',
 ): JurisdictionType {
-  return principles?.some((principle) => principle.startsWith('CCPA_'))
-    ? 'us-ccpa'
-    : fallback;
+  if (principles?.some((principle) => principle.startsWith('CCPA_'))) {
+    return 'us-ccpa';
+  }
+  if (principles?.some((principle) => principle.startsWith('GDPR_'))) {
+    return 'eu-gdpr';
+  }
+  return fallback;
 }
 
 export function buildScannerOrchestratorOptions(options: any): ScannerOrchestratorOptions {
@@ -1015,6 +1027,7 @@ function normalizeScanSnapshot(
   const reportTarget = resolveReportTarget(normalizedScanData, resolvedPath, explicitName);
   const target = buildSessionTargetFromReportTarget(reportTarget);
   const findings = Array.isArray(normalizedScanData.findings) ? normalizedScanData.findings : [];
+  const parsedJurisdiction = Jurisdiction.safeParse(normalizedScanData.jurisdiction);
 
   return {
     target,
@@ -1036,6 +1049,7 @@ function normalizeScanSnapshot(
           ? normalizedScanData.metadata.scanDurationMs
           : 0,
       ruleFreshness: extractRuleFreshness(normalizedScanData),
+      jurisdiction: parsedJurisdiction.success ? parsedJurisdiction.data : undefined,
     },
   };
 }
@@ -1156,6 +1170,7 @@ export async function executeAttestCommand(
     const normalized = normalizeScanSnapshot(rawScanData, resolvedScanPath, options.name);
     snapshot = normalized.snapshot;
     sessionTarget = normalized.target;
+    jurisdiction = snapshot.jurisdiction ?? jurisdiction;
     const assessmentMode = await resolveAssessmentModeSelection(
       requestedAssessmentMode,
       runner,
