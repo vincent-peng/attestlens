@@ -428,6 +428,12 @@ describe('CLI external enrichment option', () => {
     }));
   });
 
+  it('passes explicit CCPA jurisdiction into scanner options', () => {
+    expect(buildScannerOrchestratorOptions({ jurisdiction: 'us-ccpa' })).toEqual(expect.objectContaining({
+      jurisdictions: ['us-ccpa'],
+    }));
+  });
+
   it('rejects unsupported jurisdiction values in scanner options', () => {
     expect(() => buildScannerOrchestratorOptions({ jurisdiction: 'antarctica' }))
       .toThrow('Unsupported jurisdiction');
@@ -450,28 +456,43 @@ describe('CLI external enrichment option', () => {
     }
   });
 
-  it('returns a not-yet-available message for unsupported CLI jurisdictions', async () => {
+  it('runs scan, audit, and compliance-check with CCPA jurisdiction', async () => {
     const projectDir = await fs.mkdtemp(path.join(os.tmpdir(), 'attestlens-cli-jurisdiction-'));
     const outputDir = await fs.mkdtemp(path.join(os.tmpdir(), 'attestlens-cli-jurisdiction-out-'));
 
     try {
       await fs.writeFile(path.join(projectDir, 'README.md'), '# Example project\n');
       const commands = [
-        ['scan', projectDir, '--jurisdiction', 'us-ccpa'],
-        ['audit', projectDir, '--jurisdiction', 'us-ccpa', '-f', 'json', '-o', outputDir],
-        ['compliance-check', projectDir, '--jurisdiction', 'us-ccpa', '--non-interactive', '-f', 'json', '-o', outputDir],
+        ['scan', projectDir, '--jurisdiction', 'us-ccpa', '--no-guardvibe', '--no-mcp-scan', '--no-supply-chain', '--no-behavioral', '--no-iac'],
+        ['audit', projectDir, '--jurisdiction', 'us-ccpa', '-f', 'json', '-o', outputDir, '--no-guardvibe', '--no-mcp-scan', '--no-supply-chain', '--no-behavioral', '--no-iac'],
+        ['compliance-check', projectDir, '--jurisdiction', 'us-ccpa', '--non-interactive', '-f', 'json', '-o', outputDir, '--scanner-timeout', '1000'],
       ];
 
       for (const command of commands) {
         const result = await runCli(command);
         const output = `${result.stdout}\n${result.stderr}`;
 
-        expect(result.code, command[0]).toBe(1);
-        expect(output, command[0]).toContain("jurisdiction 'us-ccpa' is not yet available. Available jurisdictions: au-privacy-act");
+        expect(result.code, output).toBe(0);
+        expect(output, command[0]).not.toContain('not yet available');
       }
     } finally {
       await fs.rm(projectDir, { recursive: true, force: true });
       await fs.rm(outputDir, { recursive: true, force: true });
+    }
+  }, 15000);
+
+  it('returns a not-yet-available message for unavailable CLI jurisdictions', async () => {
+    const projectDir = await fs.mkdtemp(path.join(os.tmpdir(), 'attestlens-cli-jurisdiction-'));
+
+    try {
+      await fs.writeFile(path.join(projectDir, 'README.md'), '# Example project\n');
+      const result = await runCli(['scan', projectDir, '--jurisdiction', 'eu-gdpr']);
+      const output = `${result.stdout}\n${result.stderr}`;
+
+      expect(result.code).toBe(1);
+      expect(output).toContain("jurisdiction 'eu-gdpr' is not yet available. Available jurisdictions: au-privacy-act, us-ccpa");
+    } finally {
+      await fs.rm(projectDir, { recursive: true, force: true });
     }
   });
 

@@ -635,7 +635,7 @@ function parseJurisdiction(value: unknown): JurisdictionType | ToolErrorResponse
 }
 
 function validateJurisdictionAvailability(jurisdiction: JurisdictionType): true | ToolErrorResponse {
-  if (jurisdiction !== 'au-privacy-act') {
+  if (jurisdiction === 'eu-gdpr') {
     return makeToolError(getJurisdictionUnavailableMessage(jurisdiction));
   }
   return true;
@@ -644,7 +644,7 @@ function validateJurisdictionAvailability(jurisdiction: JurisdictionType): true 
 function validateRegulationPrinciple(
   jurisdiction: JurisdictionType,
   value: unknown,
-): APPPrinciple | ToolErrorResponse {
+): string | ToolErrorResponse {
   const availability = validateJurisdictionAvailability(jurisdiction);
   if (isToolError(availability)) {
     return availability;
@@ -654,7 +654,10 @@ function validateRegulationPrinciple(
     return validatePrinciple(value);
   }
 
-  return makeToolError(getJurisdictionUnavailableMessage(jurisdiction));
+  if (typeof value !== 'string' || !/^CCPA_(?:100|105|106|110|115|120|121|125|130|135|145|150)$/.test(value)) {
+    return makeToolError(`invalid CCPA principle: ${String(value)}. Valid principles: CCPA_100, CCPA_105, CCPA_106, CCPA_110, CCPA_115, CCPA_120, CCPA_121, CCPA_125, CCPA_130, CCPA_135, CCPA_145, CCPA_150`);
+  }
+  return value;
 }
 
 function serializeFindings(findings: AttestLensFinding[]) {
@@ -677,6 +680,7 @@ function serializeFindings(findings: AttestLensFinding[]) {
       obligation: mapping.obligation,
       status: mapping.status,
       confidence: mapping.confidence,
+      citation: mapping.citation,
     })),
     appMappings: finding.appMappings.map((mapping) => ({
       principle: mapping.principle,
@@ -742,11 +746,19 @@ function formatUrlScanFailure(error: ScannerError): ToolErrorResponse {
   }
 }
 
-function buildScanSummary(result: Awaited<ReturnType<ScannerOrchestrator['scan']>>, strictMode = false) {
-  const { controls, unmapped } = mapAllFindingsAU(result.findings, strictMode);
+function buildScanSummary(
+  result: Awaited<ReturnType<ScannerOrchestrator['scan']>>,
+  strictMode = false,
+  jurisdiction: JurisdictionType = 'au-privacy-act',
+) {
+  const { controls, unmapped } = mapAllFindings(result.findings, {
+    strictMode,
+    jurisdictions: [jurisdiction],
+  });
   return {
     findings: serializeFindings(result.findings),
     controls: controls.map((control) => ({
+      jurisdiction: control.jurisdiction,
       principle: control.principle,
       shortName: control.shortName,
       status: control.status,
@@ -844,7 +856,7 @@ export async function handleToolCall(name: string, args: Record<string, unknown>
       return makeJsonToolResponse({
         targetType: 'path',
         targetPath: sanitizeTargetPathForOutput(scanPath),
-        ...buildScanSummary(result, strict),
+        ...buildScanSummary(result, strict, jurisdiction),
       });
     }
 
@@ -877,7 +889,7 @@ export async function handleToolCall(name: string, args: Record<string, unknown>
       return makeJsonToolResponse({
         targetType: 'url',
         targetUrl: sanitizeTargetUrlForOutput(targetUrl),
-        ...buildScanSummary(result, strict),
+        ...buildScanSummary(result, strict, jurisdiction),
       });
     }
 
@@ -927,6 +939,7 @@ export async function handleToolCall(name: string, args: Record<string, unknown>
         strictMode: strict,
         includeOpinion: args?.opinion === true,
         ruleFreshness: scanResult.ruleFreshness,
+        jurisdiction,
       };
       const report = buildComplianceReport(scanResult.findings, reportOptions, duration);
       report.metadata.scannerVersions = Object.fromEntries(
@@ -1044,6 +1057,7 @@ export async function handleToolCall(name: string, args: Record<string, unknown>
         strictMode: strict,
         includeOpinion: true,
         ruleFreshness: scanResult.ruleFreshness,
+        jurisdiction,
       };
       const report = buildComplianceReport(scanResult.findings, reportOptions, duration);
       report.metadata.scannerVersions = Object.fromEntries(
@@ -1091,15 +1105,20 @@ export async function handleToolCall(name: string, args: Record<string, unknown>
         strictMode: strict,
         includeOpinion: true,
         ruleFreshness: scanResult.ruleFreshness,
+        jurisdiction,
       };
       const report = buildComplianceReport(scanResult.findings, reportOptions, duration);
       report.metadata.scannerVersions = Object.fromEntries(
         scanResult.results.map((scannerResult) => [scannerResult.source, scannerResult.version]),
       );
 
-      const control = report.appControls.find((appControl) => appControl.principle === principle);
+      const controls = report.regulationControls ?? report.appControls.map((appControl) => ({
+        jurisdiction: 'au-privacy-act' as const,
+        ...appControl,
+      }));
+      const control = controls.find((candidate) => candidate.jurisdiction === jurisdiction && candidate.principle === principle);
       if (!control) {
-        return makeToolError(`APP principle not found in report: ${principle}`);
+        return makeToolError(`principle not found in report: ${principle}`);
       }
 
       const opinion = report.complianceOpinion?.principles.find((principleOpinion) => (
@@ -1173,6 +1192,7 @@ export async function handleToolCall(name: string, args: Record<string, unknown>
         includeReform: reform,
         includeSMB: true,
         ruleFreshness: scanResult.ruleFreshness,
+        jurisdiction,
       };
 
       const report = buildComplianceReport(scanResult.findings, reportOptions, duration) as ComplianceReportWithSMB;

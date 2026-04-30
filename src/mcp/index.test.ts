@@ -393,24 +393,69 @@ describe('MCP Server', () => {
       expect(scanSpy).not.toHaveBeenCalled();
     });
 
-    it('rejects unavailable jurisdictions before scanning attestlens_check', async () => {
-      const scanSpy = vi.spyOn(ScannerOrchestrator.prototype, 'scan');
+    it('supports CCPA jurisdiction for attestlens_check', async () => {
+      vi.spyOn(ScannerOrchestrator.prototype, 'scan').mockResolvedValue({
+        findings: [
+          makeFinding(),
+        ],
+        results: [
+          {
+            source: 'guardvibe',
+            version: '1.0.0',
+            timestamp: new Date().toISOString(),
+            findings: [
+              makeFinding(),
+            ],
+            errors: [],
+            durationMs: 12,
+          },
+        ],
+        errors: [],
+        totalDurationMs: 12,
+        ruleFreshness: makeRuleFreshness(),
+      });
 
       const response = await handleToolCall('attestlens_check', {
         path: tempDir,
         jurisdiction: 'us-ccpa',
         principle: 'CCPA_100',
       });
+      const payload = expectJsonStructuredPayload(response);
 
-      expect(response).toEqual({
-        content: [{ type: 'text', text: "jurisdiction 'us-ccpa' is not yet available. Available jurisdictions: au-privacy-act" }],
-        isError: true,
-      });
-      expect(scanSpy).not.toHaveBeenCalled();
+      expect(payload).toEqual(expect.objectContaining({
+        jurisdiction: 'us-ccpa',
+        principle: 'CCPA_100',
+        verdict: 'NON_COMPLIANT',
+        findings: [
+          expect.objectContaining({
+            id: 'FIND-APP11',
+            severity: 'critical',
+          }),
+        ],
+      }));
     });
 
-    it('rejects unavailable jurisdictions before scanning MCP scan, audit, and opinion tools', async () => {
-      const scanSpy = vi.spyOn(ScannerOrchestrator.prototype, 'scan');
+    it('supports CCPA jurisdiction for MCP scan, audit, and opinion tools', async () => {
+      const scanSpy = vi.spyOn(ScannerOrchestrator.prototype, 'scan').mockResolvedValue({
+        findings: [
+          makeFinding(),
+        ],
+        results: [
+          {
+            source: 'guardvibe',
+            version: '1.0.0',
+            timestamp: new Date().toISOString(),
+            findings: [
+              makeFinding(),
+            ],
+            errors: [],
+            durationMs: 12,
+          },
+        ],
+        errors: [],
+        totalDurationMs: 12,
+        ruleFreshness: makeRuleFreshness(),
+      });
       const toolCalls = [
         { name: 'attestlens_scan', args: { path: tempDir, jurisdiction: 'us-ccpa' } },
         { name: 'attestlens_audit', args: { path: tempDir, jurisdiction: 'us-ccpa', format: 'json' } },
@@ -420,12 +465,43 @@ describe('MCP Server', () => {
       for (const toolCall of toolCalls) {
         const response = await handleToolCall(toolCall.name, toolCall.args);
 
-        expect(response, toolCall.name).toEqual({
-          content: [{ type: 'text', text: "jurisdiction 'us-ccpa' is not yet available. Available jurisdictions: au-privacy-act" }],
-          isError: true,
-        });
+        expect(response.isError, toolCall.name).not.toBe(true);
       }
-      expect(scanSpy).not.toHaveBeenCalled();
+      expect(scanSpy).toHaveBeenCalledTimes(3);
+    });
+
+    it('includes CCPA regulation mappings in attestlens_scan results', async () => {
+      vi.spyOn(ScannerOrchestrator.prototype, 'scan').mockResolvedValue({
+        findings: [
+          makeFinding(),
+        ],
+        results: [
+          {
+            source: 'guardvibe',
+            version: '1.0.0',
+            timestamp: new Date().toISOString(),
+            findings: [
+              makeFinding(),
+            ],
+            errors: [],
+            durationMs: 12,
+          },
+        ],
+        errors: [],
+        totalDurationMs: 12,
+        ruleFreshness: makeRuleFreshness(),
+      });
+
+      const response = await handleToolCall('attestlens_scan', {
+        path: tempDir,
+        jurisdiction: 'us-ccpa',
+      });
+      const payload = expectJsonStructuredPayload(response);
+
+      expect(payload.controls.some((control: any) => control.jurisdiction === 'us-ccpa' && control.principle === 'CCPA_100')).toBe(true);
+      expect(payload.findings[0].regulationMappings.some((mapping: any) => (
+        mapping.jurisdiction === 'us-ccpa' && mapping.principle === 'CCPA_100'
+      ))).toBe(true);
     });
 
     it('treats explicit AU scan jurisdiction the same as default', async () => {

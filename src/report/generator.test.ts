@@ -139,6 +139,25 @@ describe('buildComplianceReport', () => {
     expect(app11!.status).toBe('fail');
   });
 
+  it('generates CCPA/CPRA reports with CCPA controls', () => {
+    const findings = [
+      makeFinding({ id: 'F-1', severity: 'critical', sourceRule: 'VS-HARDKEY', title: 'Hardcoded key' }),
+    ];
+    const report = buildComplianceReport(findings, {
+      ...defaultOptions,
+      jurisdiction: 'us-ccpa',
+      includeOpinion: true,
+    }, 1000);
+    const markdown = generateMarkdownReport(report);
+
+    expect(report.appControls).toEqual([]);
+    expect(report.regulationControls?.some((control) => control.principle === 'CCPA_100' && control.status === 'fail')).toBe(true);
+    expect(report.regulationControls?.some((control) => control.principle === 'CCPA_150' && control.status === 'fail')).toBe(true);
+    expect(markdown).toContain('California Consumer Privacy Act (CCPA/CPRA) Compliance Report');
+    expect(markdown).toContain('CCPA_100');
+    expect(report.complianceOpinion?.principles.some((principle) => principle.principle === 'CCPA_100')).toBe(true);
+  });
+
   it('should include remediation items', () => {
     const findings = [
       makeFinding({ id: 'F-1', severity: 'critical', sourceRule: 'VS-HARDKEY', title: 'Hardcoded key' }),

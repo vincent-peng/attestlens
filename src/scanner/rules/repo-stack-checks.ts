@@ -2,7 +2,8 @@ import crypto from 'node:crypto';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 
-import type { AttestLensFinding, Severity } from '../../schema/index.js';
+import type { AttestLensFinding, RulePackManifest, Severity } from '../../schema/index.js';
+import { scanCcpaChecks } from './ccpa-checks.js';
 import { scanSastLiteFiles } from './sast-lite.js';
 
 interface RepoFile {
@@ -24,6 +25,8 @@ const REPO_EXTENSIONS = [
   '.env.test',
   '.json',
   '.sql',
+  '.html',
+  '.htm',
 ] as const;
 
 const EXCLUDE_DIRS = new Set([
@@ -94,6 +97,7 @@ const SUPABASE_SIGNAL_PATTERN = /@supabase\/supabase-js|NEXT_PUBLIC_SUPABASE_URL
 export async function scanRepoStackChecks(
   targetPath: string,
   scannerVersion: string,
+  activeRulePack?: RulePackManifest,
 ): Promise<AttestLensFinding[]> {
   const repoFiles = await collectRepoFiles(targetPath);
   const findings: AttestLensFinding[] = [];
@@ -114,8 +118,16 @@ export async function scanRepoStackChecks(
   }
 
   findings.push(...scanSastLiteFiles(repoFiles, scannerVersion));
+  if (shouldRunCcpaChecks(activeRulePack)) {
+    findings.push(...scanCcpaChecks(repoFiles, scannerVersion));
+  }
 
   return findings;
+}
+
+function shouldRunCcpaChecks(activeRulePack?: RulePackManifest): boolean {
+  return activeRulePack?.jurisdiction === 'us-ccpa'
+    || activeRulePack?.rules.some((rule) => rule.id.startsWith('CCPA-')) === true;
 }
 
 async function collectRepoFiles(targetPath: string): Promise<RepoFile[]> {

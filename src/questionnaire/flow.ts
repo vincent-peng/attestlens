@@ -2,15 +2,25 @@ import {
   APPInfo,
   type APPPrinciple,
   type AssessmentMode,
+  type Jurisdiction,
   type Question,
   type QuestionnaireResponse,
 } from '../schema/index.js';
+import { CCPA_QUESTION_BANK } from './ccpa-questions.js';
 import { QUESTION_BANK } from './questions.js';
 
 const DEFAULT_ASSESSMENT_MODE: AssessmentMode = 'operator_attested';
 
 export function getQuestionById(questionId: string, questions: Question[] = QUESTION_BANK): Question | undefined {
   return questions.find((question) => question.id === questionId);
+}
+
+export function getQuestionBankForJurisdiction(jurisdiction: Jurisdiction = 'au-privacy-act'): Question[] {
+  if (jurisdiction === 'us-ccpa') {
+    return CCPA_QUESTION_BANK as unknown as Question[];
+  }
+
+  return QUESTION_BANK;
 }
 
 function normalizeAnswers(value: QuestionnaireResponse['answer']): Array<boolean | string> {

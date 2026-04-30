@@ -215,7 +215,7 @@ export class GuardVibeAdapter implements ScannerAdapter {
     }
 
     try {
-      const stackFindings = await scanRepoStackChecks(targetPath, this.version);
+      const stackFindings = await scanRepoStackChecks(targetPath, this.version, context?.rulePack);
       findings.push(...stackFindings);
     } catch {
       // Stack-specific checks are best-effort only.

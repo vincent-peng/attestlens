@@ -93,6 +93,22 @@ export const APPInfo: Record<APPPrinciple, { shortName: string; obligation: stri
   NDB:    { shortName: 'Data Breach Notification', obligation: 'Assess, notify, and remediate eligible data breaches' },
 };
 
+export const CCPAPrinciple = z.enum([
+  'CCPA_100',
+  'CCPA_105',
+  'CCPA_106',
+  'CCPA_110',
+  'CCPA_115',
+  'CCPA_120',
+  'CCPA_121',
+  'CCPA_125',
+  'CCPA_130',
+  'CCPA_135',
+  'CCPA_145',
+  'CCPA_150',
+]);
+export type CCPAPrinciple = z.infer<typeof CCPAPrinciple>;
+
 // ─── Core Schemas ────────────────────────────────────────────────────────────
 
 // Phase 7 will refine this into per-jurisdiction principle validation.
@@ -341,7 +357,7 @@ export const RemediationItem = z.object({
   estimatedTime: z.string(),             // e.g., "<5 min", "1-2 hours", "1+ days"
   title: z.string(),
   description: z.string(),
-  appReferences: z.array(APPPrinciple),
+  appReferences: z.array(RegulationPrinciple),
   fix: z.string().optional(),
   impact: z.string(),                   // What happens if not fixed
 });
@@ -356,7 +372,7 @@ export const ReportAssessment = z.object({
   mode: AssessmentMode,
   summary: z.string(),
   incomplete: z.boolean(),
-  unknownPrinciples: z.array(APPPrinciple),
+  unknownPrinciples: z.array(RegulationPrinciple),
 });
 export type ReportAssessment = z.infer<typeof ReportAssessment>;
 
@@ -368,7 +384,7 @@ export type BreachReadinessLevel = z.infer<typeof BreachReadinessLevel>;
 
 export const BreachReadinessFactor = z.object({
   type: z.enum(['scanner', 'questionnaire', 'assessment_gap']),
-  principle: APPPrinciple.optional(),
+  principle: RegulationPrinciple.optional(),
   severity: Severity,
   title: z.string(),
   detail: z.string(),
@@ -390,7 +406,7 @@ export const ConsultantNarrativePriority = z.enum(['immediate', 'near_term', 'mo
 export type ConsultantNarrativePriority = z.infer<typeof ConsultantNarrativePriority>;
 
 export const PrincipleNarrative = z.object({
-  principle: APPPrinciple,
+  principle: RegulationPrinciple,
   status: ControlStatus,
   priority: ConsultantNarrativePriority,
   summary: z.string(),
@@ -413,7 +429,7 @@ export const OpinionConfidence = z.enum(['HIGH', 'MODERATE', 'LOW']);
 export type OpinionConfidence = z.infer<typeof OpinionConfidence>;
 
 export const PrincipleOpinion = z.object({
-  principle: APPPrinciple,
+  principle: RegulationPrinciple,
   verdict: ComplianceVerdict,
   confidence: OpinionConfidence,
   score: z.number().min(0).max(100),
@@ -507,6 +523,7 @@ export const ComplianceReport = z.object({
   overallGrade: ReportGrade,
   riskLevel: z.enum(['low', 'medium', 'high', 'critical']),
   appControls: z.array(APPControl),
+  regulationControls: z.array(RegulationControl).optional(),
   findings: z.array(AttestLensFinding),
   questionnaire: z.array(QuestionnaireResponse).optional(),
   questionnaireResults: z.array(QuestionnairePrincipleResult).optional(),

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  CCPAPrinciple,
   JurisdictionPackManifest,
   RegulationMapping,
   RuleDefinition,
@@ -79,6 +80,12 @@ describe('Rule pack schemas', () => {
     }
   });
 
+  it('validates CCPA principles', () => {
+    expect(CCPAPrinciple.parse('CCPA_100')).toBe('CCPA_100');
+    expect(CCPAPrinciple.parse('CCPA_150')).toBe('CCPA_150');
+    expect(() => CCPAPrinciple.parse('CCPA_999')).toThrow();
+  });
+
   it('validates v2 jurisdiction pack manifests', () => {
     const manifest = JurisdictionPackManifest.parse({
       schemaVersion: '2.0',
@@ -110,6 +117,40 @@ describe('Rule pack schemas', () => {
 
     expect(manifest.schemaVersion).toBe('2.0');
     expect(manifest.rules[0]!.regulationMappings?.[0]?.principle).toBe('APP_11');
+  });
+
+  it('validates v2 CCPA jurisdiction pack manifests', () => {
+    const manifest = JurisdictionPackManifest.parse({
+      schemaVersion: '2.0',
+      version: '2026.04.30',
+      jurisdiction: 'us-ccpa',
+      generated: '2026-04-30T00:00:00.000Z',
+      principles: [{
+        id: 'CCPA_100',
+        shortName: 'General Duties',
+        obligation: 'Maintain reasonable security',
+        citation: 'Cal. Civ. Code §1798.100(e)',
+      }],
+      rules: [{
+        id: 'CCPA-TEST-001',
+        category: 'ccpa-security',
+        severity: 'high',
+        title: 'Test CCPA rule',
+        description: 'A test CCPA rule',
+        addedIn: '2026.04.30',
+        regulationMappings: [{
+          jurisdiction: 'us-ccpa',
+          principle: 'CCPA_100',
+          obligation: 'Maintain reasonable security',
+          status: 'fail',
+          confidence: 0.9,
+          citation: 'Cal. Civ. Code §1798.100(e)',
+        }],
+      }],
+    });
+
+    expect(manifest.jurisdiction).toBe('us-ccpa');
+    expect(manifest.rules[0]!.regulationMappings?.[0]?.principle).toBe('CCPA_100');
   });
 
   it('accepts rule definitions with regulationMappings and appMappings', () => {

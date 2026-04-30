@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import {
   ALL_MAPPING_RULES,
+  CCPA_MAPPING_RULES,
   mapAllFindings,
   mapAllFindingsAU,
   mapFindingToAPP,
@@ -53,14 +54,23 @@ describe('ALL_MAPPING_RULES', () => {
     expect(ndbRules.length).toBeGreaterThan(0);
   });
 
-  it('should only use valid APP principles', () => {
+  it('should only use valid principles for each jurisdiction', () => {
     const validPrinciples = [
       'APP_1', 'APP_2', 'APP_3', 'APP_4', 'APP_5', 'APP_6', 'APP_7',
       'APP_8', 'APP_9', 'APP_10', 'APP_11', 'APP_12', 'APP_13', 'NDB',
     ];
+    const validCcpaPrinciples = [
+      'CCPA_100', 'CCPA_105', 'CCPA_106', 'CCPA_110', 'CCPA_115', 'CCPA_120',
+      'CCPA_121', 'CCPA_125', 'CCPA_130', 'CCPA_135', 'CCPA_145', 'CCPA_150',
+    ];
     for (const rule of ALL_MAPPING_RULES) {
-      expect(rule.jurisdiction).toBe('au-privacy-act');
-      expect(validPrinciples).toContain(rule.regulationPrinciple);
+      if (rule.jurisdiction === 'au-privacy-act') {
+        expect(validPrinciples).toContain(rule.regulationPrinciple);
+      } else if (rule.jurisdiction === 'us-ccpa') {
+        expect(validCcpaPrinciples).toContain(rule.regulationPrinciple);
+      } else {
+        throw new Error(`Unexpected jurisdiction in mapping rule: ${rule.jurisdiction}`);
+      }
     }
   });
 });
@@ -93,14 +103,29 @@ describe('mapFindingToRegulation', () => {
     }));
   });
 
-  it('returns no mappings for jurisdictions without rule content', () => {
+  it('maps security findings for CCPA', () => {
     const finding = makeFinding({
       sourceRule: 'VS-HARDKEY',
       severity: 'critical',
       title: 'Hardcoded secret key',
     });
 
-    expect(mapFindingToRegulation(finding, ['us-ccpa'])).toEqual([]);
+    expect(mapFindingToRegulation(finding, ['us-ccpa'])).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        jurisdiction: 'us-ccpa',
+        principle: 'CCPA_100',
+        status: 'fail',
+        confidence: 0.9,
+        citation: 'Cal. Civ. Code §1798.100(e)',
+      }),
+      expect.objectContaining({
+        jurisdiction: 'us-ccpa',
+        principle: 'CCPA_150',
+        status: 'fail',
+        confidence: 0.85,
+        citation: 'Cal. Civ. Code §1798.150(a)',
+      }),
+    ]));
   });
 });
 
@@ -440,6 +465,102 @@ describe('mapFindingToAPP', () => {
   });
 });
 
+describe('CCPA_MAPPING_RULES', () => {
+  const cases = [
+    {
+      ruleId: 'MAP-CCPA-001',
+      finding: makeFinding({ sourceRule: 'VS-HARDKEY', severity: 'high', title: 'Hardcoded secret key' }),
+      principle: 'CCPA_100',
+      confidence: 0.90,
+      citation: 'Cal. Civ. Code §1798.100(e)',
+    },
+    {
+      ruleId: 'MAP-CCPA-002',
+      finding: makeFinding({ sourceRule: 'VS-SQLI', severity: 'high', title: 'SQL injection vulnerability' }),
+      principle: 'CCPA_100',
+      confidence: 0.90,
+      citation: 'Cal. Civ. Code §1798.100(e)',
+    },
+    {
+      ruleId: 'MAP-CCPA-003',
+      finding: makeFinding({ sourceRule: 'VS-XSS', severity: 'medium', title: 'Potential XSS vector' }),
+      principle: 'CCPA_100',
+      confidence: 0.85,
+      citation: 'Cal. Civ. Code §1798.100(e)',
+    },
+    {
+      ruleId: 'MAP-CCPA-004',
+      finding: makeFinding({ source: 'url-scan', sourceRule: 'AL-URL-002', severity: 'high', category: 'Security Headers', title: 'Missing Strict-Transport-Security Header' }),
+      principle: 'CCPA_100',
+      confidence: 0.90,
+      citation: 'Cal. Civ. Code §1798.100(e)',
+    },
+    {
+      ruleId: 'MAP-CCPA-005',
+      finding: makeFinding({ sourceRule: 'VS-HARDKEY', severity: 'critical', title: 'Hardcoded secret key' }),
+      principle: 'CCPA_150',
+      confidence: 0.85,
+      citation: 'Cal. Civ. Code §1798.150(a)',
+    },
+    {
+      ruleId: 'MAP-CCPA-006',
+      finding: makeFinding({ category: 'Data Leak', title: 'Data leak exposure', severity: 'high' }),
+      principle: 'CCPA_150',
+      confidence: 0.80,
+      citation: 'Cal. Civ. Code §1798.150(a)',
+    },
+    {
+      ruleId: 'MAP-CCPA-007',
+      finding: makeFinding({ title: 'Plaintext SSN stored in data store', severity: 'critical' }),
+      principle: 'CCPA_150',
+      confidence: 0.85,
+      citation: 'Cal. Civ. Code §1798.150(a)',
+    },
+    {
+      ruleId: 'MAP-CCPA-008',
+      finding: makeFinding({ category: 'third-party sharing', title: 'Third-party transfer', severity: 'medium' }),
+      principle: 'CCPA_100',
+      confidence: 0.70,
+      citation: 'Cal. Civ. Code §1798.100(d)',
+    },
+    {
+      ruleId: 'MAP-CCPA-009',
+      finding: makeFinding({ title: 'Excessive data collection', severity: 'medium' }),
+      principle: 'CCPA_100',
+      confidence: 0.65,
+      citation: 'Cal. Civ. Code §1798.100(c)',
+    },
+  ];
+
+  it('defines all requested CCPA mapping rules', () => {
+    expect(CCPA_MAPPING_RULES.map((rule) => rule.id)).toEqual([
+      'MAP-CCPA-001',
+      'MAP-CCPA-002',
+      'MAP-CCPA-003',
+      'MAP-CCPA-004',
+      'MAP-CCPA-005',
+      'MAP-CCPA-006',
+      'MAP-CCPA-007',
+      'MAP-CCPA-008',
+      'MAP-CCPA-009',
+    ]);
+  });
+
+  for (const testCase of cases) {
+    it(`${testCase.ruleId} maps to ${testCase.principle}`, () => {
+      const rule = CCPA_MAPPING_RULES.find((candidate) => candidate.id === testCase.ruleId)!;
+      const mappings = mapFindingToRegulation(testCase.finding, ['us-ccpa']);
+      expect(mappings).toContainEqual(expect.objectContaining({
+        jurisdiction: 'us-ccpa',
+        principle: testCase.principle,
+        status: rule.status,
+        confidence: testCase.confidence,
+        citation: testCase.citation,
+      }));
+    });
+  }
+});
+
 // ─── mapAllFindings Tests ─────────────────────────────────────────────────────
 
 describe('mapAllFindings', () => {
@@ -584,7 +705,7 @@ describe('mapAllFindings', () => {
     expect(app12!.status).toBe('unknown');
   });
 
-  it('returns empty controls for jurisdictions without rule content', () => {
+  it('maps CCPA controls for US CCPA jurisdiction', () => {
     const { controls, unmapped } = mapAllFindings([
       makeFinding({
         id: 'F-1',
@@ -594,8 +715,12 @@ describe('mapAllFindings', () => {
       }),
     ], { jurisdictions: ['us-ccpa'] });
 
-    expect(controls).toEqual([]);
-    expect(unmapped.map(finding => finding.id)).toEqual(['F-1']);
+    const ccpa100 = controls.find(c => c.jurisdiction === 'us-ccpa' && c.principle === 'CCPA_100');
+    const ccpa150 = controls.find(c => c.jurisdiction === 'us-ccpa' && c.principle === 'CCPA_150');
+    expect(controls).toHaveLength(12);
+    expect(ccpa100?.status).toBe('fail');
+    expect(ccpa150?.status).toBe('fail');
+    expect(unmapped).toEqual([]);
   });
 
   it('merges selected jurisdictions while preserving AU controls', () => {
@@ -611,8 +736,9 @@ describe('mapAllFindings', () => {
     });
 
     expect(controls.some(control => control.jurisdiction === 'au-privacy-act' && control.principle === 'APP_11')).toBe(true);
-    expect(controls.some(control => control.jurisdiction === 'us-ccpa')).toBe(false);
+    expect(controls.some(control => control.jurisdiction === 'us-ccpa' && control.principle === 'CCPA_100')).toBe(true);
     expect(finding.regulationMappings?.some(mapping => mapping.jurisdiction === 'au-privacy-act')).toBe(true);
+    expect(finding.regulationMappings?.some(mapping => mapping.jurisdiction === 'us-ccpa')).toBe(true);
   });
 
   it('keeps the AU compatibility wrapper APP-shaped', () => {

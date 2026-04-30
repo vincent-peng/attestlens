@@ -5,8 +5,8 @@ import type {
   ComplianceVerdict,
   OpinionConfidence,
   APPControl,
+  RegulationControl,
 } from '../schema/index.js';
-import { APPInfo } from '../schema/index.js';
 
 // Keep in sync with package.json and src/report/generator.ts
 const OPINION_VERSION = '0.2.0';
@@ -26,8 +26,10 @@ export function buildComplianceOpinion(
 ): ComplianceOpinion {
   const { strictMode = false } = options;
 
-  // Guard: empty appControls → no basis for an opinion
-  if (report.appControls.length === 0) {
+  const controls = getOpinionControls(report);
+
+  // Guard: empty controls → no basis for an opinion
+  if (controls.length === 0) {
     return {
       overallVerdict: 'PARTIALLY_COMPLIANT',
       overallConfidence: 'LOW',
@@ -41,7 +43,7 @@ export function buildComplianceOpinion(
     };
   }
 
-  const principleOpinions: PrincipleOpinion[] = report.appControls.map(
+  const principleOpinions: PrincipleOpinion[] = controls.map(
     (control) => {
       const verdict = controlStatusToVerdict(control.status, strictMode);
       const confidence = calculateConfidence(control, report);
@@ -90,7 +92,7 @@ function controlStatusToVerdict(
 }
 
 function calculateConfidence(
-  control: APPControl,
+  control: RegulationControl,
   report: ComplianceReport,
 ): OpinionConfidence {
   let score = 0;
@@ -120,7 +122,7 @@ function calculateConfidence(
 }
 
 function countCorroborated(
-  control: APPControl,
+  control: RegulationControl,
   report: ComplianceReport,
 ): number {
   return control.findings.reduce((count, findingId) => {
@@ -133,10 +135,9 @@ function countCorroborated(
 }
 
 function buildPrincipleSummary(
-  control: APPControl,
+  control: RegulationControl,
   verdict: ComplianceVerdict,
 ): string {
-  const info = APPInfo[control.principle];
   const statusText =
     verdict === 'COMPLIANT'
       ? 'appears compliant based on available evidence'
@@ -144,7 +145,7 @@ function buildPrincipleSummary(
         ? 'is NOT MET — remediation required'
         : 'cannot be fully determined — additional evidence needed';
 
-  return `${info.shortName} (${control.principle}): ${control.status.toUpperCase()} — ${statusText}. Score: ${control.score}/100. ${control.findings.length} finding(s).`;
+  return `${control.shortName} (${control.principle}): ${control.status.toUpperCase()} — ${statusText}. Score: ${control.score}/100. ${control.findings.length} finding(s).`;
 }
 
 // ─── Aggregation Logic ───────────────────────────────────────────────────────
@@ -168,7 +169,7 @@ function aggregateConfidence(
 
   // If any high-risk principle (has critical or high findings) has LOW confidence → overall LOW
   const highRiskOpinions = opinions.filter((o) => {
-    const control = report.appControls.find(
+    const control = getOpinionControls(report).find(
       (c) => c.principle === o.principle,
     );
     if (!control) return false;
@@ -187,4 +188,27 @@ function aggregateConfidence(
   if (minRank >= 2) return 'HIGH';
   if (minRank >= 1) return 'MODERATE';
   return 'LOW';
+}
+
+function getOpinionControls(report: ComplianceReport): RegulationControl[] {
+  if (
+    report.regulationControls
+    && report.regulationControls.length > 0
+    && report.regulationControls.some((control) => control.jurisdiction !== 'au-privacy-act')
+  ) {
+    return report.regulationControls;
+  }
+
+  return report.appControls.map((control: APPControl): RegulationControl => ({
+    jurisdiction: 'au-privacy-act',
+    principle: control.principle,
+    shortName: control.shortName,
+    obligation: control.obligation,
+    status: control.status,
+    score: control.score,
+    findingCount: control.findingCount,
+    findings: control.findings,
+    questionnaireRequired: control.questionnaireRequired,
+    lastAssessed: control.lastAssessed,
+  }));
 }

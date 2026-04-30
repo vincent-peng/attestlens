@@ -221,6 +221,18 @@ describe('rule pack loader', () => {
     expect(jurisdictionPack.rules[0]!.regulationMappings?.[0]?.jurisdiction).toBe('au-privacy-act');
   });
 
+  it('builds a CCPA jurisdiction pack from embedded CCPA metadata', () => {
+    const jurisdictionPack = buildEmbeddedJurisdictionPack('us-ccpa');
+
+    expect(jurisdictionPack.schemaVersion).toBe('2.0');
+    expect(jurisdictionPack.version).toBe('2026.04.30');
+    expect(jurisdictionPack.jurisdiction).toBe('us-ccpa');
+    expect(jurisdictionPack.principles).toHaveLength(12);
+    expect(jurisdictionPack.principles.some((principle) => principle.id === 'CCPA_150')).toBe(true);
+    expect(jurisdictionPack.rules.some((rule) => rule.id === 'CCPA-SEC-001')).toBe(true);
+    expect(jurisdictionPack.rules[0]!.regulationMappings?.[0]?.jurisdiction).toBe('us-ccpa');
+  });
+
   it('loads AU jurisdiction packs', async () => {
     const cacheDir = await makeTempDir();
     const packs = await loadJurisdictionPacks(['au-privacy-act'], {
@@ -235,16 +247,29 @@ describe('rule pack loader', () => {
     expect(auPack!.warnings).toEqual([]);
   });
 
-  it('returns an empty unavailable pack for US CCPA', async () => {
+  it('loads the embedded CCPA jurisdiction pack', async () => {
     const packs = await loadJurisdictionPacks(['us-ccpa'], {
       now: new Date('2026-04-24T00:00:00.000Z'),
     });
     const ccpaPack = packs.get('us-ccpa');
 
     expect(ccpaPack).toBeDefined();
-    expect(ccpaPack!.manifest.rules).toEqual([]);
-    expect(ccpaPack!.jurisdictionManifest?.principles).toEqual([]);
-    expect(ccpaPack!.warnings).toEqual([getJurisdictionUnavailableMessage('us-ccpa')]);
+    expect(ccpaPack!.manifest.jurisdiction).toBe('us-ccpa');
+    expect(ccpaPack!.manifest.rules.some((rule) => rule.id === 'CCPA-DNS-001')).toBe(true);
+    expect(ccpaPack!.jurisdictionManifest?.principles.some((principle) => principle.id === 'CCPA_100')).toBe(true);
+    expect(ccpaPack!.warnings).toEqual([]);
+  });
+
+  it('loads mixed AU and CCPA packs', async () => {
+    const cacheDir = await makeTempDir();
+    const packs = await loadJurisdictionPacks(['au-privacy-act', 'us-ccpa'], {
+      cacheDir,
+      now: new Date('2026-04-24T00:00:00.000Z'),
+    });
+
+    expect(packs.get('au-privacy-act')!.manifest.rules.length).toBeGreaterThan(0);
+    expect(packs.get('us-ccpa')!.manifest.rules.length).toBeGreaterThan(0);
+    expect(packs.get('us-ccpa')!.warnings).toEqual([]);
   });
 
   it('loads mixed AU and GDPR packs without dropping AU rules', async () => {

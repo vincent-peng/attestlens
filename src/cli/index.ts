@@ -17,7 +17,7 @@ import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 import { ScannerOrchestrator, type ScannerOrchestratorOptions } from '../scanner/orchestrator.js';
-import { mapAllFindingsAU } from '../mapping/engine.js';
+import { mapAllFindings, mapAllFindingsAU } from '../mapping/engine.js';
 import {
   buildComplianceReport,
   generateAgentReport,
@@ -135,12 +135,12 @@ program
       console.log(chalk.yellow(`\n⚠ Found ${findings.length} finding${findings.length > 1 ? 's' : ''}:\n`));
       displayFindings(findings);
 
-      // Map to APP
-      const { controls: appControls } = mapAllFindingsAU(findings);
-      const affectedPrinciples = appControls
+      // Map to active jurisdiction controls
+      const { controls } = mapAllFindings(findings, { jurisdictions: [jurisdiction] });
+      const affectedPrinciples = controls
         .filter(c => c.status !== 'unknown' || c.findings.length > 0)
         .map(c => c.principle);
-      console.log(chalk.cyan(`\n📋 Affected APP Principles: ${affectedPrinciples.join(', ')}`));
+      console.log(chalk.cyan(`\n📋 Affected Controls: ${affectedPrinciples.join(', ')}`));
       console.log(chalk.gray(`   Run \`attestlens audit ${target.rawInput}\` for a full compliance report.`));
 
     } catch (error: any) {
@@ -212,6 +212,7 @@ program
         includeOpinion: options.opinion,
         includeReform: options.reform,
         ruleFreshness: scanResult.ruleFreshness,
+        jurisdiction,
       };
 
       const report = buildComplianceReport(scanResult.findings, reportOptions, duration);
@@ -381,6 +382,7 @@ program
         strictMode: false,
         includeReform: options.reform,
         ruleFreshness: scanResult.ruleFreshness,
+        jurisdiction,
       };
       const preliminaryReport = buildComplianceReport(
         scanResult.findings,
@@ -407,6 +409,7 @@ program
         includeReform: options.reform,
         includeSMB: true,
         ruleFreshness: scanResult.ruleFreshness,
+        jurisdiction,
       };
 
       const report = buildComplianceReport(
@@ -621,7 +624,7 @@ function parseJurisdictionOption(rawValue: unknown): JurisdictionType {
 }
 
 function assertJurisdictionAvailableForCli(jurisdiction: JurisdictionType): void {
-  if (jurisdiction !== 'au-privacy-act') {
+  if (jurisdiction === 'eu-gdpr') {
     throw new Error(getJurisdictionUnavailableMessage(jurisdiction));
   }
 }
