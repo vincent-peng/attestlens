@@ -9,6 +9,7 @@ import { describe, expect, it, vi } from 'vitest';
 
 import {
   buildFindingsHash,
+  CCPA_QUESTIONNAIRE_VERSION,
   LEGACY_QUESTION_BANK_V1,
   QUESTIONNAIRE_VERSION,
   loadQuestionnaireSession,
@@ -266,6 +267,7 @@ describe('CLI external enrichment option', () => {
     expect(scanHelp.stdout).toContain('--jurisdiction');
     expect(auditHelp.stdout).toContain('--jurisdiction');
     expect(complianceHelp.stdout).toContain('--jurisdiction');
+    expect(attestHelp.stdout).toContain('--jurisdiction');
     expect(scanHelp.stdout).toContain('--no-behavioral');
     expect(auditHelp.stdout).toContain('--no-behavioral');
     expect(attestHelp.stdout).toContain('--no-behavioral');
@@ -456,7 +458,7 @@ describe('CLI external enrichment option', () => {
     }
   });
 
-  it('runs scan, audit, and compliance-check with CCPA jurisdiction', async () => {
+  it('runs scan and audit with CCPA jurisdiction', async () => {
     const projectDir = await fs.mkdtemp(path.join(os.tmpdir(), 'attestlens-cli-jurisdiction-'));
     const outputDir = await fs.mkdtemp(path.join(os.tmpdir(), 'attestlens-cli-jurisdiction-out-'));
 
@@ -465,7 +467,6 @@ describe('CLI external enrichment option', () => {
       const commands = [
         ['scan', projectDir, '--jurisdiction', 'us-ccpa', '--no-guardvibe', '--no-mcp-scan', '--no-supply-chain', '--no-behavioral', '--no-iac'],
         ['audit', projectDir, '--jurisdiction', 'us-ccpa', '-f', 'json', '-o', outputDir, '--no-guardvibe', '--no-mcp-scan', '--no-supply-chain', '--no-behavioral', '--no-iac'],
-        ['compliance-check', projectDir, '--jurisdiction', 'us-ccpa', '--non-interactive', '-f', 'json', '-o', outputDir, '--scanner-timeout', '1000'],
       ];
 
       for (const command of commands) {
@@ -480,6 +481,65 @@ describe('CLI external enrichment option', () => {
       await fs.rm(outputDir, { recursive: true, force: true });
     }
   }, 15000);
+
+  it('exits non-zero and prints CCPA controls for audit failures from regulation controls', async () => {
+    const projectDir = await fs.mkdtemp(path.join(os.tmpdir(), 'attestlens-cli-ccpa-audit-'));
+    const outputDir = await fs.mkdtemp(path.join(os.tmpdir(), 'attestlens-cli-ccpa-audit-out-'));
+
+    try {
+      await fs.writeFile(
+        path.join(projectDir, 'privacy.html'),
+        '<h1>Privacy Policy</h1><p>We collect personal information.</p>',
+      );
+
+      const result = await runCli([
+        'audit',
+        projectDir,
+        '--jurisdiction',
+        'us-ccpa',
+        '-f',
+        'json',
+        '-o',
+        outputDir,
+        '--no-mcp-scan',
+        '--no-supply-chain',
+        '--no-behavioral',
+        '--no-iac',
+      ], {
+        ATTESTLENS_GUARDVIBE_PATH: '__attestlens_missing_guardvibe__',
+      });
+      const output = `${result.stdout}\n${result.stderr}`;
+
+      expect(result.code, output).toBe(1);
+      expect(output).toContain('CCPA_130');
+      expect(output).toContain('FAIL');
+    } finally {
+      await fs.rm(projectDir, { recursive: true, force: true });
+      await fs.rm(outputDir, { recursive: true, force: true });
+    }
+  }, 15000);
+
+  it('rejects CCPA jurisdiction for AU-only SMB compliance-check', async () => {
+    const projectDir = await fs.mkdtemp(path.join(os.tmpdir(), 'attestlens-cli-ccpa-smb-'));
+
+    try {
+      await fs.writeFile(path.join(projectDir, 'README.md'), '# Example project\n');
+      const result = await runCli([
+        'compliance-check',
+        projectDir,
+        '--jurisdiction',
+        'us-ccpa',
+        '--non-interactive',
+      ]);
+      const output = `${result.stdout}\n${result.stderr}`;
+
+      expect(result.code, output).toBe(1);
+      expect(output).toContain('SMB compliance check is currently AU-only');
+      expect(output).toContain('audit --jurisdiction us-ccpa');
+    } finally {
+      await fs.rm(projectDir, { recursive: true, force: true });
+    }
+  });
 
   it('returns a not-yet-available message for unavailable CLI jurisdictions', async () => {
     const projectDir = await fs.mkdtemp(path.join(os.tmpdir(), 'attestlens-cli-jurisdiction-'));
@@ -732,6 +792,40 @@ describe('CLI attest command', { timeout: 20000 }, () => {
       expect(snapshot.target.path).toBe(projectDir);
       await expect(fs.stat(result.sessionPath)).resolves.toBeTruthy();
       await expect(fs.stat(result.scanSnapshotPath)).resolves.toBeTruthy();
+    } finally {
+      await fs.rm(projectDir, { recursive: true, force: true });
+      await fs.rm(outputDir, { recursive: true, force: true });
+    }
+  });
+
+  it('starts a CCPA questionnaire when attest receives us-ccpa jurisdiction', async () => {
+    const projectDir = await fs.mkdtemp(path.join(os.tmpdir(), 'attestlens-attest-ccpa-project-'));
+    const outputDir = await fs.mkdtemp(path.join(os.tmpdir(), 'attestlens-attest-ccpa-output-'));
+
+    try {
+      await fs.writeFile(path.join(projectDir, 'README.md'), '# Example project\n');
+
+      const result = await executeAttestCommand(projectDir, {
+        ...noScannerAttestOptions,
+        output: outputDir,
+        format: 'json',
+        strict: false,
+        jurisdiction: 'us-ccpa',
+      }, makePromptRunner({ saveAfter: 0 }));
+
+      expect(result.status).toBe('saved');
+
+      const session = await loadQuestionnaireSession(result.sessionPath);
+      const snapshot = await loadScanSnapshot<any>(result.scanSnapshotPath);
+
+      expect(session.version).toBe('1.3');
+      if (session.version !== '1.3') {
+        throw new Error('Expected a frozen 1.3 questionnaire session');
+      }
+      expect(snapshot.jurisdiction).toBe('us-ccpa');
+      expect(session.questionnaireVersion).toBe(CCPA_QUESTIONNAIRE_VERSION);
+      expect(session.principles[0]).toBe('CCPA_100');
+      expect(session.sessionQuestions[0]?.id).toBe('Q-CCPA100-001');
     } finally {
       await fs.rm(projectDir, { recursive: true, force: true });
       await fs.rm(outputDir, { recursive: true, force: true });

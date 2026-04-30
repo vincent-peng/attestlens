@@ -66,6 +66,30 @@ describe('CCPA_CHECKS', () => {
     expect(handled.some((finding) => finding.sourceRule === 'CCPA-GPC-001')).toBe(false);
   });
 
+  it('marks opt-out and GPC negative detections as advisory unknown findings', () => {
+    const findings = scanCcpaChecks([
+      { relativePath: 'src/privacy.ts', content: 'export const privacy = true;' },
+    ], 'test');
+
+    const expectedCitations: Record<string, string> = {
+      'CCPA-DNS-001': 'Cal. Civ. Code §1798.135(a)',
+      'CCPA-DNS-002': 'Cal. Civ. Code §1798.135(a)',
+      'CCPA-GPC-001': '11 CCR §7025; Cal. Civ. Code §1798.135(b)',
+    };
+
+    for (const ruleId of Object.keys(expectedCitations)) {
+      const finding = findings.find((candidate) => candidate.sourceRule === ruleId);
+      expect(finding?.regulationMappings).toEqual([
+        expect.objectContaining({
+          status: 'unknown',
+          confidence: 0.5,
+          citation: expectedCitations[ruleId],
+        }),
+      ]);
+      expect(finding?.description).toContain('Advisory only');
+    }
+  });
+
   it('detects unencrypted sensitive PI in storage', () => {
     const findings = scanCcpaChecks([
       { relativePath: 'data/customers.json', content: '{"name":"Ada","ssn":"123-45-6789"}' },

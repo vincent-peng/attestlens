@@ -1,6 +1,6 @@
 import crypto from 'node:crypto';
 
-import type { AttestLensFinding, RuleDefinition, Severity } from '../../schema/index.js';
+import type { AttestLensFinding, ControlStatus, RuleDefinition, Severity } from '../../schema/index.js';
 import { CCPAPrincipleInfo } from './ccpa-principles.js';
 
 export interface CcpaCheckFile {
@@ -10,12 +10,17 @@ export interface CcpaCheckFile {
 
 const CCPA_RULE_VERSION = '2026.04.30';
 
-function ccpaMapping(principle: keyof typeof CCPAPrincipleInfo, confidence: number, citation = CCPAPrincipleInfo[principle].citation) {
+function ccpaMapping(
+  principle: keyof typeof CCPAPrincipleInfo,
+  confidence: number,
+  citation = CCPAPrincipleInfo[principle].citation,
+  status: ControlStatus = 'fail',
+) {
   return {
     jurisdiction: 'us-ccpa' as const,
     principle,
     obligation: CCPAPrincipleInfo[principle].obligation,
-    status: 'fail' as const,
+    status,
     confidence,
     citation,
   };
@@ -27,12 +32,12 @@ export const CCPA_CHECKS: RuleDefinition[] = [
     category: 'ccpa-notice',
     severity: 'high',
     title: 'Missing Do Not Sell link',
-    description: 'No visible "Do Not Sell or Share My Personal Information" or equivalent DoNotSell link text was found in HTML or JavaScript surfaces.',
+    description: 'No visible "Do Not Sell or Share My Personal Information" or equivalent DoNotSell link text was found in HTML or JavaScript surfaces. Advisory only: confirm CCPA applicability and sale/sharing of PI before treating as a failure.',
     pattern: String.raw`Do\s+Not\s+Sell|DoNotSell|Sell\s+or\s+Share\s+My\s+Personal\s+Information`,
     flags: 'i',
     fixPrompt: 'Add a clear "Do Not Sell or Share My Personal Information" link where CCPA opt-out rights must be presented.',
     appMappings: [],
-    regulationMappings: [ccpaMapping('CCPA_120', 0.82, 'Cal. Civ. Code §1798.120')],
+    regulationMappings: [ccpaMapping('CCPA_120', 0.5, 'Cal. Civ. Code §1798.135(a)', 'unknown')],
     addedIn: CCPA_RULE_VERSION,
     enabled: true,
     tags: ['ccpa', 'notice', 'opt-out'],
@@ -42,12 +47,12 @@ export const CCPA_CHECKS: RuleDefinition[] = [
     category: 'ccpa-notice',
     severity: 'high',
     title: 'Missing Limit Sensitive PI link',
-    description: 'No visible "Limit the Use of My Sensitive Personal Information" link text was found in HTML or JavaScript surfaces.',
+    description: 'No visible "Limit the Use of My Sensitive Personal Information" link text was found in HTML or JavaScript surfaces. Advisory only: confirm CCPA applicability and sensitive PI use before treating as a failure.',
     pattern: String.raw`Limit\s+the\s+Use|Limit.*Sensitive.*Personal\s+Information`,
     flags: 'i',
     fixPrompt: 'Add a clear "Limit the Use of My Sensitive Personal Information" link where sensitive PI limitation rights apply.',
     appMappings: [],
-    regulationMappings: [ccpaMapping('CCPA_121', 0.82, 'Cal. Civ. Code §1798.121')],
+    regulationMappings: [ccpaMapping('CCPA_121', 0.5, 'Cal. Civ. Code §1798.135(a)', 'unknown')],
     addedIn: CCPA_RULE_VERSION,
     enabled: true,
     tags: ['ccpa', 'notice', 'sensitive-pi'],
@@ -87,12 +92,12 @@ export const CCPA_CHECKS: RuleDefinition[] = [
     category: 'ccpa-gpc',
     severity: 'medium',
     title: 'GPC signal not honored',
-    description: 'No handling for navigator.globalPrivacyControl was found in JavaScript surfaces.',
+    description: 'No handling for navigator.globalPrivacyControl was found in JavaScript surfaces. Advisory only: confirm CCPA applicability and sale/sharing opt-out obligations before treating as a failure.',
     pattern: String.raw`navigator\.globalPrivacyControl|globalPrivacyControl`,
     flags: 'i',
     fixPrompt: 'Honor navigator.globalPrivacyControl as a valid opt-out signal where CCPA opt-out obligations apply.',
     appMappings: [],
-    regulationMappings: [ccpaMapping('CCPA_135', 0.70, 'Cal. Civ. Code §1798.135')],
+    regulationMappings: [ccpaMapping('CCPA_135', 0.5, '11 CCR §7025; Cal. Civ. Code §1798.135(b)', 'unknown')],
     addedIn: CCPA_RULE_VERSION,
     enabled: true,
     tags: ['ccpa', 'gpc', 'opt-out'],

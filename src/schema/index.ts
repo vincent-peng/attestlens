@@ -197,7 +197,7 @@ export type AssessmentMode = z.infer<typeof AssessmentMode>;
 
 export const Question = z.object({
   id: z.string(),
-  appPrinciple: APPPrinciple,
+  appPrinciple: RegulationPrinciple,
   question: z.string(),
   type: QuestionType,
   options: z.array(z.string()).optional(),
@@ -233,7 +233,7 @@ export const QuestionnaireResponse = z.object({
 export type QuestionnaireResponse = z.infer<typeof QuestionnaireResponse>;
 
 export const QuestionnairePrincipleResult = z.object({
-  principle: APPPrinciple,
+  principle: RegulationPrinciple,
   status: ControlStatus,
   confidence: z.number().min(0).max(1),
   rationale: z.string(),
@@ -271,7 +271,7 @@ export type LegacyQuestionnaireSession = z.infer<typeof LegacyQuestionnaireSessi
 export const TransitionalQuestionnaireSession = QuestionnaireSessionBase.extend({
   version: z.literal('1.1'),
   questionnaireVersion: z.string(),
-  principles: z.array(APPPrinciple),
+  principles: z.array(RegulationPrinciple),
   sessionQuestions: z.array(Question),
 });
 export type TransitionalQuestionnaireSession = z.infer<typeof TransitionalQuestionnaireSession>;
@@ -279,7 +279,7 @@ export type TransitionalQuestionnaireSession = z.infer<typeof TransitionalQuesti
 export const FrozenQuestionnaireSession = QuestionnaireSessionBase.extend({
   version: z.literal('1.2'),
   questionnaireVersion: z.string(),
-  principles: z.array(APPPrinciple),
+  principles: z.array(RegulationPrinciple),
   sessionQuestions: z.array(Question),
   questionSetHash: z.string(),
 });
@@ -288,7 +288,7 @@ export type FrozenQuestionnaireSession = z.infer<typeof FrozenQuestionnaireSessi
 export const QuestionnaireSession = QuestionnaireSessionBase.extend({
   version: z.literal('1.3'),
   questionnaireVersion: z.string(),
-  principles: z.array(APPPrinciple),
+  principles: z.array(RegulationPrinciple),
   sessionQuestions: z.array(Question),
   questionSetHash: z.string(),
   assessmentMode: AssessmentMode,

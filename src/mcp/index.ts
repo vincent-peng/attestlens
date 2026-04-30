@@ -20,7 +20,7 @@ import {
 } from '@modelcontextprotocol/sdk/types.js';
 import { z } from 'zod';
 
-import { mapAllFindings, mapAllFindingsAU } from '../mapping/engine.js';
+import { mapAllFindings } from '../mapping/engine.js';
 import {
   buildComplianceReport,
   generateAgentReport,
@@ -185,6 +185,7 @@ const auditInputSchema = {
 };
 
 const mapInputSchema = {
+  jurisdiction: jurisdictionInputSchema,
   findings: z.array(z.object({
     id: z.string().optional(),
     source: z.string(),
@@ -273,7 +274,8 @@ const scannerErrorOutputSchema = z.object({
 const scanSummaryOutputSchema = {
   findings: z.array(serializedFindingOutputSchema),
   controls: z.array(z.object({
-    principle: APPPrincipleSchema,
+    jurisdiction: Jurisdiction,
+    principle: RegulationPrinciple,
     shortName: z.string(),
     status: ControlStatus,
     score: z.number(),
@@ -285,7 +287,7 @@ const scanSummaryOutputSchema = {
     medium: z.number().int().nonnegative(),
     low: z.number().int().nonnegative(),
     info: z.number().int().nonnegative(),
-    affectedPrinciples: z.array(APPPrincipleSchema),
+    affectedPrinciples: z.array(RegulationPrinciple),
     unmappedCount: z.number().int().nonnegative(),
   }),
   errors: z.array(scannerErrorOutputSchema),
@@ -321,6 +323,7 @@ const auditOutputSchema = {
 };
 
 const mapOutputSchema = {
+  jurisdiction: Jurisdiction,
   regulationMappings: z.record(z.object({
     status: ControlStatus,
     score: z.number(),
@@ -973,6 +976,15 @@ export async function handleToolCall(name: string, args: Record<string, unknown>
     }
 
     case 'attestlens_map': {
+      const jurisdiction = parseJurisdiction(args?.jurisdiction);
+      if (isToolError(jurisdiction)) {
+        return jurisdiction;
+      }
+      const jurisdictionAvailability = validateJurisdictionAvailability(jurisdiction);
+      if (isToolError(jurisdictionAvailability)) {
+        return jurisdictionAvailability;
+      }
+
       const rawFindings = args?.findings as Array<Record<string, unknown>> | undefined;
       if (!rawFindings || !Array.isArray(rawFindings)) {
         return makeToolError('findings array is required');
@@ -997,11 +1009,14 @@ export async function handleToolCall(name: string, args: Record<string, unknown>
       }));
 
       const { controls: regulationControls } = mapAllFindings(findings, {
-        jurisdictions: ['au-privacy-act'],
+        jurisdictions: [jurisdiction],
       });
-      const { controls: appControls } = mapAllFindingsAU(findings);
+      const appControls = jurisdiction === 'au-privacy-act'
+        ? regulationControls.filter((control) => Object.prototype.hasOwnProperty.call(APPInfo, control.principle))
+        : [];
 
       return makeJsonToolResponse({
+        jurisdiction,
         regulationMappings: Object.fromEntries(
           regulationControls.map((control) => [
             `${control.jurisdiction}:${control.principle}`,
@@ -1169,6 +1184,9 @@ export async function handleToolCall(name: string, args: Record<string, unknown>
       const jurisdictionAvailability = validateJurisdictionAvailability(jurisdiction);
       if (isToolError(jurisdictionAvailability)) {
         return jurisdictionAvailability;
+      }
+      if (jurisdiction !== 'au-privacy-act') {
+        return makeToolError('SMB compliance check is currently AU-only; use `audit --jurisdiction us-ccpa` for CCPA assessments.');
       }
 
       const orchestrator = createOrchestrator('path', {

@@ -53,12 +53,12 @@ export const CCPAPrincipleInfo: Record<CCPAPrinciple, { shortName: string; oblig
   },
   CCPA_145: {
     shortName: 'Exemptions',
-    obligation: 'Business may be exempt if <$25M revenue, <100K consumers, <50% revenue from PI sale',
+    obligation: 'Business may be exempt if <=$26,625,000 annual revenue, <100K consumers/households, and <=50% annual revenue from selling consumer PI',
     citation: 'Cal. Civ. Code §1798.145',
   },
   CCPA_150: {
     shortName: 'Security Breaches',
-    obligation: 'Private right of action for security breaches exposing unencrypted PI; $100-$750/consumer/incident',
+    obligation: 'Private right of action for security breaches exposing unencrypted PI; $107-$799/consumer/incident',
     citation: 'Cal. Civ. Code §1798.150',
   },
 };

@@ -68,13 +68,13 @@ export const CCPA_QUESTION_BANK: CCPAQuestion[] = [
     question: 'Do you discriminate against consumers who exercise their CCPA rights (e.g., different pricing, quality of service)?',
     type: 'yes_no',
     required: true,
-    role: 'applicability_gate',
+    role: 'control',
     passOn: 'no',
   },
   {
     id: 'Q-CCPA130-001',
     appPrinciple: 'CCPA_130',
-    question: 'Does your privacy policy disclose all 11 required categories under CCPA §1798.130?',
+    question: 'Does your privacy policy disclose all categories required by CCPA §1798.130 (consumer rights, designated methods for requests, categories of PI collected, sources, purposes, third-party categories, sale/share information, business purpose disclosures, and sensitive PI categories)?',
     type: 'yes_no',
     required: true,
     role: 'control',
@@ -93,9 +93,11 @@ export const CCPA_QUESTION_BANK: CCPAQuestion[] = [
   {
     id: 'Q-CCPA145-001',
     appPrinciple: 'CCPA_145',
-    question: 'Does your business exceed any CCPA applicability threshold (>$25M revenue, >100K consumers, or >50% revenue from PI sale)?',
+    question: 'Does your business exceed any CCPA applicability threshold (>$26,625,000 annual revenue, >100K consumers/households, or >50% of annual revenue from selling consumer PI)?',
     type: 'yes_no',
     required: true,
+    // "No" passes this gate because it means the business is below the CCPA applicability thresholds.
+    // "Yes" confirms CCPA applicability and leaves the substantive controls in scope.
     role: 'applicability_gate',
     passOn: 'no',
   },

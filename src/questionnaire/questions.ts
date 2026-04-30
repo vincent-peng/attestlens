@@ -1,4 +1,4 @@
-import type { APPPrinciple, Question } from '../schema/index.js';
+import type { Question, RegulationPrinciple } from '../schema/index.js';
 
 export const QUESTIONNAIRE_VERSION = 'm2-remediation-v1';
 export const PRE_REMEDIATION_QUESTIONNAIRE_VERSION = 'm2-coverage-v1';
@@ -817,14 +817,15 @@ export const QUESTION_BANK: Question[] = [
 ];
 
 export function getQuestionsForPrinciples(
-  principles: APPPrinciple[],
+  principles: RegulationPrinciple[],
   questions: Question[] = QUESTION_BANK,
 ): Question[] {
-  return questions.filter((question) => principles.includes(question.appPrinciple));
+  const principleSet = new Set(principles);
+  return questions.filter((question) => principleSet.has(question.appPrinciple));
 }
 
 export function getQuestionsForUnknownControls(
-  unknownPrinciples: APPPrinciple[],
+  unknownPrinciples: RegulationPrinciple[],
   questions: Question[] = QUESTION_BANK,
 ): Question[] {
   return getQuestionsForPrinciples(unknownPrinciples, questions);

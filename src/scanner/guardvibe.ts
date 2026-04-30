@@ -22,7 +22,7 @@ export class GuardVibeAdapter implements ScannerAdapter {
   private binaryPath: string;
 
   constructor(binaryPath?: string) {
-    this.binaryPath = binaryPath || 'npx';
+    this.binaryPath = binaryPath || process.env.ATTESTLENS_GUARDVIBE_PATH || 'npx';
   }
 
   async isAvailable(): Promise<boolean> {

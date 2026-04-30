@@ -13,6 +13,7 @@ import type {
   QuestionnaireSession,
 } from '../schema/index.js';
 import {
+  CCPA_QUESTION_BANK,
   LEGACY_QUESTION_BANK_V1,
   LEGACY_QUESTIONNAIRE_VERSION,
   PRE_REMEDIATION_QUESTION_BANK_V2,
@@ -30,6 +31,7 @@ import {
   createQuestionnaireSession,
   evaluateResponse,
   getApplicableQuestionsForPrinciple,
+  getQuestionBankForJurisdiction,
   loadQuestionnaireSession,
   prepareQuestionnaireSessionForResume,
   saveQuestionnaireSession,
@@ -112,6 +114,37 @@ describe('question bank coverage and flow', () => {
       'APP_9',
       'NDB',
     ]);
+  });
+
+  it('orders the CCPA question bank by CCPA principle order', () => {
+    expect(getQuestionBankForJurisdiction('us-ccpa').map((question) => question.id)).toEqual(
+      CCPA_QUESTION_BANK.map((question) => question.id),
+    );
+    expect(getQuestionBankForJurisdiction('us-ccpa')[0]?.appPrinciple).toBe('CCPA_100');
+  });
+
+  it('evaluates CCPA no-discrimination as a control where yes fails and no passes', () => {
+    const question = CCPA_QUESTION_BANK.find((candidate) => candidate.id === 'Q-CCPA125-001')!;
+
+    expect(evaluateResponse(question, makeResponse(question.id, true))).toEqual(expect.objectContaining({
+      status: 'fail',
+    }));
+    expect(evaluateResponse(question, makeResponse(question.id, false))).toEqual(expect.objectContaining({
+      status: 'pass',
+    }));
+  });
+
+  it('evaluates CCPA applicability threshold answers as gate outcomes', () => {
+    const question = CCPA_QUESTION_BANK.find((candidate) => candidate.id === 'Q-CCPA145-001')!;
+
+    expect(evaluateResponse(question, makeResponse(question.id, false))).toEqual(expect.objectContaining({
+      status: 'pass',
+      rationale: expect.stringContaining('Applicability gate satisfied'),
+    }));
+    expect(evaluateResponse(question, makeResponse(question.id, true))).toEqual(expect.objectContaining({
+      status: 'pass',
+      rationale: expect.stringContaining('Applicability confirmed'),
+    }));
   });
 
   it('skips APP 7 follow-ups when direct marketing is not used', () => {

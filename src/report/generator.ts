@@ -1548,10 +1548,13 @@ export function generateJSONReport(report: ComplianceReport): string {
 
 // ─── Agent Report Generator ───────────────────────────────────────────────────
 
-export function generateAgentReport(report: ComplianceReport): string {
+export function generateAgentReport(
+  report: ComplianceReport,
+  controls: Array<APPControl | RegulationControl> = getReportControls(report),
+): string {
   const opinion = report.complianceOpinion;
   const severityOrder: Severity[] = ['critical', 'high', 'medium', 'low', 'info'];
-  const reportControls = getReportControls(report);
+  const reportControls = controls;
   const actions: Array<{
     principle: string;
     verdict: string;

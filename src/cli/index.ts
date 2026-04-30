@@ -17,7 +17,7 @@ import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 import { ScannerOrchestrator, type ScannerOrchestratorOptions } from '../scanner/orchestrator.js';
-import { mapAllFindings, mapAllFindingsAU } from '../mapping/engine.js';
+import { mapAllFindings } from '../mapping/engine.js';
 import {
   buildComplianceReport,
   generateAgentReport,
@@ -46,6 +46,7 @@ import {
   createInteractivePromptRunner,
   deriveQuestionnairePrinciples,
   evaluateResponse,
+  getQuestionBankForJurisdiction,
   initializeAttestationSession,
   loadQuestionnaireSession,
   loadScanSnapshot,
@@ -63,6 +64,7 @@ import type {
   Question,
   QuestionnaireResponse,
   QuestionnaireSession,
+  RegulationControl,
   RuleFreshness as RuleFreshnessMetadata,
 } from '../schema/index.js';
 import type { ComplianceReportWithSMB, ReportFormat, ReportOptions } from '../report/generator.js';
@@ -219,9 +221,10 @@ program
       report.metadata.scannerVersions = Object.fromEntries(
         scanResult.results.map(r => [r.source, r.version])
       );
+      const effectiveControls = getEffectiveControls(report, jurisdiction);
 
       if (agentOutput) {
-        console.log(generateAgentReport(report));
+        console.log(generateAgentReport(report, effectiveControls));
         // Exit 1 for NON_COMPLIANT verdict or failing controls without opinion
         const verdict = report.complianceOpinion?.overallVerdict;
         if (verdict === 'NON_COMPLIANT') {
@@ -229,13 +232,13 @@ program
         }
         if (!verdict) {
           // No opinion available — fail on any failing controls
-          const failCount = report.appControls.filter(c => c.status === 'fail').length;
+          const failCount = effectiveControls.filter(c => c.status === 'fail').length;
           if (failCount > 0) {
             process.exit(1);
           }
           // In strict mode, UNKNOWN controls also fail
           if (options.strict) {
-            const unknownCount = report.appControls.filter(c => c.status === 'unknown').length;
+            const unknownCount = effectiveControls.filter(c => c.status === 'unknown').length;
             if (unknownCount > 0) {
               process.exit(1);
             }
@@ -267,8 +270,8 @@ program
       console.log(chalk.bold('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━'));
       console.log('');
 
-      // APP Control summary
-      for (const control of report.appControls) {
+      // Control summary
+      for (const control of effectiveControls) {
         const statusIcon = control.status === 'pass' ? '✅' : control.status === 'fail' ? '❌' : '⚠️';
         console.log(`  ${statusIcon} ${control.principle} — ${control.shortName}: ${control.status.toUpperCase()} (${control.score}/100)`);
       }
@@ -289,7 +292,7 @@ program
       if (criticalCount > 0) {
         process.exit(2);
       }
-      const failCount = report.appControls.filter(c => c.status === 'fail').length;
+      const failCount = effectiveControls.filter(c => c.status === 'fail').length;
       if (failCount > 0) {
         process.exit(1);
       }
@@ -324,6 +327,7 @@ program
   .option('--external-enrichment', 'Enable external OSV.dev and npm registry dependency enrichment')
   .option('--scanner-timeout <ms>', 'Per-scanner timeout in milliseconds')
   .option('--auto-update', 'Refresh the cached rule pack from ATTESTLENS_RULE_SOURCE before scanning')
+  .option('--jurisdiction <jurisdiction>', 'Jurisdiction to check against (default: au-privacy-act)', 'au-privacy-act')
   .action(async (targetInput: string | undefined, options: any) => {
     console.log(chalk.bold.cyan('\n📝 AttestLens — Privacy Act Attestation\n'));
 
@@ -358,6 +362,9 @@ program
       const target = await resolveCliTarget(targetInput);
       const jurisdiction = parseJurisdictionOption(options.jurisdiction);
       assertJurisdictionAvailableForCli(jurisdiction);
+      if (jurisdiction !== 'au-privacy-act') {
+        throw new Error('SMB compliance check is currently AU-only; use `audit --jurisdiction us-ccpa` for CCPA assessments.');
+      }
       const outputDir = path.resolve(options.output);
       const orchestrator = createOrchestrator(target.kind, options);
       const spinner = ora(target.kind === 'url' ? `Checking URL: ${target.value}` : 'Checking project...').start();
@@ -629,6 +636,29 @@ function assertJurisdictionAvailableForCli(jurisdiction: JurisdictionType): void
   }
 }
 
+type EffectiveControl = ComplianceReport['appControls'][number] | RegulationControl;
+
+export function getEffectiveControls(
+  report: ComplianceReport,
+  jurisdiction: JurisdictionType,
+): EffectiveControl[] {
+  if (jurisdiction === 'au-privacy-act') {
+    return report.appControls;
+  }
+
+  return (report.regulationControls || [])
+    .filter((control) => control.jurisdiction === jurisdiction);
+}
+
+function inferQuestionnaireJurisdiction(
+  principles: string[] | undefined,
+  fallback: JurisdictionType = 'au-privacy-act',
+): JurisdictionType {
+  return principles?.some((principle) => principle.startsWith('CCPA_'))
+    ? 'us-ccpa'
+    : fallback;
+}
+
 export function buildScannerOrchestratorOptions(options: any): ScannerOrchestratorOptions {
   const externalEnrichment = options.externalEnrichment === true;
   const scannerTimeoutMs = parseScannerTimeoutOption(options.scannerTimeout);
@@ -751,7 +781,7 @@ function deriveSMBQuestionnairePrinciples(report: ComplianceReport): APPPrincipl
 }
 
 function getSMBQuestionsForReport(report: ComplianceReport): Question[] {
-  const principles = new Set(deriveSMBQuestionnairePrinciples(report));
+  const principles = new Set<string>(deriveSMBQuestionnairePrinciples(report));
   return SMB_QUESTIONS.filter((question) => principles.has(question.appPrinciple));
 }
 
@@ -1016,6 +1046,7 @@ function getReportOptionsForSession(
   outputDir: string,
   strictMode: boolean,
   ruleFreshness?: RuleFreshnessMetadata,
+  jurisdiction: JurisdictionType = 'au-privacy-act',
 ): ReportOptions {
   return {
     targetName: sessionTarget.name,
@@ -1025,6 +1056,7 @@ function getReportOptionsForSession(
     outputDir,
     strictMode,
     ruleFreshness,
+    jurisdiction,
   };
 }
 
@@ -1059,6 +1091,8 @@ export async function executeAttestCommand(
   const outputRoot = path.resolve(options.output);
   const reportFormats = parseReportFormats(options.format);
   const requestedAssessmentMode = parseAssessmentModeOption(options.assessmentMode);
+  let jurisdiction = parseJurisdictionOption(options.jurisdiction);
+  assertJurisdictionAvailableForCli(jurisdiction);
 
   let sessionPath: string;
   let scanSnapshotPath: string;
@@ -1074,8 +1108,12 @@ export async function executeAttestCommand(
     }
 
     snapshot = await loadScanSnapshot<AttestationScanSnapshot>(loadedSession.scanSnapshotPath);
-    const expectedPrinciples = deriveQuestionnairePrinciples(snapshot.findings);
-    const expectedQuestions = buildFrozenSessionQuestions(expectedPrinciples);
+    jurisdiction = snapshot.jurisdiction ?? inferQuestionnaireJurisdiction(
+      'principles' in loadedSession ? loadedSession.principles : undefined,
+      jurisdiction,
+    );
+    const expectedPrinciples = deriveQuestionnairePrinciples(snapshot.findings, jurisdiction);
+    const expectedQuestions = buildFrozenSessionQuestions(expectedPrinciples, getQuestionBankForJurisdiction(jurisdiction));
     const upgradeAssessmentMode = loadedSession.version === '1.3'
       ? undefined
       : await resolveAssessmentModeSelection(
@@ -1132,6 +1170,7 @@ export async function executeAttestCommand(
       outputDir: outputRoot,
       strictMode: Boolean(options.strict),
       assessmentMode,
+      jurisdiction,
     });
     spinner.succeed(`Session created at ${initialized.paths.directory}`);
 
@@ -1159,6 +1198,7 @@ export async function executeAttestCommand(
       errors: scanResult.errors,
       totalDurationMs: Date.now() - startTime,
       ruleFreshness: scanResult.ruleFreshness,
+      jurisdiction,
     });
     const assessmentMode = await resolveAssessmentModeSelection(
       requestedAssessmentMode,
@@ -1173,6 +1213,7 @@ export async function executeAttestCommand(
       outputDir: outputRoot,
       strictMode: Boolean(options.strict),
       assessmentMode,
+      jurisdiction,
     });
     spinner.succeed(`Session created at ${initialized.paths.directory}`);
 
@@ -1209,6 +1250,7 @@ export async function executeAttestCommand(
     path.dirname(sessionPath),
     runResult.session.strictMode,
     snapshot.ruleFreshness,
+    jurisdiction,
   );
   const report = buildComplianceReport(
     snapshot.findings,

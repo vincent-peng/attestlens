@@ -498,10 +498,38 @@ describe('MCP Server', () => {
       });
       const payload = expectJsonStructuredPayload(response);
 
+      expect(payload.controls.every((control: any) => control.jurisdiction === 'us-ccpa')).toBe(true);
       expect(payload.controls.some((control: any) => control.jurisdiction === 'us-ccpa' && control.principle === 'CCPA_100')).toBe(true);
       expect(payload.findings[0].regulationMappings.some((mapping: any) => (
         mapping.jurisdiction === 'us-ccpa' && mapping.principle === 'CCPA_100'
       ))).toBe(true);
+    });
+
+    it('maps findings to CCPA controls with attestlens_map jurisdiction input', async () => {
+      const response = await handleToolCall('attestlens_map', {
+        jurisdiction: 'us-ccpa',
+        findings: [
+          {
+            id: 'FIND-CCPA-SECRET',
+            source: 'guardvibe',
+            sourceRule: 'VS-HARDKEY',
+            severity: 'critical',
+            category: 'Security',
+            title: 'Hardcoded API key',
+            description: 'A hardcoded API key is present in source code',
+          },
+        ],
+      });
+      const payload = expectJsonStructuredPayload(response);
+
+      expect(payload.jurisdiction).toBe('us-ccpa');
+      expect(payload.regulationMappings['us-ccpa:CCPA_100']).toEqual(expect.objectContaining({
+        status: 'fail',
+      }));
+      expect(payload.regulationMappings['us-ccpa:CCPA_150']).toEqual(expect.objectContaining({
+        status: 'fail',
+      }));
+      expect(payload.appMappings).toEqual({});
     });
 
     it('treats explicit AU scan jurisdiction the same as default', async () => {
