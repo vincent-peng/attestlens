@@ -4,7 +4,7 @@
  * Coordinates all scanner adapters, merges findings, and deduplicates results.
  */
 
-import type { AttestLensFinding, ScanSource } from '../schema/index.js';
+import type { AttestLensFinding, Jurisdiction, RulePackManifest, ScanSource } from '../schema/index.js';
 import type {
   ScannerResult,
   ScannerAdapter,
@@ -21,10 +21,12 @@ import { GitleaksAdapter, type GitleaksAdapterOptions } from './gitleaks.js';
 import { IacAdapter, type IacAdapterOptions } from './iac.js';
 import { UrlScanAdapter } from './url-scan.js';
 import { ReformAdapter, type ReformAdapterOptions } from './reform.js';
-import { loadRulePack, type RulePackLoadOptions } from './rules/index.js';
+import { loadJurisdictionPacks, type LoadedRulePack, type RulePackLoadOptions } from './rules/index.js';
+import { mapAllFindings } from '../mapping/engine.js';
 
 export interface ScannerOrchestratorOptions {
   rulePack?: RulePackLoadOptions;
+  jurisdictions?: Jurisdiction[];
   supplyChain?: SupplyChainAdapterOptions;
   behavioral?: BehavioralAdapterOptions;
   gitleaks?: GitleaksAdapterOptions;
@@ -41,11 +43,13 @@ export type ScanOptions = {
 export class ScannerOrchestrator {
   private registry: Map<ScanSource, ScannerRegistryEntry> = new Map();
   private rulePackOptions: RulePackLoadOptions;
+  private jurisdictions: Jurisdiction[];
   private adapterTimeoutMs?: number | Partial<Record<ScanSource, number>>;
   private onProgress?: (event: ScannerProgressEvent) => void;
 
   constructor(options: ScannerOrchestratorOptions = {}) {
     this.rulePackOptions = options.rulePack || {};
+    this.jurisdictions = options.jurisdictions || ['au-privacy-act'];
     this.adapterTimeoutMs = options.adapterTimeoutMs;
     this.onProgress = options.onProgress;
     // Register default scanners
@@ -79,7 +83,20 @@ export class ScannerOrchestrator {
     const allFindings: AttestLensFinding[] = [];
     const results: ScannerResult[] = [];
     const allErrors: ScannerError[] = [];
-    const rulePack = await loadRulePack(this.rulePackOptions);
+    const jurisdictionPacks = await loadJurisdictionPacks(this.jurisdictions, this.rulePackOptions);
+    const primaryRulePack = getPrimaryRulePack(jurisdictionPacks, this.jurisdictions);
+    const activeRulePackManifest = mergeRulePackManifests(jurisdictionPacks, this.jurisdictions);
+
+    for (const loaded of jurisdictionPacks.values()) {
+      for (const warning of loaded.warnings) {
+        allErrors.push({
+          source: 'manual',
+          message: warning,
+          code: 'JURISDICTION_PACK_WARNING',
+          recoverable: true,
+        });
+      }
+    }
 
     const targetKind = getTargetKind(targetPath);
     const enabledAdapters = Array.from(this.registry.values())
@@ -157,7 +174,7 @@ export class ScannerOrchestrator {
         throwIfScanAborted(options?.signal);
         racePromises.push(
           entry.adapter.scan(targetPath, {
-            rulePack: rulePack.manifest,
+            rulePack: activeRulePackManifest,
             signal: controller.signal,
             onProgress: (event) => this.emitProgress(event),
           }),
@@ -239,13 +256,14 @@ export class ScannerOrchestrator {
 
     // Deduplicate findings
     const deduplicated = this.deduplicateFindings(allFindings);
+    mapAllFindings(deduplicated, { jurisdictions: this.jurisdictions });
 
     return {
       findings: deduplicated,
       results,
       errors: allErrors,
       totalDurationMs: Date.now() - startTime,
-      ruleFreshness: rulePack.freshness,
+      ruleFreshness: primaryRulePack.freshness,
     };
   }
 
@@ -510,6 +528,37 @@ function uniqueSources(sources: ScanSource[]): ScanSource[] {
 
 function getString(value: unknown): string | undefined {
   return typeof value === 'string' && value.length > 0 ? value : undefined;
+}
+
+function getPrimaryRulePack(
+  packs: Map<Jurisdiction, LoadedRulePack>,
+  jurisdictions: Jurisdiction[],
+): LoadedRulePack {
+  const auPack = packs.get('au-privacy-act');
+  if (auPack) {
+    return auPack;
+  }
+
+  const firstJurisdiction = jurisdictions[0];
+  const firstPack = firstJurisdiction ? packs.get(firstJurisdiction) : undefined;
+  if (firstPack) {
+    return firstPack;
+  }
+
+  throw new Error('No jurisdiction rule packs were loaded');
+}
+
+function mergeRulePackManifests(
+  packs: Map<Jurisdiction, LoadedRulePack>,
+  jurisdictions: Jurisdiction[],
+): RulePackManifest {
+  const primary = getPrimaryRulePack(packs, jurisdictions).manifest;
+  const rules = jurisdictions.flatMap((jurisdiction) => packs.get(jurisdiction)?.manifest.rules ?? []);
+
+  return {
+    ...primary,
+    rules,
+  };
 }
 
 function getTargetKind(target: string): 'path' | 'url' {

@@ -21,14 +21,13 @@ import { buildScannerOrchestratorOptions, executeAttestCommand } from './index.j
 
 const execFileAsync = promisify(execFile);
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
-const tsxBin = path.join(repoRoot, 'node_modules', '.bin', 'tsx');
 const cliEntry = path.join(repoRoot, 'src', 'cli', 'index.ts');
 
 async function runCli(
   args: string[],
   envOverrides: Record<string, string | undefined> = {},
 ): Promise<{ code: number; stdout: string; stderr: string }> {
-  const env = { ...process.env };
+  const env: Record<string, string | undefined> = { ...process.env, TMPDIR: '/tmp' };
   for (const [key, value] of Object.entries(envOverrides)) {
     if (value === undefined) {
       delete env[key];
@@ -38,7 +37,7 @@ async function runCli(
   }
 
   try {
-    const { stdout, stderr } = await execFileAsync(tsxBin, [cliEntry, ...args], { cwd: repoRoot, env });
+    const { stdout, stderr } = await execFileAsync(process.execPath, ['--import', 'tsx', cliEntry, ...args], { cwd: repoRoot, env });
     return { code: 0, stdout, stderr };
   } catch (error: any) {
     return {
@@ -239,10 +238,12 @@ describe('CLI external enrichment option', () => {
     const scanHelp = await runCli(['scan', '--help']);
     const auditHelp = await runCli(['audit', '--help']);
     const attestHelp = await runCli(['attest', '--help']);
+    const complianceHelp = await runCli(['compliance-check', '--help']);
 
     expect(scanHelp.code).toBe(0);
     expect(auditHelp.code).toBe(0);
     expect(attestHelp.code).toBe(0);
+    expect(complianceHelp.code).toBe(0);
     expect(scanHelp.stdout).toContain('--external-enrichment');
     expect(auditHelp.stdout).toContain('--external-enrichment');
     expect(attestHelp.stdout).toContain('--external-enrichment');
@@ -252,6 +253,9 @@ describe('CLI external enrichment option', () => {
     expect(scanHelp.stdout).toContain('--scanner-timeout');
     expect(auditHelp.stdout).toContain('--scanner-timeout');
     expect(attestHelp.stdout).toContain('--scanner-timeout');
+    expect(scanHelp.stdout).toContain('--jurisdiction');
+    expect(auditHelp.stdout).toContain('--jurisdiction');
+    expect(complianceHelp.stdout).toContain('--jurisdiction');
     expect(scanHelp.stdout).toContain('--no-behavioral');
     expect(auditHelp.stdout).toContain('--no-behavioral');
     expect(attestHelp.stdout).toContain('--no-behavioral');
@@ -269,6 +273,7 @@ describe('CLI external enrichment option', () => {
   it('keeps external enrichment disabled by default in shared scanner options', () => {
     for (const options of [{}, { externalEnrichment: false }]) {
       expect(buildScannerOrchestratorOptions(options)).toEqual({
+        jurisdictions: ['au-privacy-act'],
         supplyChain: {
           typosquat: { enabled: false },
           osv: { enabled: false },
@@ -293,6 +298,7 @@ describe('CLI external enrichment option', () => {
 
   it('enables OSV and registry enrichment only when explicitly requested', () => {
     expect(buildScannerOrchestratorOptions({ externalEnrichment: true })).toEqual({
+      jurisdictions: ['au-privacy-act'],
       supplyChain: {
         typosquat: { enabled: false },
         osv: { enabled: true },
@@ -320,6 +326,7 @@ describe('CLI external enrichment option', () => {
       scannerTimeout: '1234',
     })).toEqual({
       adapterTimeoutMs: 1234,
+      jurisdictions: ['au-privacy-act'],
       supplyChain: {
         typosquat: { enabled: true },
         osv: { enabled: false },
@@ -346,6 +353,7 @@ describe('CLI external enrichment option', () => {
       includeGitleaks: true,
       gitleaksPath: '/usr/local/bin/gitleaks',
     })).toEqual({
+      jurisdictions: ['au-privacy-act'],
       supplyChain: {
         typosquat: { enabled: false },
         osv: { enabled: false },
@@ -402,6 +410,49 @@ describe('CLI external enrichment option', () => {
       .toThrow('Unsupported scanner timeout');
     expect(() => buildScannerOrchestratorOptions({ scannerTimeout: '0' }))
       .toThrow('Unsupported scanner timeout');
+  });
+
+  it('passes explicit AU jurisdiction into scanner options', () => {
+    expect(buildScannerOrchestratorOptions({ jurisdiction: 'au-privacy-act' })).toEqual(expect.objectContaining({
+      jurisdictions: ['au-privacy-act'],
+    }));
+  });
+
+  it('rejects unsupported jurisdiction values in scanner options', () => {
+    expect(() => buildScannerOrchestratorOptions({ jurisdiction: 'antarctica' }))
+      .toThrow('Unsupported jurisdiction');
+  });
+
+  it('runs scan with explicit AU jurisdiction like the default', async () => {
+    const projectDir = await fs.mkdtemp(path.join(os.tmpdir(), 'attestlens-cli-jurisdiction-'));
+
+    try {
+      await fs.writeFile(path.join(projectDir, 'README.md'), '# Example project\n');
+      const defaultResult = await runCli(['scan', projectDir, '--no-guardvibe', '--no-mcp-scan', '--no-supply-chain', '--no-behavioral', '--no-iac']);
+      const auResult = await runCli(['scan', projectDir, '--jurisdiction', 'au-privacy-act', '--no-guardvibe', '--no-mcp-scan', '--no-supply-chain', '--no-behavioral', '--no-iac']);
+
+      expect(defaultResult.code).toBe(0);
+      expect(auResult.code).toBe(0);
+      expect(defaultResult.stdout).toContain('No compliance findings detected');
+      expect(auResult.stdout).toContain('No compliance findings detected');
+    } finally {
+      await fs.rm(projectDir, { recursive: true, force: true });
+    }
+  });
+
+  it('returns a not-yet-available message for unsupported CLI jurisdictions', async () => {
+    const projectDir = await fs.mkdtemp(path.join(os.tmpdir(), 'attestlens-cli-jurisdiction-'));
+
+    try {
+      await fs.writeFile(path.join(projectDir, 'README.md'), '# Example project\n');
+      const result = await runCli(['scan', projectDir, '--jurisdiction', 'us-ccpa']);
+      const output = `${result.stdout}\n${result.stderr}`;
+
+      expect(result.code).toBe(1);
+      expect(output).toContain("jurisdiction 'us-ccpa' is not yet available. Available jurisdictions: au-privacy-act");
+    } finally {
+      await fs.rm(projectDir, { recursive: true, force: true });
+    }
   });
 
   it('does not call OSV or npm registry during default attest scans', async () => {

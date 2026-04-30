@@ -8,15 +8,19 @@
  * knowledge of Australian privacy law, OAIC guidelines, and case law.
  */
 
-import { z } from 'zod';
 import {
   APPPrinciple,
   APPInfo,
   Severity,
   ControlStatus,
+  JurisdictionInfo,
   type AttestLensFinding,
   type APPMapping,
   type APPControl,
+  type Jurisdiction,
+  type RegulationControl,
+  type RegulationMapping,
+  type RegulationPrinciple,
 } from '../schema/index.js';
 import { calculateMappingConfidence } from './confidence.js';
 
@@ -26,10 +30,10 @@ import { calculateMappingConfidence } from './confidence.js';
  * A mapping rule defines how a scanner finding category maps to APP obligations.
  * Each rule has:
  * - sourcePatterns: regex patterns to match scanner rule IDs and categories
- * - appPrinciple: which APP principle this maps to
+ * - regulationPrinciple: which regulation principle this maps to
  * - status: whether this finding causes PASS, FAIL, or UNKNOWN
  * - confidence: how confident we are in this mapping (0-1)
- * - rationale: why this finding maps to this APP
+ * - rationale: why this finding maps to this regulation
  */
 export interface MappingRule {
   id: string;
@@ -46,11 +50,12 @@ export interface MappingRule {
    * 'or' = any defined pattern field can match (legacy behavior).
    */
   matchMode?: 'and' | 'or';
-  appPrinciple: APPPrinciple;
+  jurisdiction: Jurisdiction;
+  regulationPrinciple: RegulationPrinciple;
   status: ControlStatus;
   confidence: number;
   rationale: string;
-  oaicReference?: string;  // OAIC guideline reference
+  citation?: string;
 }
 
 // ─── APP 11: Security of Personal Info ──────────────────────────────────────
@@ -70,11 +75,12 @@ const APP_11_RULES: MappingRule[] = [
       severity: ['critical', 'high'],
     },
     matchMode: 'or',
-    appPrinciple: 'APP_11',
+    jurisdiction: 'au-privacy-act',
+    regulationPrinciple: 'APP_11',
     status: 'fail',
     confidence: 0.95,
     rationale: 'Hardcoded credentials in source code constitute a failure to take reasonable steps to protect personal information. OAIC considers this a serious breach of APP 11.1.',
-    oaicReference: 'APP Guidelines Chapter 11.6',
+    citation: 'APP Guidelines Chapter 11.6',
   },
   // SQL Injection
   {
@@ -87,11 +93,12 @@ const APP_11_RULES: MappingRule[] = [
       severity: ['critical', 'high'],
     },
     matchMode: 'or',
-    appPrinciple: 'APP_11',
+    jurisdiction: 'au-privacy-act',
+    regulationPrinciple: 'APP_11',
     status: 'fail',
     confidence: 0.95,
     rationale: 'SQL injection vulnerabilities allow unauthorised access to personal information stored in databases, constituting a failure to take reasonable steps under APP 11.1.',
-    oaicReference: 'APP Guidelines Chapter 11.6; Notifiable Data Breaches s26WE',
+    citation: 'APP Guidelines Chapter 11.6; Notifiable Data Breaches s26WE',
   },
   // Missing Row Level Security (Supabase)
   {
@@ -104,11 +111,12 @@ const APP_11_RULES: MappingRule[] = [
       severity: ['critical', 'high'],
     },
     matchMode: 'or',
-    appPrinciple: 'APP_11',
+    jurisdiction: 'au-privacy-act',
+    regulationPrinciple: 'APP_11',
     status: 'fail',
     confidence: 0.92,
     rationale: 'Missing Row Level Security on database tables containing personal information allows any authenticated user to access all records, violating APP 11.1 reasonable steps requirement.',
-    oaicReference: 'APP Guidelines Chapter 11.6',
+    citation: 'APP Guidelines Chapter 11.6',
   },
   // XSS / dangerouslySetInnerHTML
   {
@@ -121,11 +129,12 @@ const APP_11_RULES: MappingRule[] = [
       severity: ['high', 'medium'],
     },
     matchMode: 'or',
-    appPrinciple: 'APP_11',
+    jurisdiction: 'au-privacy-act',
+    regulationPrinciple: 'APP_11',
     status: 'fail',
     confidence: 0.90,
     rationale: 'Cross-site scripting vulnerabilities can lead to unauthorised access to or disclosure of personal information, constituting a breach of APP 11.1.',
-    oaicReference: 'APP Guidelines Chapter 11.6',
+    citation: 'APP Guidelines Chapter 11.6',
   },
   // Debug mode in production
   {
@@ -138,11 +147,12 @@ const APP_11_RULES: MappingRule[] = [
       severity: ['medium', 'low'],
     },
     matchMode: 'or',
-    appPrinciple: 'APP_11',
+    jurisdiction: 'au-privacy-act',
+    regulationPrinciple: 'APP_11',
     status: 'fail',
     confidence: 0.85,
     rationale: 'Debug mode in production can expose sensitive information including personal data through error messages and stack traces, violating APP 11.1.',
-    oaicReference: 'APP Guidelines Chapter 11.4',
+    citation: 'APP Guidelines Chapter 11.4',
   },
   // .env not in .gitignore
   {
@@ -155,11 +165,12 @@ const APP_11_RULES: MappingRule[] = [
       severity: ['high', 'critical'],
     },
     matchMode: 'or',
-    appPrinciple: 'APP_11',
+    jurisdiction: 'au-privacy-act',
+    regulationPrinciple: 'APP_11',
     status: 'fail',
     confidence: 0.88,
     rationale: 'Exposing .env files containing secrets and configuration in version control constitutes a failure to protect personal information under APP 11.1.',
-    oaicReference: 'APP Guidelines Chapter 11.6',
+    citation: 'APP Guidelines Chapter 11.6',
   },
   // Command injection / shell=True
   {
@@ -172,11 +183,12 @@ const APP_11_RULES: MappingRule[] = [
       severity: ['critical', 'high'],
     },
     matchMode: 'or',
-    appPrinciple: 'APP_11',
+    jurisdiction: 'au-privacy-act',
+    regulationPrinciple: 'APP_11',
     status: 'fail',
     confidence: 0.93,
     rationale: 'Command injection vulnerabilities allow attackers to execute arbitrary commands on the server, directly compromising personal information.',
-    oaicReference: 'APP Guidelines Chapter 11.6',
+    citation: 'APP Guidelines Chapter 11.6',
   },
   // CORS wildcard
   {
@@ -189,11 +201,12 @@ const APP_11_RULES: MappingRule[] = [
       severity: ['medium', 'high'],
     },
     matchMode: 'or',
-    appPrinciple: 'APP_11',
+    jurisdiction: 'au-privacy-act',
+    regulationPrinciple: 'APP_11',
     status: 'fail',
     confidence: 0.80,
     rationale: 'Wildcard CORS headers can allow unauthorised cross-origin access to APIs containing personal information, undermining reasonable steps to protect data under APP 11.1.',
-    oaicReference: 'APP Guidelines Chapter 11.4',
+    citation: 'APP Guidelines Chapter 11.4',
   },
   // Auth coverage gaps
   {
@@ -205,11 +218,12 @@ const APP_11_RULES: MappingRule[] = [
       severity: ['high', 'critical'],
     },
     matchMode: 'or',
-    appPrinciple: 'APP_11',
+    jurisdiction: 'au-privacy-act',
+    regulationPrinciple: 'APP_11',
     status: 'fail',
     confidence: 0.88,
     rationale: 'Missing authentication on endpoints that access personal information constitutes a failure to take reasonable steps to protect data under APP 11.1.',
-    oaicReference: 'APP Guidelines Chapter 11.6',
+    citation: 'APP Guidelines Chapter 11.6',
   },
 ];
 
@@ -230,11 +244,12 @@ const APP_6_RULES: MappingRule[] = [
       severity: ['medium', 'high'],
     },
     matchMode: 'or',
-    appPrinciple: 'APP_6',
+    jurisdiction: 'au-privacy-act',
+    regulationPrinciple: 'APP_6',
     status: 'fail',
     confidence: 0.75,
     rationale: 'Wildcard CORS can lead to unauthorised disclosure of personal information to third-party origins, violating APP 6.1 purpose limitation.',
-    oaicReference: 'APP Guidelines Chapter 6.1',
+    citation: 'APP Guidelines Chapter 6.1',
   },
   // Missing auth on admin routes (unauthorised use)
   {
@@ -246,11 +261,12 @@ const APP_6_RULES: MappingRule[] = [
       severity: ['high', 'critical'],
     },
     matchMode: 'or',
-    appPrinciple: 'APP_6',
+    jurisdiction: 'au-privacy-act',
+    regulationPrinciple: 'APP_6',
     status: 'fail',
     confidence: 0.82,
     rationale: 'Missing authorisation on admin routes allows unauthorised use and disclosure of personal information, violating APP 6.',
-    oaicReference: 'APP Guidelines Chapter 6.1',
+    citation: 'APP Guidelines Chapter 6.1',
   },
   // Data exfiltration / external API calls
   {
@@ -263,11 +279,12 @@ const APP_6_RULES: MappingRule[] = [
       severity: ['critical', 'high'],
     },
     matchMode: 'or',
-    appPrinciple: 'APP_6',
+    jurisdiction: 'au-privacy-act',
+    regulationPrinciple: 'APP_6',
     status: 'fail',
     confidence: 0.78,
     rationale: 'Data exfiltration risks indicate personal information may be disclosed to unauthorised external parties, violating APP 6.1.',
-    oaicReference: 'APP Guidelines Chapter 6.3',
+    citation: 'APP Guidelines Chapter 6.3',
   },
   {
     id: 'MAP-034',
@@ -276,11 +293,12 @@ const APP_6_RULES: MappingRule[] = [
       ruleId: /^VS-SC-009$/,
       category: /^Security$/i,
     },
-    appPrinciple: 'APP_6',
+    jurisdiction: 'au-privacy-act',
+    regulationPrinciple: 'APP_6',
     status: 'unknown',
     confidence: 0.60,
     rationale: 'A direct production dependency without source repository or homepage metadata may make downstream disclosure and incident-impact assessment harder. Manual review is required to determine whether the dependency processes or discloses personal information.',
-    oaicReference: 'APP Guidelines Chapter 6.1',
+    citation: 'APP Guidelines Chapter 6.1',
   },
 ];
 
@@ -299,11 +317,12 @@ const APP_1_RULES: MappingRule[] = [
       severity: ['medium'],
     },
     matchMode: 'or',
-    appPrinciple: 'APP_1',
+    jurisdiction: 'au-privacy-act',
+    regulationPrinciple: 'APP_1',
     status: 'fail',
     confidence: 0.70,
     rationale: 'Absence of a privacy policy page or notice in the application violates APP 1.2 requirement to make privacy policy available.',
-    oaicReference: 'APP Guidelines Chapter 1.3',
+    citation: 'APP Guidelines Chapter 1.3',
   },
   // Architecture/documentation score
   {
@@ -315,11 +334,12 @@ const APP_1_RULES: MappingRule[] = [
       severity: ['low', 'info'],
     },
     matchMode: 'or',
-    appPrinciple: 'APP_1',
+    jurisdiction: 'au-privacy-act',
+    regulationPrinciple: 'APP_1',
     status: 'pass',
     confidence: 0.50,
     rationale: 'Good architecture practices support open and transparent management of personal information under APP 1.',
-    oaicReference: 'APP Guidelines Chapter 1.2',
+    citation: 'APP Guidelines Chapter 1.2',
   },
 ];
 
@@ -340,11 +360,12 @@ const APP_8_RULES: MappingRule[] = [
       severity: ['medium', 'high'],
     },
     matchMode: 'or',
-    appPrinciple: 'APP_8',
+    jurisdiction: 'au-privacy-act',
+    regulationPrinciple: 'APP_8',
     status: 'unknown',
     confidence: 0.60,
     rationale: 'External API endpoints may involve cross-border disclosure of personal information. Requires manual assessment to determine if overseas recipients are involved and whether reasonable steps have been taken under APP 8.1.',
-    oaicReference: 'APP Guidelines Chapter 8.3',
+    citation: 'APP Guidelines Chapter 8.3',
   },
   // Analytics/tracking SDKs (potential cross-border)
   {
@@ -356,11 +377,12 @@ const APP_8_RULES: MappingRule[] = [
       severity: ['medium', 'low'],
     },
     matchMode: 'or',
-    appPrinciple: 'APP_8',
+    jurisdiction: 'au-privacy-act',
+    regulationPrinciple: 'APP_8',
     status: 'unknown',
     confidence: 0.55,
     rationale: 'Analytics and tracking SDKs may transmit personal information to overseas servers. Requires questionnaire to determine if data flows cross borders and whether APP 8.1 obligations are met.',
-    oaicReference: 'APP Guidelines Chapter 8.1',
+    citation: 'APP Guidelines Chapter 8.1',
   },
   {
     id: 'MAP-035',
@@ -371,11 +393,12 @@ const APP_8_RULES: MappingRule[] = [
       title: /(ssrf|server.?side request forgery|exfiltrat|external request|open redirect)/i,
       severity: ['critical', 'high', 'medium'],
     },
-    appPrinciple: 'APP_8',
+    jurisdiction: 'au-privacy-act',
+    regulationPrinciple: 'APP_8',
     status: 'unknown',
     confidence: 0.58,
     rationale: 'The vulnerable dependency class may enable external requests or data exfiltration. Manual review is required to determine whether personal information could be disclosed to overseas recipients under APP 8.',
-    oaicReference: 'APP Guidelines Chapter 8.3',
+    citation: 'APP Guidelines Chapter 8.3',
   },
 ];
 
@@ -395,11 +418,12 @@ const APP_12_RULES: MappingRule[] = [
       severity: ['info'],
     },
     matchMode: 'or',
-    appPrinciple: 'APP_12',
+    jurisdiction: 'au-privacy-act',
+    regulationPrinciple: 'APP_12',
     status: 'pass',
     confidence: 0.65,
     rationale: 'Comprehensive authentication coverage supports the individual access right under APP 12, ensuring individuals can securely access their personal information.',
-    oaicReference: 'APP Guidelines Chapter 12.3',
+    citation: 'APP Guidelines Chapter 12.3',
   },
 ];
 
@@ -417,11 +441,12 @@ const NDB_RULES: MappingRule[] = [
       severity: ['medium', 'high'],
     },
     matchMode: 'or',
-    appPrinciple: 'NDB',
+    jurisdiction: 'au-privacy-act',
+    regulationPrinciple: 'NDB',
     status: 'fail',
     confidence: 0.72,
     rationale: 'Missing audit logging undermines the ability to detect and assess eligible data breaches, which is required under NDB s26WE.',
-    oaicReference: 'NDB Guidelines s26WE',
+    citation: 'NDB Guidelines s26WE',
   },
   // Data exfiltration paths (breach risk)
   {
@@ -433,11 +458,12 @@ const NDB_RULES: MappingRule[] = [
       severity: ['critical', 'high'],
     },
     matchMode: 'or',
-    appPrinciple: 'NDB',
+    jurisdiction: 'au-privacy-act',
+    regulationPrinciple: 'NDB',
     status: 'fail',
     confidence: 0.80,
     rationale: 'Data exfiltration vulnerabilities create an immediate risk of eligible data breaches requiring notification under NDB scheme.',
-    oaicReference: 'NDB Guidelines s26WE',
+    citation: 'NDB Guidelines s26WE',
   },
   // ─── Supply Chain Rules ──────────────────────────────────────────────
   {
@@ -449,11 +475,12 @@ const NDB_RULES: MappingRule[] = [
       severity: ['critical', 'high', 'medium'],
     },
     matchMode: 'or',
-    appPrinciple: 'APP_11',
+    jurisdiction: 'au-privacy-act',
+    regulationPrinciple: 'APP_11',
     status: 'fail',
     confidence: 0.90,
     rationale: 'Dependencies with install scripts (postinstall, preinstall) can execute arbitrary code during npm install, posing a significant supply chain risk. Under APP 11.1, entities must take reasonable steps to protect personal information, which includes vetting dependencies for supply chain attack vectors.',
-    oaicReference: 'APP Guidelines Chapter 11.1',
+    citation: 'APP Guidelines Chapter 11.1',
   },
   {
     id: 'MAP-021',
@@ -464,11 +491,12 @@ const NDB_RULES: MappingRule[] = [
       severity: ['critical', 'high'],
     },
     matchMode: 'or',
-    appPrinciple: 'APP_11',
+    jurisdiction: 'au-privacy-act',
+    regulationPrinciple: 'APP_11',
     status: 'fail',
     confidence: 0.92,
     rationale: 'Unused production dependencies may indicate manifest-only dependency injection — the exact technique used in the Axios supply chain attack (March 2026). Under APP 11.1, this represents a failure to take reasonable steps to secure the software supply chain.',
-    oaicReference: 'APP Guidelines Chapter 11.1',
+    citation: 'APP Guidelines Chapter 11.1',
   },
   {
     id: 'MAP-022',
@@ -479,11 +507,12 @@ const NDB_RULES: MappingRule[] = [
       severity: ['critical'],
     },
     matchMode: 'or',
-    appPrinciple: 'APP_11',
+    jurisdiction: 'au-privacy-act',
+    regulationPrinciple: 'APP_11',
     status: 'fail',
     confidence: 0.95,
     rationale: 'Typosquatting packages mimic popular packages to trick developers into installing malicious code. This is a direct supply chain attack vector violating APP 11.1 reasonable steps to protect personal information.',
-    oaicReference: 'APP Guidelines Chapter 11.1',
+    citation: 'APP Guidelines Chapter 11.1',
   },
   {
     id: 'MAP-023',
@@ -494,11 +523,12 @@ const NDB_RULES: MappingRule[] = [
       severity: ['critical'],
     },
     matchMode: 'or',
-    appPrinciple: 'APP_11',
+    jurisdiction: 'au-privacy-act',
+    regulationPrinciple: 'APP_11',
     status: 'fail',
     confidence: 0.97,
     rationale: 'A dependency with install scripts and no source repository is a strong indicator of a supply chain attack. The Axios compromise (March 2026) used exactly this pattern — a package with postinstall scripts and no public source repository. This violates APP 11.1.',
-    oaicReference: 'APP Guidelines Chapter 11.1',
+    citation: 'APP Guidelines Chapter 11.1',
   },
   {
     id: 'MAP-024',
@@ -509,11 +539,12 @@ const NDB_RULES: MappingRule[] = [
       severity: ['critical', 'high', 'medium'],
     },
     matchMode: 'or',
-    appPrinciple: 'APP_11',
+    jurisdiction: 'au-privacy-act',
+    regulationPrinciple: 'APP_11',
     status: 'fail',
     confidence: 0.88,
     rationale: 'Known vulnerabilities in dependencies represent a failure to take reasonable steps to protect personal information. Under APP 11.1, entities must keep dependencies up to date and address known security issues.',
-    oaicReference: 'APP Guidelines Chapter 11.4',
+    citation: 'APP Guidelines Chapter 11.4',
   },
   {
     id: 'MAP-032',
@@ -523,11 +554,12 @@ const NDB_RULES: MappingRule[] = [
       category: /^Security$/i,
       severity: ['critical', 'high', 'medium', 'low'],
     },
-    appPrinciple: 'APP_11',
+    jurisdiction: 'au-privacy-act',
+    regulationPrinciple: 'APP_11',
     status: 'fail',
     confidence: 0.90,
     rationale: 'OSV.dev reports a known vulnerability in a project dependency. Keeping dependencies patched is part of taking reasonable steps to protect personal information under APP 11.1.',
-    oaicReference: 'APP Guidelines Chapter 11.4',
+    citation: 'APP Guidelines Chapter 11.4',
   },
   {
     id: 'MAP-033',
@@ -537,11 +569,12 @@ const NDB_RULES: MappingRule[] = [
       category: /^Security$/i,
       severity: ['medium', 'high', 'critical'],
     },
-    appPrinciple: 'APP_11',
+    jurisdiction: 'au-privacy-act',
+    regulationPrinciple: 'APP_11',
     status: 'fail',
     confidence: 0.82,
     rationale: 'Direct production dependencies without source repository or homepage metadata weaken package provenance review and incident response, increasing supply-chain risk under APP 11.1.',
-    oaicReference: 'APP Guidelines Chapter 11.1',
+    citation: 'APP Guidelines Chapter 11.1',
   },
   {
     id: 'MAP-051',
@@ -551,11 +584,12 @@ const NDB_RULES: MappingRule[] = [
       category: /^Supply Chain Maturity$/i,
       severity: ['medium', 'high', 'critical'],
     },
-    appPrinciple: 'APP_11',
+    jurisdiction: 'au-privacy-act',
+    regulationPrinciple: 'APP_11',
     status: 'unknown',
     confidence: 0.74,
     rationale: 'Low package maturity is a supply-chain risk indicator. Manual review is required to determine whether the dependency is appropriate for production systems handling personal information.',
-    oaicReference: 'APP Guidelines Chapter 11.1',
+    citation: 'APP Guidelines Chapter 11.1',
   },
   {
     id: 'MAP-025',
@@ -566,11 +600,12 @@ const NDB_RULES: MappingRule[] = [
       severity: ['critical'],
     },
     matchMode: 'or',
-    appPrinciple: 'APP_11',
+    jurisdiction: 'au-privacy-act',
+    regulationPrinciple: 'APP_11',
     status: 'fail',
     confidence: 0.85,
     rationale: 'Missing or invalid lockfiles make dependency resolution non-deterministic, increasing supply chain risk. Under APP 11.1, entities must ensure reproducible builds to maintain the security of personal information.',
-    oaicReference: 'APP Guidelines Chapter 11.6',
+    citation: 'APP Guidelines Chapter 11.6',
   },
   {
     id: 'MAP-037',
@@ -580,11 +615,12 @@ const NDB_RULES: MappingRule[] = [
       category: /^Behavioral Supply Chain$/i,
       severity: ['critical', 'high', 'medium', 'low'],
     },
-    appPrinciple: 'APP_11',
+    jurisdiction: 'au-privacy-act',
+    regulationPrinciple: 'APP_11',
     status: 'fail',
     confidence: 0.82,
     rationale: 'Runtime-capable dependency behavior can affect whether reasonable steps are being taken to protect personal information under APP 11.1.',
-    oaicReference: 'APP Guidelines Chapter 11.1',
+    citation: 'APP Guidelines Chapter 11.1',
   },
   {
     id: 'MAP-038',
@@ -593,11 +629,12 @@ const NDB_RULES: MappingRule[] = [
       ruleId: /^VS-BH-002$/,
       category: /^Behavioral Supply Chain$/i,
     },
-    appPrinciple: 'APP_8',
+    jurisdiction: 'au-privacy-act',
+    regulationPrinciple: 'APP_8',
     status: 'unknown',
     confidence: 0.70,
     rationale: 'A dependency with outbound network capability may create cross-border disclosure pathways. APP 8 impact depends on runtime configuration and actual data destinations.',
-    oaicReference: 'APP Guidelines Chapter 8',
+    citation: 'APP Guidelines Chapter 8',
   },
   {
     id: 'MAP-039',
@@ -606,11 +643,12 @@ const NDB_RULES: MappingRule[] = [
       ruleId: /^VS-BH-00[46]$/,
       category: /^Behavioral Supply Chain$/i,
     },
-    appPrinciple: 'NDB',
+    jurisdiction: 'au-privacy-act',
+    regulationPrinciple: 'NDB',
     status: 'unknown',
     confidence: 0.68,
     rationale: 'Dependency access to environment secrets or high-entropy embedded strings may create a breach pathway. NDB impact depends on whether credentials or personal information are exposed.',
-    oaicReference: 'NDB Guidelines s26WE',
+    citation: 'NDB Guidelines s26WE',
   },
   {
     id: 'MAP-040',
@@ -621,11 +659,12 @@ const NDB_RULES: MappingRule[] = [
       severity: ['critical', 'high', 'medium'],
     },
     matchMode: 'or',
-    appPrinciple: 'APP_11',
+    jurisdiction: 'au-privacy-act',
+    regulationPrinciple: 'APP_11',
     status: 'fail',
     confidence: 0.92,
     rationale: 'Secrets committed to git history can remain exposed after deletion from the current tree. Reasonable security steps under APP 11.1 include detecting and rotating exposed credentials.',
-    oaicReference: 'APP Guidelines Chapter 11.1',
+    citation: 'APP Guidelines Chapter 11.1',
   },
   {
     id: 'MAP-041',
@@ -634,11 +673,12 @@ const NDB_RULES: MappingRule[] = [
       ruleId: /^VS-GL-/,
       severity: ['critical', 'high'],
     },
-    appPrinciple: 'NDB',
+    jurisdiction: 'au-privacy-act',
+    regulationPrinciple: 'NDB',
     status: 'unknown',
     confidence: 0.82,
     rationale: 'A credential exposed in git history may create a data-breach pathway. NDB impact depends on whether the credential was valid, accessed, and connected to personal information.',
-    oaicReference: 'NDB Guidelines s26WE',
+    citation: 'NDB Guidelines s26WE',
   },
   {
     id: 'MAP-042',
@@ -648,11 +688,12 @@ const NDB_RULES: MappingRule[] = [
       category: /^SAST Lite$/i,
       severity: ['critical', 'high', 'medium', 'low'],
     },
-    appPrinciple: 'APP_11',
+    jurisdiction: 'au-privacy-act',
+    regulationPrinciple: 'APP_11',
     status: 'fail',
     confidence: 0.78,
     rationale: 'Compliance-critical source patterns can indicate missing reasonable security controls for personal information under APP 11.1.',
-    oaicReference: 'APP Guidelines Chapter 11.1',
+    citation: 'APP Guidelines Chapter 11.1',
   },
   {
     id: 'MAP-043',
@@ -661,11 +702,12 @@ const NDB_RULES: MappingRule[] = [
       ruleId: /^VS-SAST-00[6]|^VS-SAST-010$/,
       category: /^SAST Lite$/i,
     },
-    appPrinciple: 'APP_8',
+    jurisdiction: 'au-privacy-act',
+    regulationPrinciple: 'APP_8',
     status: 'unknown',
     confidence: 0.65,
     rationale: 'Outbound request and wildcard CORS patterns may create cross-border disclosure pathways. APP 8 impact depends on actual destinations and data sent.',
-    oaicReference: 'APP Guidelines Chapter 8',
+    citation: 'APP Guidelines Chapter 8',
   },
   {
     id: 'MAP-044',
@@ -674,11 +716,12 @@ const NDB_RULES: MappingRule[] = [
       ruleId: /^VS-SAST-00[17]|^VS-SAST-011|^VS-SAST-012|^VS-SAST-013$/,
       category: /^SAST Lite$/i,
     },
-    appPrinciple: 'NDB',
+    jurisdiction: 'au-privacy-act',
+    regulationPrinciple: 'NDB',
     status: 'unknown',
     confidence: 0.72,
     rationale: 'Secrets, sensitive logging, URL-exposed data, localStorage secrets, and unencrypted object storage may create a breach pathway requiring NDB assessment.',
-    oaicReference: 'NDB Guidelines s26WE',
+    citation: 'NDB Guidelines s26WE',
   },
   {
     id: 'MAP-045',
@@ -687,11 +730,12 @@ const NDB_RULES: MappingRule[] = [
       ruleId: /^VS-SAST-019$/,
       category: /^SAST Lite$/i,
     },
-    appPrinciple: 'APP_3',
+    jurisdiction: 'au-privacy-act',
+    regulationPrinciple: 'APP_3',
     status: 'unknown',
     confidence: 0.65,
     rationale: 'Personal data collection without a visible consent, notice, or lawful-basis check may affect whether collection is lawful, fair, and necessary.',
-    oaicReference: 'APP Guidelines Chapter 3',
+    citation: 'APP Guidelines Chapter 3',
   },
   {
     id: 'MAP-046',
@@ -700,11 +744,12 @@ const NDB_RULES: MappingRule[] = [
       ruleId: /^VS-SAST-020$/,
       category: /^SAST Lite$/i,
     },
-    appPrinciple: 'APP_12',
+    jurisdiction: 'au-privacy-act',
+    regulationPrinciple: 'APP_12',
     status: 'unknown',
     confidence: 0.60,
     rationale: 'Personal data writes without visible retention or deletion controls may affect access and lifecycle handling obligations.',
-    oaicReference: 'APP Guidelines Chapter 12',
+    citation: 'APP Guidelines Chapter 12',
   },
   {
     id: 'MAP-047',
@@ -714,11 +759,12 @@ const NDB_RULES: MappingRule[] = [
       category: /^Infrastructure as Code$/i,
       severity: ['critical', 'high', 'medium', 'low'],
     },
-    appPrinciple: 'APP_11',
+    jurisdiction: 'au-privacy-act',
+    regulationPrinciple: 'APP_11',
     status: 'fail',
     confidence: 0.82,
     rationale: 'Infrastructure-as-code misconfigurations can weaken reasonable technical controls used to protect personal information under APP 11.1.',
-    oaicReference: 'APP Guidelines Chapter 11.1',
+    citation: 'APP Guidelines Chapter 11.1',
   },
   {
     id: 'MAP-048',
@@ -728,11 +774,12 @@ const NDB_RULES: MappingRule[] = [
       category: /^Infrastructure as Code$/i,
       severity: ['critical', 'high'],
     },
-    appPrinciple: 'NDB',
+    jurisdiction: 'au-privacy-act',
+    regulationPrinciple: 'NDB',
     status: 'unknown',
     confidence: 0.76,
     rationale: 'Secrets embedded in infrastructure configuration may create a data-breach pathway. NDB impact depends on credential validity, access, and connected personal information.',
-    oaicReference: 'NDB Guidelines s26WE',
+    citation: 'NDB Guidelines s26WE',
   },
   {
     id: 'MAP-049',
@@ -741,11 +788,12 @@ const NDB_RULES: MappingRule[] = [
       ruleId: /^VS-IAC-017$/,
       category: /^Infrastructure as Code$/i,
     },
-    appPrinciple: 'APP_8',
+    jurisdiction: 'au-privacy-act',
+    regulationPrinciple: 'APP_8',
     status: 'unknown',
     confidence: 0.78,
     rationale: 'Public storage infrastructure can disclose personal information to unauthorised or overseas recipients. APP 8 impact depends on the data stored and recipient locations.',
-    oaicReference: 'APP Guidelines Chapter 8',
+    citation: 'APP Guidelines Chapter 8',
   },
   {
     id: 'MAP-050',
@@ -754,11 +802,12 @@ const NDB_RULES: MappingRule[] = [
       ruleId: /^VS-IAC-023$/,
       category: /^Infrastructure as Code$/i,
     },
-    appPrinciple: 'NDB',
+    jurisdiction: 'au-privacy-act',
+    regulationPrinciple: 'NDB',
     status: 'unknown',
     confidence: 0.70,
     rationale: 'Missing infrastructure logging can limit the ability to detect, assess, and respond to eligible data breaches.',
-    oaicReference: 'NDB Guidelines s26WE',
+    citation: 'NDB Guidelines s26WE',
   },
   {
     id: 'MAP-036',
@@ -768,11 +817,12 @@ const NDB_RULES: MappingRule[] = [
       title: /(remote code execution|rce|authentication bypass|information disclosure|sensitive data|exfiltrat|sql injection|cross.?site scripting|xss)/i,
       severity: ['critical', 'high'],
     },
-    appPrinciple: 'NDB',
+    jurisdiction: 'au-privacy-act',
+    regulationPrinciple: 'NDB',
     status: 'unknown',
     confidence: 0.70,
     rationale: 'The dependency vulnerability class may create a realistic data-breach pathway. NDB impact depends on exploitability, exposed systems, and whether personal information is affected.',
-    oaicReference: 'NDB Guidelines s26WE',
+    citation: 'NDB Guidelines s26WE',
   },
 
   // ── URL Scan Findings ──────────────────────────────────────────────────────
@@ -785,11 +835,12 @@ const NDB_RULES: MappingRule[] = [
       ruleId: /^AL-URL-\d+$/,
       category: /^Security Headers$/i,
     },
-    appPrinciple: 'APP_11',
+    jurisdiction: 'au-privacy-act',
+    regulationPrinciple: 'APP_11',
     status: 'fail',
     confidence: 0.92,
     rationale: 'Missing HTTP security headers (CSP, HSTS, X-Frame-Options, etc.) constitute a failure to take reasonable steps to protect personal information in transit and prevent common web attacks under APP 11.1.',
-    oaicReference: 'APP Guidelines Chapter 11.6; OAIC Guide to Securing Personal Information',
+    citation: 'APP Guidelines Chapter 11.6; OAIC Guide to Securing Personal Information',
   },
   // Exposed API keys
   {
@@ -799,11 +850,12 @@ const NDB_RULES: MappingRule[] = [
       ruleId: /^AL-KEY-\d+$/,
       category: /^Exposed Keys$/i,
     },
-    appPrinciple: 'APP_11',
+    jurisdiction: 'au-privacy-act',
+    regulationPrinciple: 'APP_11',
     status: 'fail',
     confidence: 0.95,
     rationale: 'Exposed API keys in client-side code constitute a serious failure to protect personal information (APP 11.1) and may lead to unauthorised use or disclosure of data (APP 6.1). This is one of the most common causes of data breaches in vibe-coded applications.',
-    oaicReference: 'APP Guidelines Chapter 11.6; Notifiable Data Breaches s26WE',
+    citation: 'APP Guidelines Chapter 11.6; Notifiable Data Breaches s26WE',
   },
   // Infrastructure misconfigurations
   {
@@ -813,11 +865,12 @@ const NDB_RULES: MappingRule[] = [
       ruleId: /^AL-INFRA-\d+$/,
       category: /^Infrastructure$/i,
     },
-    appPrinciple: 'APP_11',
+    jurisdiction: 'au-privacy-act',
+    regulationPrinciple: 'APP_11',
     status: 'fail',
     confidence: 0.93,
     rationale: 'Exposed infrastructure files (.git, .env, debug endpoints) provide attackers with source code, secrets, and internal application structure, constituting a failure to take reasonable steps under APP 11.1.',
-    oaicReference: 'APP Guidelines Chapter 11.6',
+    citation: 'APP Guidelines Chapter 11.6',
   },
   // JS vulnerability patterns
   {
@@ -827,11 +880,12 @@ const NDB_RULES: MappingRule[] = [
       ruleId: /^AL-JS-\d+$/,
       category: /^JS Security$/i,
     },
-    appPrinciple: 'APP_11',
+    jurisdiction: 'au-privacy-act',
+    regulationPrinciple: 'APP_11',
     status: 'fail',
     confidence: 0.88,
     rationale: 'Client-side JavaScript vulnerabilities (XSS via innerHTML, eval usage, etc.) can lead to unauthorised access to personal information, constituting a failure to take reasonable steps under APP 11.1.',
-    oaicReference: 'APP Guidelines Chapter 11.6',
+    citation: 'APP Guidelines Chapter 11.6',
   },
   // CORS wildcard
   {
@@ -841,11 +895,12 @@ const NDB_RULES: MappingRule[] = [
       ruleId: /^AL-URL-013$/,
       category: /^CORS$/i,
     },
-    appPrinciple: 'APP_11',
+    jurisdiction: 'au-privacy-act',
+    regulationPrinciple: 'APP_11',
     status: 'fail',
     confidence: 0.85,
     rationale: 'Wildcard CORS allows any origin to access API responses, potentially exposing personal information to malicious websites. This violates both APP 11.1 (reasonable steps) and APP 6.1 (use/disclosure).',
-    oaicReference: 'APP Guidelines Chapter 11.6; APP Guidelines Chapter 6',
+    citation: 'APP Guidelines Chapter 11.6; APP Guidelines Chapter 6',
   },
   // Cookie security flags
   {
@@ -855,11 +910,12 @@ const NDB_RULES: MappingRule[] = [
       ruleId: /^AL-URL-\d+$/,
       category: /^Cookie Security$/i,
     },
-    appPrinciple: 'APP_11',
+    jurisdiction: 'au-privacy-act',
+    regulationPrinciple: 'APP_11',
     status: 'fail',
     confidence: 0.87,
     rationale: 'Cookies without Secure and HttpOnly flags can be intercepted or accessed via JavaScript, potentially exposing session tokens and personal information. This constitutes a failure to take reasonable steps under APP 11.1.',
-    oaicReference: 'APP Guidelines Chapter 11.6; OAIC Guide to Securing Personal Information',
+    citation: 'APP Guidelines Chapter 11.6; OAIC Guide to Securing Personal Information',
   },
 ];
 
@@ -877,22 +933,36 @@ export const ALL_MAPPING_RULES: MappingRule[] = [
 // ─── Mapping Engine ──────────────────────────────────────────────────────────
 
 export interface MappingResult {
-  mappings: APPMapping[];
+  mappings: RegulationMapping[];
   unmappedFindings: AttestLensFinding[];
 }
 
+export interface MapAllFindingsOptions {
+  strictMode?: boolean;
+  jurisdictions?: Jurisdiction[];
+}
+
 /**
- * Map a single finding to APP obligations using the mapping rules.
+ * Map a single finding to regulation obligations using the mapping rules.
  */
-export function mapFindingToAPP(finding: AttestLensFinding): APPMapping[] {
-  const mappings: APPMapping[] = [];
+export function mapFindingToRegulation(
+  finding: AttestLensFinding,
+  jurisdictions: Jurisdiction[] = ['au-privacy-act'],
+): RegulationMapping[] {
+  const mappings: RegulationMapping[] = [];
+  const selectedJurisdictions = new Set(jurisdictions);
 
   for (const rule of ALL_MAPPING_RULES) {
+    if (!selectedJurisdictions.has(rule.jurisdiction)) {
+      continue;
+    }
+
     const matches = matchRule(finding, rule);
     if (matches) {
       mappings.push({
-        principle: rule.appPrinciple,
-        obligation: APPInfo[rule.appPrinciple].obligation,
+        jurisdiction: rule.jurisdiction,
+        principle: rule.regulationPrinciple,
+        obligation: getRegulationObligation(rule.jurisdiction, rule.regulationPrinciple),
         status: rule.status,
         confidence: calculateMappingConfidence(rule.confidence, finding),
         rationale: rule.rationale,
@@ -900,9 +970,16 @@ export function mapFindingToAPP(finding: AttestLensFinding): APPMapping[] {
     }
   }
 
-  // If no rules match, flag as unknown for APP 11 (default security bucket)
-  if (mappings.length === 0 && (finding.severity === 'critical' || finding.severity === 'high')) {
+  // Preserve the existing AU default: high-risk unmapped security findings
+  // remain manual-review APP 11 candidates. Other jurisdictions wait until
+  // their rule packs define equivalent default buckets.
+  if (
+    mappings.length === 0
+    && selectedJurisdictions.has('au-privacy-act')
+    && (finding.severity === 'critical' || finding.severity === 'high')
+  ) {
     mappings.push({
+      jurisdiction: 'au-privacy-act',
       principle: 'APP_11',
       obligation: APPInfo.APP_11.obligation,
       status: 'unknown',
@@ -912,6 +989,15 @@ export function mapFindingToAPP(finding: AttestLensFinding): APPMapping[] {
   }
 
   return mappings;
+}
+
+/**
+ * Backward-compatible APP-only mapping wrapper.
+ */
+export function mapFindingToAPP(finding: AttestLensFinding): APPMapping[] {
+  return mapFindingToRegulation(finding, ['au-privacy-act'])
+    .filter(isAURegulationMapping)
+    .map(regulationMappingToAPPMapping);
 }
 
 /**
@@ -990,43 +1076,80 @@ function patternMatches(pattern: RegExp, value: string): boolean {
 }
 
 /**
- * Map all findings and produce APP control assessments.
+ * Map all findings and produce jurisdiction-agnostic control assessments.
  */
-export function mapAllFindings(findings: AttestLensFinding[], strictMode = false): {
-  controls: APPControl[];
+export function mapAllFindings(
+  findings: AttestLensFinding[],
+  options: MapAllFindingsOptions = {},
+): {
+  controls: RegulationControl[];
   unmapped: AttestLensFinding[];
 } {
-  const controlMap = new Map<APPPrinciple, APPControl>();
+  const jurisdictions = options.jurisdictions ?? ['au-privacy-act'];
+  const strictMode = options.strictMode === true;
+  const controlMap = new Map<string, RegulationControl>();
   const unmapped: AttestLensFinding[] = [];
 
-  // Initialize all APP controls as UNKNOWN
-  for (const principle of Object.keys(APPInfo) as APPPrinciple[]) {
-    controlMap.set(principle, {
-      principle,
-      shortName: APPInfo[principle].shortName,
-      obligation: APPInfo[principle].obligation,
+  for (const jurisdiction of jurisdictions) {
+    if (jurisdiction !== 'au-privacy-act') {
+      continue;
+    }
+
+    for (const principle of Object.keys(APPInfo) as APPPrinciple[]) {
+      controlMap.set(getControlKey(jurisdiction, principle), {
+        jurisdiction,
+        principle,
+        shortName: APPInfo[principle].shortName,
+        obligation: APPInfo[principle].obligation,
+        status: 'unknown',
+        score: 100,
+        findingCount: { critical: 0, high: 0, medium: 0, low: 0, info: 0 },
+        findings: [],
+        questionnaireRequired: true,
+        lastAssessed: new Date().toISOString(),
+      });
+    }
+  }
+
+  for (const rule of ALL_MAPPING_RULES) {
+    if (!jurisdictions.includes(rule.jurisdiction)) {
+      continue;
+    }
+
+    const key = getControlKey(rule.jurisdiction, rule.regulationPrinciple);
+    if (controlMap.has(key)) {
+      continue;
+    }
+
+    controlMap.set(key, {
+      jurisdiction: rule.jurisdiction,
+      principle: rule.regulationPrinciple,
+      shortName: getRegulationShortName(rule.jurisdiction, rule.regulationPrinciple),
+      obligation: getRegulationObligation(rule.jurisdiction, rule.regulationPrinciple),
       status: 'unknown',
       score: 100,
       findingCount: { critical: 0, high: 0, medium: 0, low: 0, info: 0 },
       findings: [],
-      questionnaireRequired: true, // Default: questionnaire required
+      questionnaireRequired: true,
       lastAssessed: new Date().toISOString(),
     });
   }
 
   for (const finding of findings) {
-    const mappings = mapFindingToAPP(finding);
+    const mappings = mapFindingToRegulation(finding, jurisdictions);
     
     if (mappings.length === 0) {
       unmapped.push(finding);
       continue;
     }
 
-    // Update finding's appMappings
-    finding.appMappings = mappings;
+    finding.regulationMappings = mappings;
+    finding.appMappings = mappings
+      .filter(isAURegulationMapping)
+      .map(regulationMappingToAPPMapping);
 
     for (const mapping of mappings) {
-      const control = controlMap.get(mapping.principle);
+      const control = controlMap.get(getControlKey(mapping.jurisdiction, mapping.principle));
       if (!control) continue;
 
       control.findings.push(finding.id);
@@ -1055,7 +1178,7 @@ export function mapAllFindings(findings: AttestLensFinding[], strictMode = false
 
   // Apply strict mode: UNKNOWN controls become FAIL
   if (strictMode) {
-    for (const [principle, control] of controlMap) {
+    for (const control of controlMap.values()) {
       if (control.status === 'unknown') {
         control.status = 'fail';
         control.score = 0;
@@ -1065,7 +1188,7 @@ export function mapAllFindings(findings: AttestLensFinding[], strictMode = false
   }
 
   // Final pass: set questionnaire requirements
-  for (const [principle, control] of controlMap) {
+  for (const control of controlMap.values()) {
     if (control.findings.length === 0 && control.status === 'unknown') {
       control.questionnaireRequired = true;
     } else if (control.status === 'fail') {
@@ -1081,4 +1204,83 @@ export function mapAllFindings(findings: AttestLensFinding[], strictMode = false
   };
 }
 
-export default { ALL_MAPPING_RULES, mapFindingToAPP, mapAllFindings };
+export function mapAllFindingsAU(findings: AttestLensFinding[], strictMode = false): {
+  controls: APPControl[];
+  unmapped: AttestLensFinding[];
+} {
+  const { controls, unmapped } = mapAllFindings(findings, {
+    strictMode,
+    jurisdictions: ['au-privacy-act'],
+  });
+
+  return {
+    controls: controls
+      .filter((control): control is RegulationControl & { jurisdiction: 'au-privacy-act'; principle: APPPrinciple } => (
+        control.jurisdiction === 'au-privacy-act'
+        && Object.prototype.hasOwnProperty.call(APPInfo, control.principle)
+      ))
+      .map(regulationControlToAPPControl),
+    unmapped,
+  };
+}
+
+function getRegulationObligation(jurisdiction: Jurisdiction, principle: RegulationPrinciple): string {
+  if (jurisdiction === 'au-privacy-act' && Object.prototype.hasOwnProperty.call(APPInfo, principle)) {
+    return APPInfo[principle as APPPrinciple].obligation;
+  }
+
+  return JurisdictionInfo[jurisdiction].fullName;
+}
+
+function getRegulationShortName(jurisdiction: Jurisdiction, principle: RegulationPrinciple): string {
+  if (jurisdiction === 'au-privacy-act' && Object.prototype.hasOwnProperty.call(APPInfo, principle)) {
+    return APPInfo[principle as APPPrinciple].shortName;
+  }
+
+  return principle;
+}
+
+function getControlKey(jurisdiction: Jurisdiction, principle: RegulationPrinciple): string {
+  return `${jurisdiction}:${principle}`;
+}
+
+function isAURegulationMapping(
+  mapping: RegulationMapping,
+): mapping is RegulationMapping & { jurisdiction: 'au-privacy-act'; principle: APPPrinciple } {
+  return mapping.jurisdiction === 'au-privacy-act'
+    && Object.prototype.hasOwnProperty.call(APPInfo, mapping.principle);
+}
+
+function regulationMappingToAPPMapping(mapping: RegulationMapping & { principle: APPPrinciple }): APPMapping {
+  return {
+    principle: mapping.principle,
+    obligation: mapping.obligation,
+    status: mapping.status,
+    confidence: mapping.confidence,
+    rationale: mapping.rationale,
+  };
+}
+
+function regulationControlToAPPControl(
+  control: RegulationControl & { jurisdiction: 'au-privacy-act'; principle: APPPrinciple },
+): APPControl {
+  return {
+    principle: control.principle,
+    shortName: control.shortName,
+    obligation: control.obligation,
+    status: control.status,
+    score: control.score,
+    findingCount: control.findingCount,
+    findings: control.findings,
+    questionnaireRequired: control.questionnaireRequired,
+    lastAssessed: control.lastAssessed,
+  };
+}
+
+export default {
+  ALL_MAPPING_RULES,
+  mapFindingToAPP,
+  mapFindingToRegulation,
+  mapAllFindings,
+  mapAllFindingsAU,
+};

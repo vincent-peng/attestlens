@@ -20,7 +20,7 @@ import {
 } from '@modelcontextprotocol/sdk/types.js';
 import { z } from 'zod';
 
-import { mapAllFindings } from '../mapping/engine.js';
+import { mapAllFindings, mapAllFindingsAU } from '../mapping/engine.js';
 import {
   buildComplianceReport,
   generateAgentReport,
@@ -33,17 +33,20 @@ import { buildSMBComplianceResult } from '../report/smb-generator.js';
 import type { ComplianceReportWithSMB, ReportFormat, ReportOptions } from '../report/generator.js';
 import { ScannerOrchestrator, type ScannerOrchestratorOptions } from '../scanner/orchestrator.js';
 import type { ScannerError, ScannerResult } from '../scanner/types.js';
+import { getJurisdictionUnavailableMessage } from '../scanner/rules/index.js';
 import {
   APPInfo,
   APPPrinciple as APPPrincipleSchema,
   ComplianceOpinion as ComplianceOpinionSchema,
   ControlStatus,
+  Jurisdiction,
+  RegulationPrinciple,
   RuleFreshness as RuleFreshnessSchema,
   ScanSource,
   Severity,
   reformImpactAssessmentSchema,
 } from '../schema/index.js';
-import type { APPPrinciple, AttestLensFinding, ReformImpactAssessment } from '../schema/index.js';
+import type { APPPrinciple, AttestLensFinding, Jurisdiction as JurisdictionType, ReformImpactAssessment } from '../schema/index.js';
 import { sanitizeTargetPathForOutput, sanitizeTargetUrlForOutput } from '../utils/target.js';
 
 const ATTESTLENS_VERSION = '0.2.0';
@@ -146,7 +149,12 @@ const scannerTimeoutMsInputSchema = z.number()
   .describe('Per-scanner timeout in milliseconds')
   .optional();
 
+const jurisdictionInputSchema = Jurisdiction
+  .describe('Jurisdiction to check against')
+  .default('au-privacy-act');
+
 const pathScanOptionsInputSchema = {
+  jurisdiction: jurisdictionInputSchema,
   strict: z.boolean().describe('Treat UNKNOWN controls as FAIL').default(false),
   externalEnrichment: z.boolean().describe('Enable external OSV.dev and npm registry dependency enrichment').default(false),
   includeTyposquat: z.boolean().describe('Enable experimental typosquatting detection (VS-SC-004)').default(false),
@@ -163,6 +171,7 @@ const scanInputSchema = {
 
 const scanUrlInputSchema = {
   url: z.string().describe('Public http(s) URL to scan'),
+  jurisdiction: jurisdictionInputSchema,
   strict: z.boolean().describe('Treat UNKNOWN controls as FAIL').default(false),
   scannerTimeoutMs: scannerTimeoutMsInputSchema,
 };
@@ -191,17 +200,20 @@ const mapInputSchema = {
 
 const opinionInputSchema = {
   path: z.string().describe('Path to the project directory to audit'),
+  jurisdiction: jurisdictionInputSchema,
   strict: z.boolean().describe('Treat UNKNOWN controls as NON_COMPLIANT').default(false),
 };
 
 const checkInputSchema = {
   path: z.string().describe('Path to the project directory'),
-  principle: z.string().describe('APP principle to check (e.g. APP_11)'),
+  jurisdiction: jurisdictionInputSchema,
+  principle: RegulationPrinciple.describe('Regulation principle to check (e.g. APP_11)'),
   strict: z.boolean().describe('Treat UNKNOWN as NON_COMPLIANT').default(false),
 };
 
 const complianceCheckInputSchema = {
   path: z.string().describe('Path to the project directory to check'),
+  jurisdiction: jurisdictionInputSchema,
   strict: z.boolean().describe('Treat unknown controls as failing').default(false),
   reform: z.boolean().describe('Include Privacy Act 2026 reform impact warnings').default(false),
 };
@@ -226,6 +238,14 @@ const appMappingOutputSchema = z.object({
   confidence: z.number(),
 });
 
+const regulationMappingOutputSchema = z.object({
+  jurisdiction: Jurisdiction,
+  principle: RegulationPrinciple,
+  obligation: z.string(),
+  status: ControlStatus,
+  confidence: z.number(),
+});
+
 const serializedFindingOutputSchema = z.object({
   id: z.string(),
   source: ScanSource,
@@ -239,6 +259,7 @@ const serializedFindingOutputSchema = z.object({
   fix: z.string().optional(),
   fixPrompt: z.string().optional(),
   corroboratedBy: z.array(ScanSource).optional(),
+  regulationMappings: z.array(regulationMappingOutputSchema),
   appMappings: z.array(appMappingOutputSchema),
 });
 
@@ -300,6 +321,11 @@ const auditOutputSchema = {
 };
 
 const mapOutputSchema = {
+  regulationMappings: z.record(z.object({
+    status: ControlStatus,
+    score: z.number(),
+    findingCount: findingCountOutputSchema,
+  })),
   appMappings: z.record(z.object({
     status: ControlStatus,
     score: z.number(),
@@ -310,7 +336,8 @@ const mapOutputSchema = {
 const opinionOutputSchema = ComplianceOpinionSchema.shape;
 
 const checkOutputSchema = {
-  principle: APPPrincipleSchema,
+  jurisdiction: Jurisdiction,
+  principle: RegulationPrinciple,
   verdict: z.enum(['COMPLIANT', 'PARTIALLY_COMPLIANT', 'NON_COMPLIANT']),
   score: z.number(),
   confidence: z.enum(['HIGH', 'MODERATE', 'LOW']),
@@ -520,11 +547,21 @@ export function validateUrl(targetUrl: unknown): string | ToolErrorResponse {
 
 function createOrchestrator(
   targetKind: 'path' | 'url',
-  options: { externalEnrichment?: boolean; includeTyposquat?: boolean; behavioral?: boolean; iac?: boolean; includeGitleaks?: boolean; scannerTimeoutMs?: number; reform?: boolean } = {},
+  options: {
+    externalEnrichment?: boolean;
+    includeTyposquat?: boolean;
+    behavioral?: boolean;
+    iac?: boolean;
+    includeGitleaks?: boolean;
+    scannerTimeoutMs?: number;
+    reform?: boolean;
+    jurisdiction?: JurisdictionType;
+  } = {},
 ): ScannerOrchestrator {
   const externalEnrichment = targetKind === 'path' && options.externalEnrichment === true;
   const orchestratorOptions: ScannerOrchestratorOptions = {
     adapterTimeoutMs: options.scannerTimeoutMs,
+    jurisdictions: [options.jurisdiction ?? 'au-privacy-act'],
     supplyChain: {
       typosquat: { enabled: targetKind === 'path' && options.includeTyposquat === true },
       osv: { enabled: externalEnrichment },
@@ -589,6 +626,37 @@ function validatePrinciple(value: unknown): APPPrinciple | ToolErrorResponse {
   return value as APPPrinciple;
 }
 
+function parseJurisdiction(value: unknown): JurisdictionType | ToolErrorResponse {
+  const result = Jurisdiction.safeParse(value ?? 'au-privacy-act');
+  if (!result.success) {
+    return makeToolError(`unsupported jurisdiction: ${String(value)}. Valid jurisdictions: ${Jurisdiction.options.join(', ')}`);
+  }
+  return result.data;
+}
+
+function validateJurisdictionAvailability(jurisdiction: JurisdictionType): true | ToolErrorResponse {
+  if (jurisdiction !== 'au-privacy-act') {
+    return makeToolError(getJurisdictionUnavailableMessage(jurisdiction));
+  }
+  return true;
+}
+
+function validateRegulationPrinciple(
+  jurisdiction: JurisdictionType,
+  value: unknown,
+): APPPrinciple | ToolErrorResponse {
+  const availability = validateJurisdictionAvailability(jurisdiction);
+  if (isToolError(availability)) {
+    return availability;
+  }
+
+  if (jurisdiction === 'au-privacy-act') {
+    return validatePrinciple(value);
+  }
+
+  return makeToolError(getJurisdictionUnavailableMessage(jurisdiction));
+}
+
 function serializeFindings(findings: AttestLensFinding[]) {
   return findings.map((finding: AttestLensFinding) => ({
     id: finding.id,
@@ -603,6 +671,13 @@ function serializeFindings(findings: AttestLensFinding[]) {
     fix: finding.fix,
     fixPrompt: finding.fixPrompt,
     corroboratedBy: finding.corroboratedBy,
+    regulationMappings: (finding.regulationMappings ?? []).map((mapping) => ({
+      jurisdiction: mapping.jurisdiction,
+      principle: mapping.principle,
+      obligation: mapping.obligation,
+      status: mapping.status,
+      confidence: mapping.confidence,
+    })),
     appMappings: finding.appMappings.map((mapping) => ({
       principle: mapping.principle,
       obligation: mapping.obligation,
@@ -668,7 +743,7 @@ function formatUrlScanFailure(error: ScannerError): ToolErrorResponse {
 }
 
 function buildScanSummary(result: Awaited<ReturnType<ScannerOrchestrator['scan']>>, strictMode = false) {
-  const { controls, unmapped } = mapAllFindings(result.findings, strictMode);
+  const { controls, unmapped } = mapAllFindingsAU(result.findings, strictMode);
   return {
     findings: serializeFindings(result.findings),
     controls: controls.map((control) => ({
@@ -754,8 +829,16 @@ export async function handleToolCall(name: string, args: Record<string, unknown>
       if (isToolError(scannerTimeoutMs)) {
         return scannerTimeoutMs;
       }
+      const jurisdiction = parseJurisdiction(args?.jurisdiction);
+      if (isToolError(jurisdiction)) {
+        return jurisdiction;
+      }
+      const jurisdictionAvailability = validateJurisdictionAvailability(jurisdiction);
+      if (isToolError(jurisdictionAvailability)) {
+        return jurisdictionAvailability;
+      }
 
-      const orchestrator = createOrchestrator('path', { externalEnrichment, includeTyposquat, behavioral, iac, includeGitleaks, scannerTimeoutMs });
+      const orchestrator = createOrchestrator('path', { externalEnrichment, includeTyposquat, behavioral, iac, includeGitleaks, scannerTimeoutMs, jurisdiction });
       const result = await runScan(orchestrator, scanPath, extra.signal);
 
       return makeJsonToolResponse({
@@ -775,8 +858,16 @@ export async function handleToolCall(name: string, args: Record<string, unknown>
       if (isToolError(scannerTimeoutMs)) {
         return scannerTimeoutMs;
       }
+      const jurisdiction = parseJurisdiction(args?.jurisdiction);
+      if (isToolError(jurisdiction)) {
+        return jurisdiction;
+      }
+      const jurisdictionAvailability = validateJurisdictionAvailability(jurisdiction);
+      if (isToolError(jurisdictionAvailability)) {
+        return jurisdictionAvailability;
+      }
 
-      const orchestrator = createOrchestrator('url', { scannerTimeoutMs });
+      const orchestrator = createOrchestrator('url', { scannerTimeoutMs, jurisdiction });
       const result = await runScan(orchestrator, targetUrl, extra.signal);
       const urlScanFailure = getUrlScanFailureError(result);
       if (urlScanFailure) {
@@ -814,8 +905,16 @@ export async function handleToolCall(name: string, args: Record<string, unknown>
       if (isToolError(scannerTimeoutMs)) {
         return scannerTimeoutMs;
       }
+      const jurisdiction = parseJurisdiction(args?.jurisdiction);
+      if (isToolError(jurisdiction)) {
+        return jurisdiction;
+      }
+      const jurisdictionAvailability = validateJurisdictionAvailability(jurisdiction);
+      if (isToolError(jurisdictionAvailability)) {
+        return jurisdictionAvailability;
+      }
 
-      const orchestrator = createOrchestrator('path', { externalEnrichment, includeTyposquat, behavioral, iac, includeGitleaks, scannerTimeoutMs });
+      const orchestrator = createOrchestrator('path', { externalEnrichment, includeTyposquat, behavioral, iac, includeGitleaks, scannerTimeoutMs, jurisdiction });
       const startTime = Date.now();
       const scanResult = await runScan(orchestrator, scanPath, extra.signal);
       const duration = Date.now() - startTime;
@@ -884,11 +983,24 @@ export async function handleToolCall(name: string, args: Record<string, unknown>
         },
       }));
 
-      const { controls } = mapAllFindings(findings);
+      const { controls: regulationControls } = mapAllFindings(findings, {
+        jurisdictions: ['au-privacy-act'],
+      });
+      const { controls: appControls } = mapAllFindingsAU(findings);
 
       return makeJsonToolResponse({
+        regulationMappings: Object.fromEntries(
+          regulationControls.map((control) => [
+            `${control.jurisdiction}:${control.principle}`,
+            {
+              status: control.status,
+              score: control.score,
+              findingCount: control.findingCount,
+            },
+          ]),
+        ),
         appMappings: Object.fromEntries(
-          controls.map((control) => [
+          appControls.map((control) => [
             control.principle,
             {
               status: control.status,
@@ -910,8 +1022,16 @@ export async function handleToolCall(name: string, args: Record<string, unknown>
         return scanPath;
       }
       const strict = args?.strict === true;
+      const jurisdiction = parseJurisdiction(args?.jurisdiction);
+      if (isToolError(jurisdiction)) {
+        return jurisdiction;
+      }
+      const jurisdictionAvailability = validateJurisdictionAvailability(jurisdiction);
+      if (isToolError(jurisdictionAvailability)) {
+        return jurisdictionAvailability;
+      }
 
-      const orchestrator = createOrchestrator('path', {});
+      const orchestrator = createOrchestrator('path', { jurisdiction });
       const startTime = Date.now();
       const scanResult = await runScan(orchestrator, scanPath, extra.signal);
       const duration = Date.now() - startTime;
@@ -948,13 +1068,17 @@ export async function handleToolCall(name: string, args: Record<string, unknown>
       if (isToolError(scanPath)) {
         return scanPath;
       }
-      const principle = validatePrinciple(args?.principle);
+      const jurisdiction = parseJurisdiction(args?.jurisdiction);
+      if (isToolError(jurisdiction)) {
+        return jurisdiction;
+      }
+      const principle = validateRegulationPrinciple(jurisdiction, args?.principle);
       if (isToolError(principle)) {
         return principle;
       }
       const strict = args?.strict === true;
 
-      const orchestrator = createOrchestrator('path', {});
+      const orchestrator = createOrchestrator('path', { jurisdiction });
       const startTime = Date.now();
       const scanResult = await runScan(orchestrator, scanPath, extra.signal);
       const duration = Date.now() - startTime;
@@ -996,6 +1120,7 @@ export async function handleToolCall(name: string, args: Record<string, unknown>
         }));
 
       return makeJsonToolResponse({
+        jurisdiction,
         principle,
         verdict: opinion.verdict,
         score: opinion.score,
@@ -1018,6 +1143,14 @@ export async function handleToolCall(name: string, args: Record<string, unknown>
       }
       const strict = args?.strict === true;
       const reform = args?.reform === true;
+      const jurisdiction = parseJurisdiction(args?.jurisdiction);
+      if (isToolError(jurisdiction)) {
+        return jurisdiction;
+      }
+      const jurisdictionAvailability = validateJurisdictionAvailability(jurisdiction);
+      if (isToolError(jurisdictionAvailability)) {
+        return jurisdictionAvailability;
+      }
 
       const orchestrator = createOrchestrator('path', {
         externalEnrichment: false,
@@ -1026,6 +1159,7 @@ export async function handleToolCall(name: string, args: Record<string, unknown>
         iac: true,
         includeGitleaks: false,
         reform,
+        jurisdiction,
       });
       const scanResult = await runScan(orchestrator, scanPath, extra.signal);
       const duration = scanResult.totalDurationMs;

@@ -32,7 +32,7 @@ import {
   calculateRiskLevel,
   reformProvisionSchema,
 } from '../schema/index.js';
-import { mapAllFindings } from '../mapping/engine.js';
+import { mapAllFindingsAU } from '../mapping/engine.js';
 import { getQuestionById } from '../questionnaire/index.js';
 import { buildComplianceOpinion } from '../opinion/engine.js';
 import { sanitizeTargetPathForOutput, sanitizeTargetUrlForOutput } from '../utils/target.js';
@@ -80,7 +80,7 @@ export function buildComplianceReport(
   // Step 1: Map findings to APP obligations.
   // When questionnaire results are present, keep UNKNOWN controls as-is
   // until the questionnaire merge has a chance to resolve them.
-  const { controls: appControls } = mapAllFindings(findings, questionnaireSession ? false : options.strictMode);
+  const { controls: appControls } = mapAllFindingsAU(findings, questionnaireSession ? false : options.strictMode);
   const mappedFindings = findings; // findings now have appMappings populated by mapAllFindings
 
   // Step 2: Merge questionnaire outcomes, then apply strict mode to anything

@@ -1,5 +1,11 @@
 import { describe, it, expect } from 'vitest';
-import { mapAllFindings, mapFindingToAPP, ALL_MAPPING_RULES } from './engine.js';
+import {
+  ALL_MAPPING_RULES,
+  mapAllFindings,
+  mapAllFindingsAU,
+  mapFindingToAPP,
+  mapFindingToRegulation,
+} from './engine.js';
 import type { AttestLensFinding } from '../schema/index.js';
 
 // ─── Test Fixtures ────────────────────────────────────────────────────────────
@@ -33,17 +39,17 @@ describe('ALL_MAPPING_RULES', () => {
   });
 
   it('should cover APP_11 (Security)', () => {
-    const app11Rules = ALL_MAPPING_RULES.filter(r => r.appPrinciple === 'APP_11');
+    const app11Rules = ALL_MAPPING_RULES.filter(r => r.regulationPrinciple === 'APP_11');
     expect(app11Rules.length).toBeGreaterThan(0);
   });
 
   it('should cover APP_6 (Use & Disclosure)', () => {
-    const app6Rules = ALL_MAPPING_RULES.filter(r => r.appPrinciple === 'APP_6');
+    const app6Rules = ALL_MAPPING_RULES.filter(r => r.regulationPrinciple === 'APP_6');
     expect(app6Rules.length).toBeGreaterThan(0);
   });
 
   it('should cover NDB (Data Breach Notification)', () => {
-    const ndbRules = ALL_MAPPING_RULES.filter(r => r.appPrinciple === 'NDB');
+    const ndbRules = ALL_MAPPING_RULES.filter(r => r.regulationPrinciple === 'NDB');
     expect(ndbRules.length).toBeGreaterThan(0);
   });
 
@@ -53,8 +59,35 @@ describe('ALL_MAPPING_RULES', () => {
       'APP_8', 'APP_9', 'APP_10', 'APP_11', 'APP_12', 'APP_13', 'NDB',
     ];
     for (const rule of ALL_MAPPING_RULES) {
-      expect(validPrinciples).toContain(rule.appPrinciple);
+      expect(rule.jurisdiction).toBe('au-privacy-act');
+      expect(validPrinciples).toContain(rule.regulationPrinciple);
     }
+  });
+});
+
+describe('mapFindingToRegulation', () => {
+  it('returns jurisdiction-aware regulation mappings', () => {
+    const finding = makeFinding({
+      sourceRule: 'VS-HARDKEY',
+      severity: 'critical',
+      title: 'Hardcoded secret key',
+    });
+
+    const mappings = mapFindingToRegulation(finding, ['au-privacy-act']);
+
+    expect(mappings.length).toBeGreaterThan(0);
+    expect(mappings.every(mapping => mapping.jurisdiction === 'au-privacy-act')).toBe(true);
+    expect(mappings.some(mapping => mapping.principle === 'APP_11')).toBe(true);
+  });
+
+  it('returns no mappings for jurisdictions without rule content', () => {
+    const finding = makeFinding({
+      sourceRule: 'VS-HARDKEY',
+      severity: 'critical',
+      title: 'Hardcoded secret key',
+    });
+
+    expect(mapFindingToRegulation(finding, ['us-ccpa'])).toEqual([]);
   });
 });
 
@@ -518,5 +551,50 @@ describe('mapAllFindings', () => {
 
     expect(app11!.status).toBe('fail');
     expect(app12!.status).toBe('unknown');
+  });
+
+  it('returns empty controls for jurisdictions without rule content', () => {
+    const { controls, unmapped } = mapAllFindings([
+      makeFinding({
+        id: 'F-1',
+        sourceRule: 'VS-HARDKEY',
+        severity: 'critical',
+        title: 'Hardcoded secret key',
+      }),
+    ], { jurisdictions: ['us-ccpa'] });
+
+    expect(controls).toEqual([]);
+    expect(unmapped.map(finding => finding.id)).toEqual(['F-1']);
+  });
+
+  it('merges selected jurisdictions while preserving AU controls', () => {
+    const finding = makeFinding({
+      id: 'F-1',
+      sourceRule: 'VS-HARDKEY',
+      severity: 'critical',
+      title: 'Hardcoded secret key',
+    });
+
+    const { controls } = mapAllFindings([finding], {
+      jurisdictions: ['au-privacy-act', 'us-ccpa'],
+    });
+
+    expect(controls.some(control => control.jurisdiction === 'au-privacy-act' && control.principle === 'APP_11')).toBe(true);
+    expect(controls.some(control => control.jurisdiction === 'us-ccpa')).toBe(false);
+    expect(finding.regulationMappings?.some(mapping => mapping.jurisdiction === 'au-privacy-act')).toBe(true);
+  });
+
+  it('keeps the AU compatibility wrapper APP-shaped', () => {
+    const { controls } = mapAllFindingsAU([
+      makeFinding({
+        sourceRule: 'VS-HARDKEY',
+        severity: 'critical',
+        title: 'Hardcoded secret key',
+      }),
+    ]);
+
+    const app11 = controls.find(control => control.principle === 'APP_11');
+    expect(app11).toBeDefined();
+    expect('jurisdiction' in app11!).toBe(false);
   });
 });
