@@ -556,6 +556,17 @@ describe('CCPA_MAPPING_RULES', () => {
       confidence: 0.65,
       citation: 'Cal. Civ. Code §1798.100(c)',
     },
+    {
+      ruleId: 'MAP-CCPA-010',
+      finding: makeFinding({
+        sourceRule: 'VS-SAST-019',
+        severity: 'medium',
+        title: 'Personal data collected without visible consent check',
+      }),
+      principle: 'CCPA_100',
+      confidence: 0.55,
+      citation: 'Cal. Civ. Code §1798.100(b)-(c)',
+    },
   ];
 
   it('defines all requested CCPA mapping rules', () => {
@@ -569,6 +580,7 @@ describe('CCPA_MAPPING_RULES', () => {
       'MAP-CCPA-007',
       'MAP-CCPA-008',
       'MAP-CCPA-009',
+      'MAP-CCPA-010',
     ]);
   });
 
@@ -661,6 +673,18 @@ describe('GDPR_MAPPING_RULES', () => {
       confidence: 0.50,
       citation: 'GDPR Art. 22(1)',
     },
+    {
+      ruleId: 'MAP-GDPR-010',
+      finding: makeFinding({
+        sourceRule: 'VS-SAST-019',
+        severity: 'medium',
+        title: 'Personal data collected without visible consent check',
+      }),
+      principle: 'GDPR_Art5',
+      status: 'unknown',
+      confidence: 0.55,
+      citation: 'GDPR Art. 5(1)(a)-(c)',
+    },
   ];
 
   it('defines all requested GDPR mapping rules', () => {
@@ -674,6 +698,7 @@ describe('GDPR_MAPPING_RULES', () => {
       'MAP-GDPR-007',
       'MAP-GDPR-008',
       'MAP-GDPR-009',
+      'MAP-GDPR-010',
     ]);
   });
 
@@ -695,6 +720,10 @@ describe('GDPR_MAPPING_RULES', () => {
       mapFindingToRegulation(makeFinding({ category: 'third-party transfer', title: 'Third-party transfer' }), ['eu-gdpr']),
       mapFindingToRegulation(makeFinding({ title: 'Excessive data collection' }), ['eu-gdpr']),
       mapFindingToRegulation(makeFinding({ category: 'automated decision', title: 'Automated decision system' }), ['eu-gdpr']),
+      mapFindingToRegulation(makeFinding({
+        sourceRule: 'VS-SAST-019',
+        title: 'Personal data collected without visible consent check',
+      }), ['eu-gdpr']),
     ].flat();
 
     expect(advisoryMappings).toEqual(expect.arrayContaining([

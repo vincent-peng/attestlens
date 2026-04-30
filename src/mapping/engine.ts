@@ -1059,6 +1059,20 @@ export const CCPA_MAPPING_RULES: MappingRule[] = [
     rationale: 'Excessive collection can conflict with CCPA purpose limitation and data minimization duties.',
     citation: 'Cal. Civ. Code §1798.100(c)',
   },
+  {
+    id: 'MAP-CCPA-010',
+    name: 'Personal Data Collection Without Visible Notice → CCPA_100',
+    sourcePatterns: {
+      ruleId: /^VS-SAST-019$/,
+      title: /personal data collected without visible consent check/i,
+    },
+    jurisdiction: 'us-ccpa',
+    regulationPrinciple: 'CCPA_100',
+    status: 'unknown',
+    confidence: 0.55,
+    rationale: 'Personal-information collection without a visible notice, purpose, or minimization signal requires review under CCPA collection, purpose-limitation, and retention duties.',
+    citation: 'Cal. Civ. Code §1798.100(b)-(c)',
+  },
 ];
 
 export const GDPR_MAPPING_RULES: MappingRule[] = [
@@ -1194,6 +1208,20 @@ export const GDPR_MAPPING_RULES: MappingRule[] = [
     confidence: 0.50,
     rationale: 'Automated decision or profiling findings require context to determine whether decisions are solely automated and produce legal or similarly significant effects.',
     citation: 'GDPR Art. 22(1)',
+  },
+  {
+    id: 'MAP-GDPR-010',
+    name: 'Personal Data Collection Without Visible Lawful Basis → GDPR_Art5',
+    sourcePatterns: {
+      ruleId: /^VS-SAST-019$/,
+      title: /personal data collected without visible consent check/i,
+    },
+    jurisdiction: 'eu-gdpr',
+    regulationPrinciple: 'GDPR_Art5',
+    status: 'unknown',
+    confidence: 0.55,
+    rationale: 'Personal-data collection without a visible notice, purpose, consent, or lawful-basis signal requires review against GDPR processing principles.',
+    citation: 'GDPR Art. 5(1)(a)-(c)',
   },
 ];
 
