@@ -1,10 +1,11 @@
 {
-  "name": "attestlens",
-  "version": "0.2.0",
-  "description": "AI Compliance Scanner & Privacy Act Attestation Tool — Maps security findings to Australian Privacy Act (APP/NDB) obligations",
+  "name": "@attestlens/cli",
+  "version": "0.3.0",
+  "description": "Clearway by AttestLens: Australian Privacy Act compliance service powered by AI.",
   "type": "module",
-  "main": "dist/index.js",
+  "main": "dist/cli/index.js",
   "bin": {
+    "cli": "./dist/cli/index.js",
     "attestlens": "./dist/cli/index.js",
     "attestlens-mcp": "./dist/mcp/index.js"
   },
@@ -22,8 +23,10 @@
   },
   "keywords": [
     "compliance",
+    "privacy-act",
     "privacy",
     "australia",
+    "ai-agents",
     "app",
     "ndb",
     "security",
@@ -31,7 +34,15 @@
     "mcp"
   ],
   "author": "Vincent Peng",
-  "license": "UNLICENSED",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/vincent-peng/attestlens.git"
+  },
+  "bugs": {
+    "url": "https://github.com/vincent-peng/attestlens/issues"
+  },
+  "homepage": "https://github.com/vincent-peng/attestlens#readme",
   "dependencies": {
     "@inquirer/prompts": "^8.4.1",
     "@modelcontextprotocol/sdk": "^1.29.0",
@@ -51,8 +62,9 @@
     "vitest": "^3.2.4"
   },
   "files": [
-    "dist",
+    "dist/",
     "README.md",
+    "CHANGELOG.md",
     "LICENSE"
   ]
 }

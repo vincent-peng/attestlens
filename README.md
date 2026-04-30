@@ -1,318 +1,124 @@
-# AttestLens ⚡️
+# Clearway by AttestLens
 
-**AI-Powered Australian Privacy Act Compliance Scanner**
+<p><strong>Logo placeholder: Clearway by AttestLens</strong></p>
 
-AttestLens automatically scans your codebase for Australian Privacy Act (APP/NDB) compliance issues, maps findings to specific statutory obligations, and generates Big 4-grade compliance reports — in seconds, not weeks.
+[![npm version](https://img.shields.io/npm/v/%40attestlens%2Fcli.svg)](https://www.npmjs.com/package/@attestlens/cli)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](#license)
+[![MCP compatible](https://img.shields.io/badge/MCP-compatible-0f766e.svg)](#mcp-integration)
 
-## Why AttestLens?
+Australian Privacy Act compliance service powered by AI, built for instant compliance opinions, agent workflows, and evidence-backed reporting.
 
-- **Hard moat**: Questionnaire questions reflect actual *statutory requirements* from the Australian Privacy Act, not generic compliance checkboxes
-- **Automated mapping**: Security findings → APP obligations with confidence scoring
-- **Breach readiness**: Additive readiness score and confidence model without hiding the underlying APP/NDB result
-- **Consultant-grade reports**: HTML/JSON/Markdown/PDF output that looks like a Big 4 deliverable
-- **Strict mode**: Treat all UNKNOWN controls as FAIL — no hiding behind "we don't know"
-- **AI-native**: MCP server for Cursor/Windsurf integration, including direct URL scans in-context
+## The Problem
+
+Australian businesses need to understand whether their systems meet Privacy Act 1988, Australian Privacy Principles, and Notifiable Data Breaches obligations. The work is complex, manual, and expensive: teams must review source code, live sites, operational controls, breach readiness, and upcoming reform exposure before they can form a defensible view.
+
+Clearway makes that first compliance opinion instant. It combines deterministic assessment logic, structured evidence, plain-English reporting, and MCP integration so teams and AI agents can move from project or URL to compliance position without a manual first pass.
 
 ## Quick Start
 
 ```bash
-# Install
-npm install -g attestlens
-
-# Scan a project
-attestlens scan ./my-project
-
-# Full compliance audit (scan + report)
-attestlens audit ./my-project -n "MyApp"
-
-# Live-site compliance audit
-attestlens audit https://example.com -n "Example" -f html,json,pdf
-
-# Refresh or seed local rule-pack cache
-attestlens update-rules
-
-# Strict mode — UNKNOWN controls become FAIL
-attestlens audit ./my-project -n "MyApp" --strict
-
-# Disable individual scanners
-attestlens audit ./my-project -n "MyApp" --no-guardvibe
-attestlens audit ./my-project -n "MyApp" --no-mcp-scan
-attestlens audit ./my-project -n "MyApp" --no-supply-chain
-
-# Generate report from existing scan data
-attestlens report ./scan-results.json -f html
+npx @attestlens/cli scan ./my-project
+npx @attestlens/cli scan https://example.com
 ```
 
-## CLI Reference
-
-### `attestlens scan <target>`
-
-Scan a project directory or public URL for privacy compliance findings.
+For a full report:
 
 ```bash
-attestlens scan ./my-project
-attestlens scan https://example.com
-attestlens scan ./my-project --auto-update      # Refresh from ATTESTLENS_RULE_SOURCE when configured
-attestlens scan ./my-project --no-guardvibe   # Skip GuardVibe scanner
-attestlens scan ./my-project --no-mcp-scan     # Skip MCP config scanner
-attestlens scan ./my-project --external-enrichment
-attestlens scan ./my-project --include-typosquat
-attestlens scan ./my-project --scanner-timeout 60000
+npx @attestlens/cli audit ./my-project --opinion --format html,json,agent
+npx @attestlens/cli compliance-check ./my-project
 ```
 
-Output: List of findings with severity, rule ID, file location, and affected APP principles.
+## Features
 
-### `attestlens audit <target>`
+| User benefit | What Clearway provides |
+| --- | --- |
+| Instant compliance opinions | Deterministic opinion bands: `NOT_COMPLIANT`, `NEEDS_REVIEW`, or `COMPLIANT`, with evidence tied to Privacy Act obligations. |
+| AI agent integration | 8 MCP tools for project scans, URL scans, full audits, APP/NDB mapping, opinions, single-principle checks, SMB compliance checks, and reform assessments. |
+| SMB compliance workflow | 15 plain-English questions that produce a plain-English compliance report for Australian small and medium businesses. |
+| Reform readiness | Automated remediation suggestions for Privacy Act reform exposure, including action items and priority warnings. |
+| Agent-native output | `--format agent` produces compact JSON designed for agent consumption, CI summaries, and follow-up task generation. |
+| Structured responses | MCP tools return structured content validated by Zod schemas, not loose text blobs. |
 
-Full compliance audit — scan + APP mapping + weighted scoring + report. Supports either a project directory or a live URL.
+## MCP Integration
 
-```bash
-attestlens audit ./my-project -n "MyApp"
-attestlens audit ./my-project -n "MyApp" -f html,json,markdown,pdf
-attestlens audit https://example.com -n "Example" -f json,pdf
-attestlens audit ./my-project -n "MyApp" -o ./reports --strict
-```
+Clearway can run as a Model Context Protocol server for Claude, Cursor, or any MCP-compatible client.
 
-| Option | Description | Default |
-|--------|-------------|---------|
-| `-n, --name <name>` | Project name for the report | Directory or hostname |
-| `-f, --format <formats>` | Output formats: json, html, markdown, pdf | `html,json` |
-| `-o, --output <dir>` | Output directory | `./attestlens-reports` |
-| `--strict` | Treat UNKNOWN controls as FAIL | `false` |
-| `--auto-update` | Refresh from `ATTESTLENS_RULE_SOURCE` before scanning when configured | `false` |
-| `--external-enrichment` | Enable OSV.dev vulnerability lookup and npm registry metadata fallback. Sends package names and exact versions to external services. | `false` |
-| `--include-typosquat` | Enable experimental `VS-SC-004` typosquat detection. Disabled by default due false-positive risk. | `false` |
-| `--scanner-timeout <ms>` | Override per-scanner timeout in milliseconds. Timed-out scanners return recoverable warnings and preserve completed adapter results. | Adapter default |
-| `--no-guardvibe` | Disable GuardVibe scanner | — |
-| `--no-mcp-scan` | Disable MCP config scanner | — |
-| `--no-supply-chain` | Disable supply chain scanner | — |
-
-### `attestlens update-rules`
-
-Refresh the local rule-pack cache. Without a source, AttestLens preserves an existing cache and only seeds the embedded rule pack when the cache is missing. Use `--source <url-or-path>` or `ATTESTLENS_RULE_SOURCE` for bounded local or HTTPS rule-pack JSON.
-
-```bash
-attestlens update-rules
-attestlens update-rules --source ./rules/latest.json
-```
-
-### `attestlens report <file>`
-
-Generate a report from an existing scan JSON file.
-
-```bash
-attestlens report ./scan-results.json -f html
-```
-
-## MCP Server (AI Editor Integration)
-
-AttestLens runs as an MCP server so AI editors like Cursor and Windsurf can run compliance scans in-context.
-
-### Configuration
-
-Add to your editor's MCP settings:
+Add this server to your MCP client configuration:
 
 ```json
 {
   "mcpServers": {
-    "attestlens": {
+    "clearway": {
       "command": "npx",
-      "args": ["attestlens-mcp"]
+      "args": [
+        "-y",
+        "--package",
+        "@attestlens/cli",
+        "attestlens-mcp"
+      ]
     }
   }
 }
 ```
 
-### Available Tools
+Available MCP tools:
 
-| Tool | Description |
-|------|-------------|
-| `attestlens_scan` | Scan a project for privacy findings. Returns findings with APP mappings. |
-| `attestlens_scan_url` | Scan a live URL for privacy findings. Returns findings with APP mappings keyed by `targetUrl`. |
-| `attestlens_audit` | Full APP/NDB audit. Returns a complete compliance report. |
-| `attestlens_map` | Map a list of findings to APP obligations. Useful for custom scanners. |
+| Tool | Purpose |
+| --- | --- |
+| `attestlens_scan` | Scan a local project and return Privacy Act findings. |
+| `attestlens_scan_url` | Scan a public URL and return live-site findings. |
+| `attestlens_audit` | Run a full APP/NDB audit and return a compliance report. |
+| `attestlens_map` | Map supplied findings to APP/NDB obligations. |
+| `attestlens_opinion` | Generate a deterministic compliance opinion. |
+| `attestlens_check` | Check one APP principle and return the relevant result. |
+| `attestlens_compliance_check` | Run the SMB compliance-check workflow. |
+| `attestlens_reform` | Assess Privacy Act reform exposure and remediation needs. |
 
-## APP Principles & Scoring
+## CLI Reference
 
-AttestLens evaluates compliance against all 14 Australian Privacy Principles and the Notifiable Data Breaches scheme, with weighted scoring that reflects real-world risk:
+| Command or mode | Example | Purpose |
+| --- | --- | --- |
+| `scan` | `npx @attestlens/cli scan ./my-project` | Run a fast project or URL assessment. |
+| `audit` | `npx @attestlens/cli audit ./my-project -n "My Business"` | Produce a full APP/NDB compliance report. |
+| `opinion` | `npx @attestlens/cli audit ./my-project --opinion --format agent` | Include the deterministic compliance opinion in the audit output. |
+| `compliance-check` | `npx @attestlens/cli compliance-check ./my-project` | Run the SMB-focused plain-English compliance workflow. |
+| `reform` | `npx @attestlens/cli audit ./my-project --reform` | Include Privacy Act reform impact and remediation guidance. |
+| `attest` | `npx @attestlens/cli attest ./my-project` | Start or resume a questionnaire-backed attestation session. |
 
-| Principle | Name | Weight | Rationale |
-|-----------|------|--------|-----------|
-| APP_1 | Open & Transparent | 5 | Fundamental but procedural |
-| APP_2 | Anonymity | 2 | Lower enforcement focus |
-| APP_3 | Collection | 8 | Core data handling |
-| APP_4 | Unsolicited Info | 3 | Narrow scope |
-| APP_5 | Notification | 6 | Compliance-critical |
-| APP_6 | Use & Disclosure | 8 | High-risk area |
-| APP_7 | Direct Marketing | 4 | Moderate risk |
-| APP_8 | Cross-Border | 10 | Major risk for AU businesses |
-| APP_9 | Gov Identifiers | 3 | Narrow scope |
-| APP_10 | Data Quality | 6 | Important but less enforced |
-| **APP_11** | **Security** | **15** | **Highest weight — most breached** |
-| APP_12 | Access | 4 | Moderate risk |
-| APP_13 | Correction | 4 | Moderate risk |
-| **NDB** | **Data Breach Notification** | **15** | **Highest weight — regulatory focus** |
-
-### Grade Thresholds
-
-| Grade | Score | Meaning |
-|-------|-------|---------|
-| **A** | ≥ 85 | Strong compliance posture |
-| **B** | ≥ 70 | Minor gaps, addressable |
-| **C** | ≥ 55 | Notable deficiencies |
-| **D** | ≥ 40 | Significant risk |
-| **F** | < 40 | Critical non-compliance |
-
-### Risk Levels
-
-| Level | Condition |
-|-------|-----------|
-| **CRITICAL** | Any critical-severity findings |
-| **HIGH** | 3+ high-severity findings |
-| **MEDIUM** | 1+ high-severity findings |
-| **LOW** | No high or critical findings |
-
-## Scanner Rules
-
-### Static Scanner (GuardVibe fallback)
-
-Runs when the GuardVibe MCP server is unavailable. Scans source files for common security patterns:
-
-| Rule ID | Severity | What It Detects |
-|---------|----------|----------------|
-| `VG-SEC-001` | Critical | Exposed Supabase credentials |
-| `VG-SEC-002` | Critical | Service role key in client code |
-| `VS-HARDKEY` | Critical | Hardcoded API keys, secret keys, private keys |
-| `VS-SQLI` | High | SQL injection via string interpolation |
-| `VS-XSS` | Medium | XSS vectors (`dangerouslySetInnerHTML`, `v-html`) |
-| `VS-DEBUG` | Medium | Debug logging of sensitive data |
-| `VS-ENV` | Critical | Sensitive env vars exposed to client (`NEXT_PUBLIC_`) |
-| `VS-CORS` | Medium | Wildcard CORS (`origin: '*'`) |
-| `VS-SUPA-RLS-MISSING` | High | Supabase SQL migrations without RLS policies |
-| `VS-FB-SERVICE-ACCOUNT` | Critical | Committed Firebase service account material |
-| `VS-PUBLIC-SECRET-ENV` | Critical | Public client prefixes applied to secret env vars |
-| `VS-PLATFORM-SECRET` | Critical | Hardcoded Stripe/Clerk/Auth0/Vercel/Netlify secrets |
-
-### MCP Config Scanner (mcp-scan)
-
-Checks MCP server configurations for:
-- Insecure transport (non-HTTPS endpoints)
-- Missing authentication
-- Overly broad permissions
-- Unencrypted secrets in config files
-
-### Supply Chain Scanner
-
-Detects supply chain risks in npm projects — designed to catch attacks like the Axios npm compromise (March 2026):
-
-| Rule ID | Severity | What It Detects |
-|---------|----------|----------------|
-| `VS-SC-001` | Critical | Install scripts in dependencies (postinstall, preinstall) |
-| `VS-SC-002` | High | Unused production dependencies (manifest-only injection) |
-| `VS-SC-004` | Critical | Typosquatting against top npm packages (experimental, opt-in via `--include-typosquat`) |
-| `VS-SC-005` | Critical | Missing or invalid lockfile |
-| `VS-SC-006` | High | Known vulnerabilities via `npm audit` |
-| `VS-OSV-*` | Variable | Known vulnerabilities via opt-in OSV.dev enrichment |
-| `VS-SC-007` | Medium | Lockfile entries with no resolved URL |
-| `VS-SC-008` | Critical | Install scripts + no source repo (critical combo) |
-| `VS-SC-009` | Medium | Direct production deps with no repository or homepage metadata |
-
-Local `node_modules/<dep>/package.json` provenance checks run by default. OSV.dev vulnerability enrichment and npm registry metadata fallback require `--external-enrichment`; enabling it discloses dependency names and exact resolved versions to OSV.dev and npmjs.org. Typosquatting detection is available only with `--include-typosquat` and emits an experimental warning.
-
-The Axios attack would have been caught on **5-7 of 7 indicators** (manifest-only dependency, install scripts, pre-staged package, typosquatting, no repo, and the critical combo). See [`docs/SUPPLY-CHAIN-DETECTION.md`](docs/SUPPLY-CHAIN-DETECTION.md) for full analysis.
-
-## Strict Mode
-
-By default, controls with no findings are marked **UNKNOWN** (questionnaire required). With `--strict`, all UNKNOWN controls become **FAIL** — this is the conservative approach for formal audits where the absence of evidence is evidence of absence.
+Common report formats:
 
 ```bash
-# Default: UNKNOWN controls stay UNKNOWN
-attestlens audit ./my-project -n "MyApp"
+npx @attestlens/cli audit ./my-project --format html,json,markdown,pdf
+npx @attestlens/cli audit ./my-project --format agent --opinion
+```
 
-# Strict: UNKNOWN controls become FAIL (score 0)
-attestlens audit ./my-project -n "MyApp" --strict
+Useful assessment flags:
+
+```bash
+npx @attestlens/cli scan ./my-project --external-enrichment
+npx @attestlens/cli scan ./my-project --scanner-timeout 60000
+npx @attestlens/cli audit ./my-project --strict
 ```
 
 ## Architecture
 
-```
-src/
-├── schema/             # Core types (AttestLensFinding, APPMapping, etc.)
-├── mapping/            # APP/NDB mapping engine with confidence scoring
-├── scanner/            # Scanner adapters + orchestrator
-│   ├── guardvibe.ts    # GuardVibe adapter (MCP + static fallback)
-│   ├── mcp-scan.ts     # MCP config scanner adapter
-│   ├── supply-chain.ts # Supply chain risk detector (npm)
-│   ├── orchestrator.ts # Parallel execution + dedup
-│   └── types.ts        # Scanner interfaces
-├── questionnaire/       # Interactive attestation (Phase 2 scaffold)
-├── report/             # Report generation (HTML, JSON, Markdown, PDF)
-├── cli/               # CLI entry point (scan, audit, report)
-└── mcp/               # MCP server (AI editor tools)
-```
+Clearway separates collection, mapping, opinion, and reporting:
 
-## Development
+1. Scanner adapters collect project, URL, MCP, supply-chain, behavioral, and infrastructure evidence.
+2. The mapping engine links findings to Australian Privacy Principles and NDB obligations.
+3. The opinion engine produces deterministic compliance opinions from structured findings and questionnaire evidence.
+4. Report writers produce human-readable, JSON, PDF, and agent-native formats.
+5. The MCP server exposes the same assessment model through structured Zod schemas.
 
-```bash
-# Install
-npm install
+Compliance opinions do not rely on LLM calls. AI agents can run Clearway and consume the structured output, but the compliance verdict is produced by deterministic code.
 
-# Build
-npm run build
+## Contributing
 
-# Test (195 tests)
-npm test
+Read the project docs before changing scanner, report, or MCP behavior:
 
-# Run the live validation corpus
-npm run validate:corpus
-
-# Run locally
-npx tsx src/cli/index.ts audit ./my-project -n "MyApp"
-
-# Type check
-npm run lint
-```
-
-## Roadmap
-
-### Phase 1.5 ✅ (v0.2.0)
-- Core schema + APP/NDB mapping engine (31 rules)
-- Scanner adapters (GuardVibe static + mcp-scan + supply-chain + url-scan)
-- Scanner orchestrator (parallel + dedup)
-- CLI (scan, audit, report)
-- URL scanning + hardened outbound fetch path
-- Report generation (HTML, JSON, Markdown, PDF)
-- MCP server (4 tools, including URL scan)
-- Validation corpus runner + findings log
-- Stack-specific repo security checks for Supabase, Firebase, Stripe, Clerk/Auth0, Vercel/Netlify secrets
-- 195 tests
-- Strict mode
-- Supply chain detection (7 rules, Axios-attack coverage)
-
-### Phase 2 ✅ (M2 closeout)
-- Interactive attestation questionnaire (UNKNOWN → PASS/FAIL)
-- Frozen assessment basis (`artifact_only`, `codebase_only`, `operator_attested`)
-- Merged scan + questionnaire reporting
-- Breach-readiness scoring and deterministic consultant narratives
-- Design-partner validation workflow and refreshed sample reports
-
-### Phase 2.5 (Next)
-- Rule freshness foundation: typed manifest, embedded rule pack, cache fallback, cache-preserving `update-rules`, source-gated opt-in `--auto-update`
-- Next: executable rule-pack migration and advisory monitoring pipeline
-- GuardVibe MCP integration (live scanner, not just fallback)
-- Additional framework support research (GDPR, SOC 2, HIPAA)
-
-### Phase 3 (Future)
-- Web dashboard (React + real-time scan progress)
-- CI/CD integration (GitHub Actions, GitLab CI)
-- Team collaboration features
-- Historical trend tracking
-- OAIC alignment updates
-- API gateway for SaaS deployment
-
-## Disclaimer
-
-Reports generated by AttestLens do **not** constitute legal advice. Always consult a qualified privacy professional for formal compliance assessment under the Australian Privacy Act 1988.
+- [Status](docs/STATUS.md)
+- [Roadmap](docs/ROADMAP.md)
+- [Validation runbook](docs/validation/ATTESTATION-RUNBOOK.md)
 
 ## License
 
