@@ -1,5 +1,7 @@
 # Supply Chain Detection — AttestLens Design
 
+> **Note:** This design doc describes the supply-chain detection architecture. The implementation is complete and shipped in the scanner. For current status, see `docs/STATUS.md`.
+
 ## The Axios Attack (March 31, 2026)
 
 ### What Happened

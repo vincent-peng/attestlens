@@ -1,6 +1,6 @@
 # CI/CD Integration Guide
 
-AttestLens can run compliance checks in your CI/CD pipeline to catch Privacy Act violations before they ship.
+AttestLens can run multi-jurisdiction compliance checks in your CI/CD pipeline before they ship.
 
 ## Quick Start
 
@@ -17,7 +17,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 20
-      - run: npx attestlens audit . --opinion --format agent
+      - run: npx @attestlens/cli audit . --opinion --format agent
 ```
 
 The `--format agent` flag outputs machine-readable JSON. Exit code 1 means NON_COMPLIANT.
@@ -27,8 +27,17 @@ The `--format agent` flag outputs machine-readable JSON. Exit code 1 means NON_C
 Fail the build on non-compliant opinions:
 
 ```yaml
-- run: npx attestlens audit . --opinion --format agent
+- run: npx @attestlens/cli audit . --opinion --format agent
   # Exit code 1 = NON_COMPLIANT, 0 = COMPLIANT/PARTIALLY_COMPLIANT
+```
+
+## Multi-Jurisdiction Gates
+
+Run the same audit against a specific jurisdiction pack:
+
+```yaml
+- run: npx @attestlens/cli audit . --jurisdiction eu-gdpr --opinion --format agent
+- run: npx @attestlens/cli audit . --jurisdiction us-ccpa --opinion --format agent
 ```
 
 ## Single-Principle Gates
@@ -57,7 +66,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 20
-      - run: npx attestlens audit . --opinion --format html,json,markdown
+      - run: npx @attestlens/cli audit . --opinion --format html,json,markdown
       - uses: actions/upload-artifact@v4
         with:
           name: compliance-reports
@@ -71,7 +80,8 @@ Run the MCP server for agent-driven checks:
 ```yaml
 - run: npx attestlens-mcp --help
   # Start server: npx attestlens-mcp
-  # Tools: attestlens_scan, attestlens_audit, attestlens_check, attestlens_opinion, attestlens_map
+  # Tools: attestlens_scan, attestlens_scan_url, attestlens_audit, attestlens_map,
+  #        attestlens_opinion, attestlens_check, attestlens_compliance_check, attestlens_reform
 ```
 
 ## CLI Flags Reference
@@ -81,6 +91,7 @@ Run the MCP server for agent-driven checks:
 | `--format agent` | Machine-readable JSON | Pipe to other tools |
 | `--format json` | Full JSON report | Artifact upload |
 | `--opinion` | Include compliance opinion | Gate on verdict |
+| `--jurisdiction` | Select jurisdiction pack | AU, US, or EU gates |
 | `--strict` | Treat UNKNOWN as FAIL | Strict mode |
 | `--no-mcp-scan` | Skip MCP scanning | Faster CI |
 | `--no-supply-chain` | Skip supply chain | Faster CI |

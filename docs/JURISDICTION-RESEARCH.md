@@ -69,7 +69,7 @@
 
 ### Scoped Coverage (not full GDPR)
 
-We explicitly cover these 14 principle IDs covering selected articles/article ranges only:
+We explicitly cover 14 principle IDs. They represent selected articles/article ranges only:
 
 | Article | Title | Clearway Principle ID | Agent-Relevant Check |
 |---|---|---|---|

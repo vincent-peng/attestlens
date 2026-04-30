@@ -1,6 +1,6 @@
 # AttestLens × YC Summer 2026 RFS — Product Thesis
 
-**Date:** 2026-04-29  
+**Date:** 2026-04-30
 **Source:** YC Summer 2026 RFS — "AI has stopped being a feature and started being the foundation."
 
 ---
@@ -11,61 +11,49 @@
 > "Don't sell software — sell the service. Instead of giving you a tool, they just do the work."
 > Specifically lists: **Compliance**
 
-**AttestLens today:** A scanner that finds problems and generates reports. The human still has to read the report, interpret the findings, and decide what to do.
+**AttestLens shipped:** An opinion-grade compliance runtime that turns scanner evidence, questionnaire evidence, and jurisdiction packs into signed deterministic assessments.
 
-**AttestLens tomorrow:** An AI compliance service that delivers the finished assessment — opinion-grade, evidence-backed, signed by AttestLens. The human reviews it, not writes it.
+**The service shape:** "NOT COMPLIANT. APP 11 is not met. Immediate remediation required. Evidence: 3 high-severity findings, 2 corroborated. Confidence: HIGH. Signed: AttestLens v0.3.0."
 
-**The shift:** Scanner → "Here are 47 findings mapped to APP principles" vs Service → "**NOT COMPLIANT.** APP 11 (Cross-border disclosure) is NOT MET. Immediate remediation required. Evidence: 3 high-severity findings, 2 corroborated. Confidence: HIGH. Signed: AttestLens v0.3.0, 2026-04-29T10:00:00Z."
-
-**What to build:** Compliance opinion layer (`ComplianceOpinion`) that produces definitive verdicts (COMPLIANT / PARTIALLY_COMPLIANT / NON_COMPLIANT) per APP principle with evidence chains, confidence levels, and formal attestation metadata. The data already exists in our APP controls and breach readiness — this is a presentation layer, not a new engine.
+**Why this matters:** The human reviews a finished compliance opinion instead of interpreting raw scanner findings.
 
 ---
 
-### 2. Software for Agents (Aaron Epstein) 🆕
+### 2. Software for Agents (Aaron Epstein)
 > "The next trillion users on the internet won't be people. They'll be AI agents. Every major category of software needs to be rebuilt for agents as first-class citizens, and that won't come from incumbents."
 
-**AttestLens today:** Already ships as an MCP server with 4 tools (`attestlens_scan`, `attestlens_scan_url`, `attestlens_audit`, `attestlens_map`). Any coding agent can call it mid-build.
+**AttestLens today:** Ships as an MCP server with 8 tools (`attestlens_scan`, `attestlens_scan_url`, `attestlens_audit`, `attestlens_map`, `attestlens_opinion`, `attestlens_check`, `attestlens_compliance_check`, `attestlens_reform`). Any coding agent can call it mid-build.
 
-**The opportunity:** Compliance checking is the *perfect* agent-native function because:
-- It's **stateless** — scan, return structured data, done
-- It's **high-frequency** — every `npm install`, every `git push`, every PR
-- It's **cross-cutting** — every codebase needs it, no one wants to think about it
-- The **output is machine-readable** — APP principle status, confidence scores, findings with `fixPrompt` — all structured, all consumable by agents
+**The opportunity:** Compliance checking is the perfect agent-native function because:
 
-**What exists:** MCP server with stdio transport, 4 tools, structured JSON output, `fixPrompt` on every finding.
+- It's stateless — scan, return structured data, done
+- It's high-frequency — every dependency change, PR, and release
+- It's cross-cutting — every codebase needs it, few teams want to own it manually
+- The output is machine-readable — verdicts, confidence, evidence, and `fixPrompt` values are structured
 
-**What to add:**
-- **Agent-native output mode** — machine-first, not human-first. Skip the narrative, return structured verdict + actions
-- **`attestlens_check`** — lightweight, fast, single-principle check ("am I APP 11 compliant?")
-- **CI/CD agent hooks** — GitHub Action that runs on push/PR, posts results as check status
-- **Streaming results** — agents don't want to wait 30s for a full audit. Return findings as they arrive.
-
-This is the easiest RFS win because the infrastructure exists. We're not building from zero — we're surfacing what's already there in an agent-first way.
+**What exists:** MCP server with stdio transport, 8 tools, structured JSON, structuredContent, Zod schemas, fail-closed path and URL handling, and agent-native output mode.
 
 ---
 
 ### 3. Company Brain (Tom Blomfield)
 > "A system that pulls knowledge out of fragmented sources, structures it, keeps it current, and turns it into an executable skills file for AI."
 
-**AttestLens today:** Each scan is point-in-time. No memory between scans.
+**AttestLens today:** Continuous monitoring creates the substrate for a compliance brain: webhook receiver, baseline storage, regression detection, job queue, checkout worker, reports, and notifications.
 
-**AttestLens tomorrow:** Continuous monitoring creates a **Compliance Brain** — a persistent, queryable model of a company's compliance posture. "What's our APP 8 status?" → instant answer with evidence chain.
+**What emerges:** With accumulated scan and questionnaire data over time:
 
-**What exists:** Continuous monitoring (Phase 1) — webhook receiver, baseline storage, regression detection, job queue, checkout worker, PR comments, Slack/Discord notifications. 1,446 lines, merged to main.
+- Compliance trend analysis by principle and jurisdiction
+- Predictive risk from repeated regressions
+- Queryable compliance state
+- Agent-native querying: "am I still compliant after this change?"
 
-**What emerges:** With accumulated scan data over time:
-- Compliance trend analysis (are we getting better or worse?)
-- Predictive risk (which APP principles are most likely to regress?)
-- Queryable compliance state (API for "current status of APP_11")
-- Agent-native querying ("am I still compliant after this change?")
-
-**Don't build this separately.** It grows from the monitoring subscription. The data accumulates, the brain emerges.
+**Don't build this separately.** It grows from monitoring subscriptions. The data accumulates, the brain emerges.
 
 ---
 
 ## Product Thesis: The Three Layers
 
-AttestLens is positioned at the intersection of three YC RFS categories. That's not a coincidence — it's the product thesis:
+AttestLens is positioned at the intersection of three YC RFS categories:
 
 ```
 ┌─────────────────────────────────────────────┐
@@ -73,8 +61,8 @@ AttestLens is positioned at the intersection of three YC RFS categories. That's 
 │  Persistent, queryable compliance model     │
 │  Emerges from monitoring data over time     │
 ├─────────────────────────────────────────────┤
-│  Layer 2: Compliance Service (opinion-grade) │
-│  "Here's your compliance opinion, signed"   │
+│  Layer 2: Compliance Service (shipped)      │
+│  Opinion-grade, multi-jurisdiction runtime  │
 │  Transforms scanner → service               │
 ├─────────────────────────────────────────────┤
 │  Layer 1: Agent Infrastructure (shipped)    │
@@ -83,7 +71,21 @@ AttestLens is positioned at the intersection of three YC RFS categories. That's 
 └─────────────────────────────────────────────┘
 ```
 
-Layer 1 is done. Layer 2 is the next build. Layer 3 is the long game.
+Layer 1 and Layer 2 are shipped. Layer 3 is the long game.
+
+---
+
+## Multi-Jurisdiction Positioning
+
+AttestLens is now multi-jurisdiction, not global. The current live packs are:
+
+| Jurisdiction | Status | Scope |
+|---|---|---|
+| 🇦🇺 au-privacy-act | ✅ Live | APP + NDB, reform, SMB compliance |
+| 🇺🇸 us-ccpa | ✅ Live | CCPA/CPRA subset for US privacy checks |
+| 🇪🇺 eu-gdpr | ✅ Live | GDPR subset for AI/privacy evidence checks |
+
+See `docs/INTERNATIONAL-STRATEGY.md` for the expansion strategy and boundaries.
 
 ---
 
@@ -91,84 +93,85 @@ Layer 1 is done. Layer 2 is the next build. Layer 3 is the long game.
 
 **Before:** "AI-Powered Australian Privacy Act Compliance Scanner"
 
-**After:** "AI compliance service for the Privacy Act era. Agent-native. Opinion-grade. Always-on."
+**After:** "Deterministic compliance runtime for AI agents. Multi-jurisdiction. Opinion-grade. Agent-native."
 
 The reframe:
+
 - **Scanner** → **Service** (AI-Native Service Companies)
 - **Reports** → **Opinions** (AI-Native Service Companies)
 - **CLI tool** → **Agent infrastructure** (Software for Agents)
 - **Point-in-time** → **Always-on brain** (Company Brain)
+- **AU-only** → **Multi-jurisdiction** (AU + US CCPA + EU GDPR)
 
 ---
 
-## Priority: What to Build Next
+## Shipped State
 
-### ✅ Layer 1: Agent Infrastructure — SHIPPED
-- MCP server (4 tools, stdio transport)
-- CLI (scan, audit, report, monitor, attest)
+### ✅ Layer 1: Agent Infrastructure
+
+- MCP server (8 tools, stdio transport)
+- CLI (scan, audit, report, monitor, attest, compliance-check)
 - Structured JSON output with `fixPrompt`
+- Agent-native report format
 - Continuous monitoring (webhook, baselines, regression)
-- 357 tests passing, 25,272 lines of TS
+- 502 tests passing
 
-### 🔨 Layer 2: Compliance Service — NEXT BUILD
-Two parallel tracks:
+### ✅ Layer 2: Compliance Service
 
-**Track A: Opinion-Grade Assessments** (product shift, ~3-4 days)
-- `ComplianceOpinion` schema type — verdict, confidence, evidence chain, attestation metadata
-- Opinion engine — deterministic verdict from existing APP control data
-- Agent-native output mode — machine-first structured verdict
-- CLI `--opinion` flag + MCP tool `attestlens_opinion`
-- Report sections (HTML/MD) for the opinion
-- Tests + tsc clean
+- Deterministic `ComplianceOpinion` schema and opinion engine
+- CLI `--opinion` flag and MCP `attestlens_opinion`
+- Single-principle `attestlens_check`
+- SMB compliance-check workflow
+- Privacy Act reform module and `attestlens_reform`
+- MCP hardening: McpServer, Zod schemas, structuredContent, fail-closed filesystem, DNS pinning, TOCTOU revalidation, opaque resource URIs, error sanitization, AbortSignal cancellation
+- Jurisdiction abstraction and 3 live jurisdiction packs
+- Multi-jurisdiction report generator
 
-**Track B: Agent-Native Enhancements** (shipping polish, ~2-3 days)
-- `attestlens_check` MCP tool — lightweight single-principle check
-- Agent output mode — skip narrative, return verdict + actions
-- Streaming results — return findings as they arrive, not after full scan
-- CI/CD integration guide — GitHub Action template
+### 🔮 Layer 3: Compliance Brain — Defer
 
-### 🔮 Layer 3: Compliance Brain — DEFER
 - Queryable compliance state API
 - Trend analysis from accumulated baselines
 - Predictive risk scoring
-- Agent-native querying ("am I still compliant after this change?")
-- Let this grow from monitoring subscriptions, don't build separately
+- Agent-native querying
+- Let this grow from monitoring subscriptions; don't build separately
+
+---
+
+## Current Priority: Phase 9
+
+**YC App Prep**
+
+- Multi-jurisdiction demo
+- Design partner outreach
+- Application essay
+- Conservative validation narrative: multi-jurisdiction coverage is live, but not yet externally validated as global coverage
 
 ---
 
 ## The July 2026 Window
 
-The Privacy Act reforms create a hard deadline that gives Layer 2 urgency:
+The Privacy Act reforms create a hard deadline:
 
 - **1 July 2026:** 100K+ SMBs fall under Privacy Act (AML/CTF reforms)
 - **10 December 2026:** Automated decision-making transparency requirements
 - **10 December 2026:** Children's Online Privacy Code obligations
 
-~3 month window (July–September 2026) where businesses scramble to understand new obligations.
-
-**Opinion-grade assessments are the product for this window.** "Is my code compliant with the new Privacy Act?" → definitive answer, not "here are some findings to interpret."
-
-**Agent-native compliance is the moat for after.** Every coding agent runs AttestLens on every build. That's the compounding advantage.
+Opinion-grade assessments are the AU wedge. Multi-jurisdiction packs make the product credible beyond Australia without claiming more than the current evidence supports.
 
 ---
 
-## Revenue Model (Aligned with Three Layers)
+## Revenue Model (Aligned with Current Pricing)
 
 | Tier | Price | What | Who |
 |---|---|---|---|
-| **Free** | $0 | CLI, MCP server, local scans, JSON output | Indie devs, agents |
-| **Pro** | $15 AUD/mo | Opinion-grade output, PDF reports, `fixPrompt`, 50 scans/mo | Solo devs, small teams |
-| **Consultant** | $49 AUD/mo | Continuous monitoring, white-label reports, unlimited scans, compliance opinions | AU consultants, MSPs |
-| **Enterprise** | Custom | Compliance Brain API, SSO, SLA, self-hosted | Large orgs, government |
+| **Free** | $0 | Local scans, 3 core tools, basic project and URL assessment | Indie devs, agents |
+| **Pro** | $29/mo | All 8 MCP tools, opinion engine, reform module, agent-native reports, SMB compliance-check | Solo devs, small teams |
+| **Enterprise** | Custom | Custom onboarding, team workflows, deployment/procurement support, custom reporting | Large orgs, regulated teams |
 
-Free tier = Layer 1 (agent infrastructure). Pro/Consultant = Layer 2 (compliance service). Enterprise = Layer 3 (compliance brain).
+Free tier = Layer 1 adoption. Pro and Enterprise monetize Layer 2. Layer 3 remains deferred until monitoring data justifies it.
 
 ---
 
 ## What This Replaces
 
-This doc supersedes:
-- ❌ SELLABLE-TODOS.md (pre-YC research, deleted)
-- ❌ ATTESTLENS-EXECUTION-PLAN.md (pre-YC research, deleted)
-
-The sellable todos were feature lists. This is a product thesis grounded in YC's stated investment thesis for Summer 2026.
+This doc supersedes older execution and sellable-todo plans. The product thesis is now grounded in shipped Layer 1 and Layer 2 capability plus the YC Summer 2026 RFS narrative.

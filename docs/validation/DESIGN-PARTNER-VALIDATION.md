@@ -1,5 +1,7 @@
 # M2 Design-Partner Validation
 
+> **Status:** No design-partner feedback received yet. This validation plan is still open.
+
 **Last Updated:** 2026-04-25
 **Purpose:** Single working log for M2 report feedback before broader M2.5 and SaaS work.
 

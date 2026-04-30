@@ -39,8 +39,8 @@ We proved the model in Australia — the strictest privacy reform market in 2024
 | Jurisdiction | Role | Status | Timeline |
 |---|---|---|---|
 | 🇦🇺 Australia (Privacy Act + APP + NDB) | Shipped proof — the engine works in production | ✅ Live (v0.3.0) | Done |
-| 🇺🇸 California (CCPA/CPRA) | Commercial wedge — YC buyer network, US fragmentation pain | 📋 Research phase | 4-6 weeks |
-| 🇪🇺 EU (GDPR subset) | Credibility regime — the global reference standard | 📋 Research phase | 6-8 weeks |
+| 🇺🇸 California (CCPA/CPRA) | Commercial wedge — YC buyer network, US fragmentation pain | ✅ Live (v0.3.0, Phase 7) | Done |
+| 🇪🇺 EU (GDPR subset) | Credibility regime — the global reference standard | ✅ Live (v0.3.0, Phase 8) | Done |
 
 ### Why This Order
 

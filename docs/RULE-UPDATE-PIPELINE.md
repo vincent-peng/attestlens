@@ -1,5 +1,7 @@
 # AttestLens — Rule Update Pipeline & Rapid Response Design
 
+> **Note:** This design doc describes the rule update pipeline architecture. The foundation (typed manifests, embedded rules, cache fallback, update command) is shipped in Phase 2.5. Future rapid-response features (HEU-001 through HEU-003, Socket.dev-style real-time) are not yet implemented. For current status, see `docs/STATUS.md`.
+
 **Date:** 2026-04-18
 **Status:** Foundation started
 
@@ -165,7 +167,7 @@ jobs:
 **1. Rules Freshness Badge (in every scan output)**
 ```
 ╔══════════════════════════════════════════╗
-║  AttestLens v0.2.0                       ║
+║  AttestLens v0.3.0                       ║
 ║  Rules: 2026.4.18 (2 days old)           ║
 ║  Checks: 68 security + 8 supply chain    ║
 ║  Coverage: APP 1-13, NDB s26WE          ║
