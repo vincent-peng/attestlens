@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import {
   ALL_MAPPING_RULES,
   mapAllFindings,
@@ -78,6 +78,19 @@ describe('mapFindingToRegulation', () => {
     expect(mappings.length).toBeGreaterThan(0);
     expect(mappings.every(mapping => mapping.jurisdiction === 'au-privacy-act')).toBe(true);
     expect(mappings.some(mapping => mapping.principle === 'APP_11')).toBe(true);
+  });
+
+  it('includes citation metadata when the mapping rule has a citation', () => {
+    const finding = makeFinding({
+      sourceRule: 'VS-HARDKEY',
+      severity: 'critical',
+      title: 'Hardcoded secret key',
+    });
+
+    expect(mapFindingToRegulation(finding, ['au-privacy-act'])).toContainEqual(expect.objectContaining({
+      principle: 'APP_11',
+      citation: 'APP Guidelines Chapter 11.6',
+    }));
   });
 
   it('returns no mappings for jurisdictions without rule content', () => {
@@ -436,6 +449,24 @@ describe('mapAllFindings', () => {
     for (const control of controls) {
       expect(control.status).toBe('unknown');
       expect(control.score).toBe(100);
+    }
+  });
+
+  it('accepts the legacy boolean strict-mode argument', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-01-01T00:00:00.000Z'));
+
+    try {
+      const legacy = mapAllFindings([], true);
+      const options = mapAllFindings([], { strictMode: true });
+
+      expect(legacy).toEqual(options);
+      expect(legacy.controls).toHaveLength(14);
+      expect(legacy.controls.every(control => control.status === 'fail')).toBe(true);
+      expect(legacy.controls.every(control => control.score === 0)).toBe(true);
+      expect(legacy.controls.every(control => control.questionnaireRequired === false)).toBe(true);
+    } finally {
+      vi.useRealTimers();
     }
   });
 

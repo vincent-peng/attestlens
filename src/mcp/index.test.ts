@@ -409,6 +409,25 @@ describe('MCP Server', () => {
       expect(scanSpy).not.toHaveBeenCalled();
     });
 
+    it('rejects unavailable jurisdictions before scanning MCP scan, audit, and opinion tools', async () => {
+      const scanSpy = vi.spyOn(ScannerOrchestrator.prototype, 'scan');
+      const toolCalls = [
+        { name: 'attestlens_scan', args: { path: tempDir, jurisdiction: 'us-ccpa' } },
+        { name: 'attestlens_audit', args: { path: tempDir, jurisdiction: 'us-ccpa', format: 'json' } },
+        { name: 'attestlens_opinion', args: { path: tempDir, jurisdiction: 'us-ccpa' } },
+      ];
+
+      for (const toolCall of toolCalls) {
+        const response = await handleToolCall(toolCall.name, toolCall.args);
+
+        expect(response, toolCall.name).toEqual({
+          content: [{ type: 'text', text: "jurisdiction 'us-ccpa' is not yet available. Available jurisdictions: au-privacy-act" }],
+          isError: true,
+        });
+      }
+      expect(scanSpy).not.toHaveBeenCalled();
+    });
+
     it('treats explicit AU scan jurisdiction the same as default', async () => {
       vi.spyOn(ScannerOrchestrator.prototype, 'scan').mockImplementation(async () => ({
         findings: [

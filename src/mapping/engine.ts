@@ -942,6 +942,8 @@ export interface MapAllFindingsOptions {
   jurisdictions?: Jurisdiction[];
 }
 
+type MapAllFindingsInput = boolean | MapAllFindingsOptions;
+
 /**
  * Map a single finding to regulation obligations using the mapping rules.
  */
@@ -966,6 +968,7 @@ export function mapFindingToRegulation(
         status: rule.status,
         confidence: calculateMappingConfidence(rule.confidence, finding),
         rationale: rule.rationale,
+        citation: rule.citation,
       });
     }
   }
@@ -1080,11 +1083,26 @@ function patternMatches(pattern: RegExp, value: string): boolean {
  */
 export function mapAllFindings(
   findings: AttestLensFinding[],
-  options: MapAllFindingsOptions = {},
+  strictMode: boolean,
+): {
+  controls: RegulationControl[];
+  unmapped: AttestLensFinding[];
+};
+export function mapAllFindings(
+  findings: AttestLensFinding[],
+  options?: MapAllFindingsOptions,
+): {
+  controls: RegulationControl[];
+  unmapped: AttestLensFinding[];
+};
+export function mapAllFindings(
+  findings: AttestLensFinding[],
+  optionsOrStrictMode: MapAllFindingsInput = {},
 ): {
   controls: RegulationControl[];
   unmapped: AttestLensFinding[];
 } {
+  const options = normalizeMapAllFindingsOptions(optionsOrStrictMode);
   const jurisdictions = options.jurisdictions ?? ['au-privacy-act'];
   const strictMode = options.strictMode === true;
   const controlMap = new Map<string, RegulationControl>();
@@ -1202,6 +1220,12 @@ export function mapAllFindings(
     controls: Array.from(controlMap.values()),
     unmapped,
   };
+}
+
+function normalizeMapAllFindingsOptions(options: MapAllFindingsInput): MapAllFindingsOptions {
+  return typeof options === 'boolean'
+    ? { strictMode: options }
+    : options;
 }
 
 export function mapAllFindingsAU(findings: AttestLensFinding[], strictMode = false): {

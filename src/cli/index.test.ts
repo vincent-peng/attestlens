@@ -22,6 +22,16 @@ import { buildScannerOrchestratorOptions, executeAttestCommand } from './index.j
 const execFileAsync = promisify(execFile);
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 const cliEntry = path.join(repoRoot, 'src', 'cli', 'index.ts');
+const fastAttestScanOptions = {
+  guardvibe: false,
+  mcpScan: false,
+  behavioral: false,
+  iac: false,
+} as const;
+const noScannerAttestOptions = {
+  ...fastAttestScanOptions,
+  supplyChain: false,
+} as const;
 
 async function runCli(
   args: string[],
@@ -203,8 +213,8 @@ describe('CLI agent report format', () => {
 
     try {
       await fs.writeFile(
-        path.join(projectDir, 'index.ts'),
-        'const secret_key = "abcdefghijklmnop";\n',
+        path.join(projectDir, 'Dockerfile'),
+        'FROM node:latest\nUSER root\n',
       );
 
       const result = await runCli([
@@ -213,10 +223,10 @@ describe('CLI agent report format', () => {
         '-f',
         'agent',
         '--opinion',
+        '--no-guardvibe',
         '--no-mcp-scan',
         '--no-supply-chain',
         '--no-behavioral',
-        '--no-iac',
       ]);
       const payload = JSON.parse(result.stdout);
 
@@ -442,16 +452,26 @@ describe('CLI external enrichment option', () => {
 
   it('returns a not-yet-available message for unsupported CLI jurisdictions', async () => {
     const projectDir = await fs.mkdtemp(path.join(os.tmpdir(), 'attestlens-cli-jurisdiction-'));
+    const outputDir = await fs.mkdtemp(path.join(os.tmpdir(), 'attestlens-cli-jurisdiction-out-'));
 
     try {
       await fs.writeFile(path.join(projectDir, 'README.md'), '# Example project\n');
-      const result = await runCli(['scan', projectDir, '--jurisdiction', 'us-ccpa']);
-      const output = `${result.stdout}\n${result.stderr}`;
+      const commands = [
+        ['scan', projectDir, '--jurisdiction', 'us-ccpa'],
+        ['audit', projectDir, '--jurisdiction', 'us-ccpa', '-f', 'json', '-o', outputDir],
+        ['compliance-check', projectDir, '--jurisdiction', 'us-ccpa', '--non-interactive', '-f', 'json', '-o', outputDir],
+      ];
 
-      expect(result.code).toBe(1);
-      expect(output).toContain("jurisdiction 'us-ccpa' is not yet available. Available jurisdictions: au-privacy-act");
+      for (const command of commands) {
+        const result = await runCli(command);
+        const output = `${result.stdout}\n${result.stderr}`;
+
+        expect(result.code, command[0]).toBe(1);
+        expect(output, command[0]).toContain("jurisdiction 'us-ccpa' is not yet available. Available jurisdictions: au-privacy-act");
+      }
     } finally {
       await fs.rm(projectDir, { recursive: true, force: true });
+      await fs.rm(outputDir, { recursive: true, force: true });
     }
   });
 
@@ -466,6 +486,7 @@ describe('CLI external enrichment option', () => {
       vi.stubGlobal('fetch', fetchMock);
 
       const result = await executeAttestCommand(projectDir, {
+        ...fastAttestScanOptions,
         output: outputDir,
         format: 'json',
         strict: false,
@@ -506,6 +527,7 @@ describe('CLI external enrichment option', () => {
       vi.stubGlobal('fetch', fetchMock);
 
       const result = await executeAttestCommand(projectDir, {
+        ...fastAttestScanOptions,
         output: outputDir,
         format: 'json',
         strict: false,
@@ -664,6 +686,7 @@ describe('CLI attest command', { timeout: 20000 }, () => {
       await fs.writeFile(path.join(projectDir, 'README.md'), '# Example project\n');
 
       const result = await executeAttestCommand(projectDir, {
+        ...noScannerAttestOptions,
         output: outputDir,
         format: 'json',
         strict: false,
@@ -702,6 +725,7 @@ describe('CLI attest command', { timeout: 20000 }, () => {
       await fs.writeFile(path.join(projectDir, 'README.md'), '# Example project\n');
 
       const result = await executeAttestCommand(projectDir, {
+        ...noScannerAttestOptions,
         output: outputDir,
         format: 'json',
         strict: false,
@@ -1044,6 +1068,7 @@ describe('CLI attest command', { timeout: 20000 }, () => {
       await fs.writeFile(path.join(projectDir, 'README.md'), '# Example project\n');
 
       const initial = await executeAttestCommand(projectDir, {
+        ...noScannerAttestOptions,
         output: outputDir,
         format: 'json',
         strict: false,

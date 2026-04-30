@@ -9,7 +9,7 @@ import { getRulePackCachePath, loadRulePack, updateRuleCache } from './rules/loa
 import type { ScannerResult } from './types.js';
 
 describe('GuardVibeAdapter', { timeout: 20000 }, () => {
-  const adapter = new GuardVibeAdapter();
+  const adapter = new GuardVibeAdapter('__attestlens_missing_guardvibe__');
   let scanResult: ScannerResult;
   let fixtureDir: string;
 

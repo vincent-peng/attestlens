@@ -95,6 +95,7 @@ export const APPInfo: Record<APPPrinciple, { shortName: string; obligation: stri
 
 // ─── Core Schemas ────────────────────────────────────────────────────────────
 
+// Phase 7 will refine this into per-jurisdiction principle validation.
 export const RegulationPrinciple = z.string().min(1);
 export type RegulationPrinciple = z.infer<typeof RegulationPrinciple>;
 
@@ -114,6 +115,7 @@ export const RegulationMapping = z.object({
   status: ControlStatus,
   confidence: z.number().min(0).max(1),
   rationale: z.string().optional(),
+  citation: z.string().optional(),
 });
 export type RegulationMapping = z.infer<typeof RegulationMapping>;
 

@@ -21,7 +21,12 @@ import { GitleaksAdapter, type GitleaksAdapterOptions } from './gitleaks.js';
 import { IacAdapter, type IacAdapterOptions } from './iac.js';
 import { UrlScanAdapter } from './url-scan.js';
 import { ReformAdapter, type ReformAdapterOptions } from './reform.js';
-import { loadJurisdictionPacks, type LoadedRulePack, type RulePackLoadOptions } from './rules/index.js';
+import {
+  getJurisdictionUnavailableMessage,
+  loadJurisdictionPacks,
+  type LoadedRulePack,
+  type RulePackLoadOptions,
+} from './rules/index.js';
 import { mapAllFindings } from '../mapping/engine.js';
 
 export interface ScannerOrchestratorOptions {
@@ -34,6 +39,7 @@ export interface ScannerOrchestratorOptions {
   reform?: ReformAdapterOptions;
   adapterTimeoutMs?: number | Partial<Record<ScanSource, number>>;
   onProgress?: (event: ScannerProgressEvent) => void;
+  allowUnavailableJurisdictions?: boolean;
 }
 
 export type ScanOptions = {
@@ -46,12 +52,14 @@ export class ScannerOrchestrator {
   private jurisdictions: Jurisdiction[];
   private adapterTimeoutMs?: number | Partial<Record<ScanSource, number>>;
   private onProgress?: (event: ScannerProgressEvent) => void;
+  private allowUnavailableJurisdictions: boolean;
 
   constructor(options: ScannerOrchestratorOptions = {}) {
     this.rulePackOptions = options.rulePack || {};
     this.jurisdictions = options.jurisdictions || ['au-privacy-act'];
     this.adapterTimeoutMs = options.adapterTimeoutMs;
     this.onProgress = options.onProgress;
+    this.allowUnavailableJurisdictions = options.allowUnavailableJurisdictions === true;
     // Register default scanners
     this.register(new GuardVibeAdapter());
     this.register(new McpScanAdapter());
@@ -84,6 +92,9 @@ export class ScannerOrchestrator {
     const results: ScannerResult[] = [];
     const allErrors: ScannerError[] = [];
     const jurisdictionPacks = await loadJurisdictionPacks(this.jurisdictions, this.rulePackOptions);
+    if (!this.allowUnavailableJurisdictions) {
+      assertJurisdictionPacksAvailable(jurisdictionPacks, this.jurisdictions);
+    }
     const primaryRulePack = getPrimaryRulePack(jurisdictionPacks, this.jurisdictions);
     const activeRulePackManifest = mergeRulePackManifests(jurisdictionPacks, this.jurisdictions);
 
@@ -528,6 +539,24 @@ function uniqueSources(sources: ScanSource[]): ScanSource[] {
 
 function getString(value: unknown): string | undefined {
   return typeof value === 'string' && value.length > 0 ? value : undefined;
+}
+
+function assertJurisdictionPacksAvailable(
+  packs: Map<Jurisdiction, LoadedRulePack>,
+  jurisdictions: Jurisdiction[],
+): void {
+  for (const jurisdiction of new Set(jurisdictions)) {
+    const loaded = packs.get(jurisdiction);
+    const unavailableMessage = getJurisdictionUnavailableMessage(jurisdiction);
+    if (
+      jurisdiction !== 'au-privacy-act'
+      || loaded?.manifest.version === 'unavailable'
+      || loaded?.jurisdictionManifest?.version === 'unavailable'
+      || loaded?.warnings.some((warning) => warning === unavailableMessage || warning.includes('not yet available'))
+    ) {
+      throw new Error(unavailableMessage);
+    }
+  }
 }
 
 function getPrimaryRulePack(
