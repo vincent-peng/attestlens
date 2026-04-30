@@ -3,21 +3,28 @@ import os from 'node:os';
 import path from 'node:path';
 
 import {
+  APPInfo,
+  JurisdictionPackManifest,
   RuleFreshness,
   RulePackManifest,
+  appMappingToRegulationMapping,
+  type Jurisdiction,
+  type JurisdictionPackManifest as JurisdictionPackManifestType,
   type RuleFreshness as RuleFreshnessType,
   type RulePackManifest as RulePackManifestType,
   type RulePackSource,
 } from '../../schema/index.js';
-import { buildEmbeddedRulePack } from './embedded.js';
+import { buildEmbeddedJurisdictionPack, buildEmbeddedRulePack } from './embedded.js';
 
 export const RULE_PACK_CACHE_FILENAME = 'latest.json';
 export const RULE_PACK_STALE_AFTER_DAYS = 14;
 export const RULE_PACK_FETCH_TIMEOUT_MS = 10_000;
 export const RULE_PACK_MAX_BYTES = 1_000_000;
+export const AVAILABLE_JURISDICTIONS: readonly Jurisdiction[] = ['au-privacy-act'];
 
 export interface LoadedRulePack {
   manifest: RulePackManifestType;
+  jurisdictionManifest?: JurisdictionPackManifestType;
   freshness: RuleFreshnessType;
   warnings: string[];
   cachePath?: string;
@@ -52,6 +59,13 @@ export function getRulePackCachePath(cacheDir = getDefaultRuleCacheDir()): strin
   return path.join(cacheDir, RULE_PACK_CACHE_FILENAME);
 }
 
+export function getJurisdictionRuleCacheDir(
+  jurisdiction: Jurisdiction,
+  cacheDir = getDefaultRuleCacheDir(),
+): string {
+  return path.join(cacheDir, jurisdiction);
+}
+
 export async function loadRulePack(options: RulePackLoadOptions = {}): Promise<LoadedRulePack> {
   const cacheDir = options.cacheDir || getDefaultRuleCacheDir();
   const cachePath = getRulePackCachePath(cacheDir);
@@ -63,6 +77,7 @@ export async function loadRulePack(options: RulePackLoadOptions = {}): Promise<L
       const cached = await readRulePackFromFile(cachePath);
       return {
         manifest: cached,
+        jurisdictionManifest: buildJurisdictionManifestFromRulePack(cached),
         freshness: buildRuleFreshness(cached, 'cache', now),
         warnings,
         cachePath,
@@ -77,9 +92,40 @@ export async function loadRulePack(options: RulePackLoadOptions = {}): Promise<L
   const embedded = validateRulePackManifest(buildEmbeddedRulePack());
   return {
     manifest: embedded,
+    jurisdictionManifest: buildEmbeddedJurisdictionPack(),
     freshness: buildRuleFreshness(embedded, 'embedded', now),
     warnings,
   };
+}
+
+export async function loadJurisdictionPacks(
+  jurisdictions: Jurisdiction[],
+  options: RulePackLoadOptions = {},
+): Promise<Map<Jurisdiction, LoadedRulePack>> {
+  const packs = new Map<Jurisdiction, LoadedRulePack>();
+  const uniqueJurisdictions = Array.from(new Set(jurisdictions));
+  const now = options.now || new Date();
+
+  for (const jurisdiction of uniqueJurisdictions) {
+    if (jurisdiction === 'au-privacy-act') {
+      const loaded = await loadRulePack(options);
+      packs.set(jurisdiction, {
+        ...loaded,
+        jurisdictionManifest: buildJurisdictionManifestFromRulePack(loaded.manifest),
+      });
+      continue;
+    }
+
+    const manifest = buildUnavailableRulePack(jurisdiction, now);
+    packs.set(jurisdiction, {
+      manifest,
+      jurisdictionManifest: buildUnavailableJurisdictionPack(jurisdiction, now),
+      freshness: buildRuleFreshness(manifest, 'embedded', now),
+      warnings: [getJurisdictionUnavailableMessage(jurisdiction)],
+    });
+  }
+
+  return packs;
 }
 
 export async function updateRuleCache(options: RulePackUpdateOptions = {}): Promise<LoadedRulePack> {
@@ -93,6 +139,7 @@ export async function updateRuleCache(options: RulePackUpdateOptions = {}): Prom
       const cached = await readRulePackFromFile(cachePath);
       return {
         manifest: cached,
+        jurisdictionManifest: buildJurisdictionManifestFromRulePack(cached),
         freshness: buildRuleFreshness(cached, 'cache', now),
         warnings: [],
         cachePath,
@@ -108,6 +155,7 @@ export async function updateRuleCache(options: RulePackUpdateOptions = {}): Prom
 
     return {
       manifest: embedded,
+      jurisdictionManifest: buildJurisdictionManifestFromRulePack(embedded),
       freshness: buildRuleFreshness(embedded, 'cache', now),
       warnings: [],
       cachePath,
@@ -120,6 +168,7 @@ export async function updateRuleCache(options: RulePackUpdateOptions = {}): Prom
 
   return {
     manifest,
+    jurisdictionManifest: buildJurisdictionManifestFromRulePack(manifest),
     freshness: buildRuleFreshness(manifest, isHttpsUrl(source) ? 'remote' : 'cache', now),
     warnings: [],
     cachePath,
@@ -247,7 +296,66 @@ function validateRulePackManifest(raw: unknown): RulePackManifestType {
     seen.add(rule.id);
   }
 
-  return manifest;
+  return {
+    ...manifest,
+    rules: manifest.rules.map((rule) => ({
+      ...rule,
+      regulationMappings: rule.regulationMappings && rule.regulationMappings.length > 0
+        ? rule.regulationMappings
+        : rule.appMappings.map(appMappingToRegulationMapping),
+    })),
+  };
+}
+
+function buildJurisdictionManifestFromRulePack(manifest: RulePackManifestType): JurisdictionPackManifestType {
+  if (manifest.jurisdiction !== 'au-privacy-act') {
+    return JurisdictionPackManifest.parse({
+      schemaVersion: '2.0',
+      version: manifest.version,
+      jurisdiction: manifest.jurisdiction,
+      generated: manifest.generated,
+      principles: [],
+      rules: manifest.rules,
+    });
+  }
+
+  return JurisdictionPackManifest.parse({
+    schemaVersion: '2.0',
+    version: manifest.version,
+    jurisdiction: 'au-privacy-act',
+    generated: manifest.generated,
+    principles: Object.entries(APPInfo).map(([id, info]) => ({
+      id,
+      shortName: info.shortName,
+      obligation: info.obligation,
+    })),
+    rules: manifest.rules,
+  });
+}
+
+function buildUnavailableRulePack(jurisdiction: Jurisdiction, now: Date): RulePackManifestType {
+  return RulePackManifest.parse({
+    schemaVersion: '1.0',
+    version: 'unavailable',
+    generated: now.toISOString(),
+    jurisdiction,
+    rules: [],
+  });
+}
+
+function buildUnavailableJurisdictionPack(jurisdiction: Jurisdiction, now: Date): JurisdictionPackManifestType {
+  return JurisdictionPackManifest.parse({
+    schemaVersion: '2.0',
+    version: 'unavailable',
+    jurisdiction,
+    generated: now.toISOString(),
+    principles: [],
+    rules: [],
+  });
+}
+
+export function getJurisdictionUnavailableMessage(jurisdiction: Jurisdiction): string {
+  return `jurisdiction '${jurisdiction}' is not yet available. Available jurisdictions: ${AVAILABLE_JURISDICTIONS.join(', ')}`;
 }
 
 function buildRuleFreshness(

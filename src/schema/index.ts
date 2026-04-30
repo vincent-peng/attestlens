@@ -16,6 +16,27 @@ export type Severity = z.infer<typeof Severity>;
 export const ControlStatus = z.enum(['pass', 'fail', 'unknown']);
 export type ControlStatus = z.infer<typeof ControlStatus>;
 
+export const Jurisdiction = z.enum(['au-privacy-act', 'us-ccpa', 'eu-gdpr']);
+export type Jurisdiction = z.infer<typeof Jurisdiction>;
+
+export const JurisdictionInfo: Record<Jurisdiction, { shortName: string; fullName: string; citation: string }> = {
+  'au-privacy-act': {
+    shortName: 'AU Privacy Act',
+    fullName: 'Australian Privacy Act 1988 (APPs + NDB)',
+    citation: 'Privacy Act 1988 (Cth)',
+  },
+  'us-ccpa': {
+    shortName: 'US CCPA/CPRA',
+    fullName: 'California Consumer Privacy Act / California Privacy Rights Act',
+    citation: 'Cal. Civ. Code §1798.100-199.100',
+  },
+  'eu-gdpr': {
+    shortName: 'EU GDPR',
+    fullName: 'General Data Protection Regulation',
+    citation: 'Regulation (EU) 2016/679',
+  },
+};
+
 export const ScanSource = z.enum([
   'guardvibe',
   'vibesafe',
@@ -74,6 +95,10 @@ export const APPInfo: Record<APPPrinciple, { shortName: string; obligation: stri
 
 // ─── Core Schemas ────────────────────────────────────────────────────────────
 
+// Phase 7 will refine this into per-jurisdiction principle validation.
+export const RegulationPrinciple = z.string().min(1);
+export type RegulationPrinciple = z.infer<typeof RegulationPrinciple>;
+
 export const APPMapping = z.object({
   principle: APPPrinciple,
   obligation: z.string(),
@@ -82,6 +107,28 @@ export const APPMapping = z.object({
   rationale: z.string().optional(),
 });
 export type APPMapping = z.infer<typeof APPMapping>;
+
+export const RegulationMapping = z.object({
+  jurisdiction: Jurisdiction,
+  principle: RegulationPrinciple,
+  obligation: z.string(),
+  status: ControlStatus,
+  confidence: z.number().min(0).max(1),
+  rationale: z.string().optional(),
+  citation: z.string().optional(),
+});
+export type RegulationMapping = z.infer<typeof RegulationMapping>;
+
+export function appMappingToRegulationMapping(mapping: APPMapping): RegulationMapping {
+  return {
+    jurisdiction: 'au-privacy-act',
+    principle: mapping.principle,
+    obligation: mapping.obligation,
+    status: mapping.status,
+    confidence: mapping.confidence,
+    rationale: mapping.rationale,
+  };
+}
 
 export const FindingEvidence = z.object({
   timestamp: z.string().datetime(),
@@ -106,6 +153,7 @@ export const AttestLensFinding = z.object({
   fix: z.string().optional(),           // Suggested fix
   fixPrompt: z.string().optional(),     // AI-ready fix prompt for Cursor/Copilot
   corroboratedBy: z.array(ScanSource).optional(), // Other scanner sources merged into this finding
+  regulationMappings: z.array(RegulationMapping).optional(),
   appMappings: z.array(APPMapping),
   evidence: FindingEvidence,
 });
@@ -260,6 +308,27 @@ export const APPControl = z.object({
 });
 export type APPControl = z.infer<typeof APPControl>;
 
+export const RegulationControl = z.object({
+  jurisdiction: Jurisdiction,
+  principle: RegulationPrinciple,
+  shortName: z.string(),
+  obligation: z.string(),
+  status: ControlStatus,
+  score: z.number().min(0).max(100),
+  findingCount: z.object({
+    critical: z.number().int().nonnegative(),
+    high: z.number().int().nonnegative(),
+    medium: z.number().int().nonnegative(),
+    low: z.number().int().nonnegative(),
+    info: z.number().int().nonnegative(),
+  }),
+  findings: z.array(z.string()),
+  questionnaireRequired: z.boolean(),
+  lastAssessed: z.string(),
+  citation: z.string().optional(),
+});
+export type RegulationControl = z.infer<typeof RegulationControl>;
+
 // ─── Remediation ─────────────────────────────────────────────────────────────
 
 export const RemediationPriority = z.enum(['quick_win', 'medium_effort', 'structural']);
@@ -381,6 +450,7 @@ export const RuleDefinition = z.object({
   pattern: z.string().optional(),
   flags: z.string().optional(),
   fixPrompt: z.string().optional(),
+  regulationMappings: z.array(RegulationMapping).optional(),
   appMappings: z.array(APPMapping).default([]),
   cve: z.string().nullable().optional(),
   addedIn: z.string(),
@@ -394,8 +464,24 @@ export const RulePackManifest = z.object({
   version: z.string(),
   generated: z.string().datetime(),
   rules: z.array(RuleDefinition),
+  jurisdiction: Jurisdiction.default('au-privacy-act'),
 });
 export type RulePackManifest = z.infer<typeof RulePackManifest>;
+
+export const JurisdictionPackManifest = z.object({
+  schemaVersion: z.literal('2.0'),
+  version: z.string(),
+  jurisdiction: Jurisdiction,
+  generated: z.string().datetime(),
+  principles: z.array(z.object({
+    id: RegulationPrinciple,
+    shortName: z.string(),
+    obligation: z.string(),
+    citation: z.string().optional(),
+  })),
+  rules: z.array(RuleDefinition),
+});
+export type JurisdictionPackManifest = z.infer<typeof JurisdictionPackManifest>;
 
 export const RuleFreshness = z.object({
   version: z.string(),

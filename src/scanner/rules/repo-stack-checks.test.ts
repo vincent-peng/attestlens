@@ -171,7 +171,7 @@ describe('repo stack checks', () => {
     await withTempProject({
       '.env': 'NEXT_PUBLIC_STRIPE_SECRET_KEY="sk_live_secret_value"',
     }, async (projectDir) => {
-      const result = await new GuardVibeAdapter().scan(projectDir);
+      const result = await new GuardVibeAdapter('__attestlens_missing_guardvibe__').scan(projectDir);
       const relevant = result.findings.filter((finding) => finding.file === '.env');
 
       expect(relevant.some((finding) => finding.sourceRule === 'VS-PUBLIC-SECRET-ENV')).toBe(true);
@@ -184,7 +184,7 @@ describe('repo stack checks', () => {
     await withTempProject({
       'src/routes.ts': 'router.post("/api/user", async (req, res) => db.query("select * from users where id=" + req.params.id));',
     }, async (projectDir) => {
-      const result = await new GuardVibeAdapter().scan(projectDir);
+      const result = await new GuardVibeAdapter('__attestlens_missing_guardvibe__').scan(projectDir);
 
       expect(result.findings.some((finding) => finding.sourceRule === 'VS-SAST-004')).toBe(true);
     });
@@ -197,7 +197,7 @@ describe('repo stack checks', () => {
       '.strands/worktrees/abc123/src/App.tsx': 'return <div dangerouslySetInnerHTML={{ __html: html }} />;',
       'examples/Example.tsx': 'return <div dangerouslySetInnerHTML={{ __html: html }} />;',
     }, async (projectDir) => {
-      const result = await new GuardVibeAdapter().scan(projectDir);
+      const result = await new GuardVibeAdapter('__attestlens_missing_guardvibe__').scan(projectDir);
       const xssFiles = result.findings
         .filter((finding) => finding.sourceRule === 'VS-XSS')
         .map((finding) => finding.file);
@@ -213,7 +213,7 @@ describe('repo stack checks', () => {
         'db.query("select * from users where id=" + req.params.id);',
       ].join('\n'),
     }, async (projectDir) => {
-      const result = await new GuardVibeAdapter().scan(projectDir);
+      const result = await new GuardVibeAdapter('__attestlens_missing_guardvibe__').scan(projectDir);
       const sqlFindings = result.findings.filter((finding) => finding.sourceRule === 'VS-SQLI');
 
       expect(sqlFindings).toHaveLength(1);

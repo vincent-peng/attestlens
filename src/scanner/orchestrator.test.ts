@@ -4,6 +4,7 @@ import path from 'node:path';
 
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { ScannerOrchestrator } from './orchestrator.js';
+import { GuardVibeAdapter } from './guardvibe.js';
 import type { ScannerAdapter, ScannerContext, ScannerProgressEvent, ScannerResult } from './types.js';
 import type { AttestLensFinding, ScanSource } from '../schema/index.js';
 
@@ -14,8 +15,10 @@ describe('ScannerOrchestrator', { timeout: 20000 }, () => {
   beforeAll(async () => {
     fixtureDir = await createVulnerableAppFixture();
     const orchestrator = new ScannerOrchestrator();
+    orchestrator.register(new GuardVibeAdapter('__attestlens_missing_guardvibe__'));
+    orchestrator.disable('mcp-scan');
     scanResult = await orchestrator.scan(fixtureDir);
-  });
+  }, 30000);
 
   afterAll(async () => {
     if (fixtureDir) {
@@ -52,6 +55,14 @@ describe('ScannerOrchestrator', { timeout: 20000 }, () => {
     const registry = orchestrator.getRegistry();
     const mcpScan = registry.find(r => r.adapter.name === 'mcp-scan');
     expect(mcpScan!.enabled).toBe(true);
+  });
+
+  it('rejects unavailable jurisdictions before running scanner adapters', async () => {
+    const orchestrator = new ScannerOrchestrator({ jurisdictions: ['us-ccpa'] });
+
+    await expect(orchestrator.scan(fixtureDir, [])).rejects.toThrow(
+      "jurisdiction 'us-ccpa' is not yet available. Available jurisdictions: au-privacy-act",
+    );
   });
 
   it('should return findings from scan', async () => {

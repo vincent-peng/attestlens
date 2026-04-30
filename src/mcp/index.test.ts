@@ -360,6 +360,7 @@ describe('MCP Server', () => {
       const payload = expectJsonStructuredPayload(response);
 
       expect(payload).toEqual(expect.objectContaining({
+        jurisdiction: 'au-privacy-act',
         principle: 'APP_11',
         verdict: 'NON_COMPLIANT',
         score: expect.any(Number),
@@ -390,6 +391,76 @@ describe('MCP Server', () => {
       });
 
       expect(scanSpy).not.toHaveBeenCalled();
+    });
+
+    it('rejects unavailable jurisdictions before scanning attestlens_check', async () => {
+      const scanSpy = vi.spyOn(ScannerOrchestrator.prototype, 'scan');
+
+      const response = await handleToolCall('attestlens_check', {
+        path: tempDir,
+        jurisdiction: 'us-ccpa',
+        principle: 'CCPA_100',
+      });
+
+      expect(response).toEqual({
+        content: [{ type: 'text', text: "jurisdiction 'us-ccpa' is not yet available. Available jurisdictions: au-privacy-act" }],
+        isError: true,
+      });
+      expect(scanSpy).not.toHaveBeenCalled();
+    });
+
+    it('rejects unavailable jurisdictions before scanning MCP scan, audit, and opinion tools', async () => {
+      const scanSpy = vi.spyOn(ScannerOrchestrator.prototype, 'scan');
+      const toolCalls = [
+        { name: 'attestlens_scan', args: { path: tempDir, jurisdiction: 'us-ccpa' } },
+        { name: 'attestlens_audit', args: { path: tempDir, jurisdiction: 'us-ccpa', format: 'json' } },
+        { name: 'attestlens_opinion', args: { path: tempDir, jurisdiction: 'us-ccpa' } },
+      ];
+
+      for (const toolCall of toolCalls) {
+        const response = await handleToolCall(toolCall.name, toolCall.args);
+
+        expect(response, toolCall.name).toEqual({
+          content: [{ type: 'text', text: "jurisdiction 'us-ccpa' is not yet available. Available jurisdictions: au-privacy-act" }],
+          isError: true,
+        });
+      }
+      expect(scanSpy).not.toHaveBeenCalled();
+    });
+
+    it('treats explicit AU scan jurisdiction the same as default', async () => {
+      vi.spyOn(ScannerOrchestrator.prototype, 'scan').mockImplementation(async () => ({
+        findings: [
+          makeFinding(),
+        ],
+        results: [
+          {
+            source: 'guardvibe',
+            version: '1.0.0',
+            timestamp: new Date().toISOString(),
+            findings: [
+              makeFinding(),
+            ],
+            errors: [],
+            durationMs: 12,
+          },
+        ],
+        errors: [],
+        totalDurationMs: 12,
+        ruleFreshness: makeRuleFreshness(),
+      }));
+
+      const defaultResponse = await handleToolCall('attestlens_scan', { path: tempDir });
+      const auResponse = await handleToolCall('attestlens_scan', {
+        path: tempDir,
+        jurisdiction: 'au-privacy-act',
+      });
+      const defaultPayload = expectJsonStructuredPayload(defaultResponse);
+      const auPayload = expectJsonStructuredPayload(auResponse);
+
+      expect(auPayload.summary).toEqual(defaultPayload.summary);
+      expect(auPayload.controls).toEqual(defaultPayload.controls);
+      expect(auPayload.findings[0].regulationMappings[0].jurisdiction).toBe('au-privacy-act');
     });
 
     it('returns scan-only SMB compliance output from attestlens_compliance_check', async () => {

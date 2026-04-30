@@ -1,4 +1,5 @@
-import type { APPMapping, RuleDefinition, RulePackManifest } from '../../schema/index.js';
+import { APPInfo, JurisdictionPackManifest, RulePackManifest, appMappingToRegulationMapping } from '../../schema/index.js';
+import type { APPMapping, RuleDefinition, JurisdictionPackManifest as JurisdictionPackManifestType, RulePackManifest as RulePackManifestType } from '../../schema/index.js';
 import { KEY_PATTERNS } from './exposed-keys.js';
 import { INFRA_CHECKS } from './infra-checks.js';
 import { JS_PATTERNS } from './js-analysis.js';
@@ -417,12 +418,13 @@ function ruleFromJsPattern(pattern: (typeof JS_PATTERNS)[number]): RuleDefinitio
   };
 }
 
-export function buildEmbeddedRulePack(): RulePackManifest {
-  return {
+export function buildEmbeddedRulePack(): RulePackManifestType {
+  return RulePackManifest.parse({
     schemaVersion: '1.0',
     version: EMBEDDED_RULE_PACK_VERSION,
     generated: EMBEDDED_RULE_PACK_GENERATED,
-    rules: [
+    jurisdiction: 'au-privacy-act',
+    rules: normalizeRuleDefinitions([
       ...guardVibeStaticRules,
       ...supplyChainRules,
       ...urlInlineRules,
@@ -431,6 +433,31 @@ export function buildEmbeddedRulePack(): RulePackManifest {
       ...INFRA_CHECKS.map(ruleFromInfraCheck),
       ...KEY_PATTERNS.map(ruleFromKeyPattern),
       ...JS_PATTERNS.map(ruleFromJsPattern),
-    ],
-  };
+    ]),
+  });
+}
+
+export function buildEmbeddedJurisdictionPack(): JurisdictionPackManifestType {
+  const rulePack = buildEmbeddedRulePack();
+  return JurisdictionPackManifest.parse({
+    schemaVersion: '2.0',
+    version: EMBEDDED_RULE_PACK_VERSION,
+    jurisdiction: 'au-privacy-act',
+    generated: EMBEDDED_RULE_PACK_GENERATED,
+    principles: Object.entries(APPInfo).map(([id, info]) => ({
+      id,
+      shortName: info.shortName,
+      obligation: info.obligation,
+    })),
+    rules: rulePack.rules,
+  });
+}
+
+function normalizeRuleDefinitions(rules: RuleDefinition[]): RuleDefinition[] {
+  return rules.map((rule) => ({
+    ...rule,
+    regulationMappings: rule.regulationMappings && rule.regulationMappings.length > 0
+      ? rule.regulationMappings
+      : rule.appMappings.map(appMappingToRegulationMapping),
+  }));
 }

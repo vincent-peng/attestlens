@@ -1,6 +1,6 @@
 import crypto from 'node:crypto';
 
-import { mapAllFindings } from '../mapping/engine.js';
+import { mapAllFindingsAU } from '../mapping/engine.js';
 import { RuleFreshness as RuleFreshnessSchema } from '../schema/index.js';
 import type {
   APPPrinciple,
@@ -96,7 +96,7 @@ export function buildAttestationScanSnapshot(params: {
 }
 
 export function deriveQuestionnairePrinciples(findings: AttestLensFinding[]): APPPrinciple[] {
-  const { controls } = mapAllFindings(findings, false);
+  const { controls } = mapAllFindingsAU(findings, false);
   return controls
     .filter((control) => control.questionnaireRequired)
     .map((control) => control.principle);
@@ -106,7 +106,7 @@ function buildRelevantFindings(
   findings: AttestLensFinding[],
   principle: APPPrinciple,
 ): AttestLensFinding[] {
-  mapAllFindings(findings, false);
+  mapAllFindingsAU(findings, false);
 
   return findings.filter((finding) =>
     finding.appMappings.some((mapping) => mapping.principle === principle),

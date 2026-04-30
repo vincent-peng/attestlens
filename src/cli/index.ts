@@ -17,7 +17,7 @@ import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 import { ScannerOrchestrator, type ScannerOrchestratorOptions } from '../scanner/orchestrator.js';
-import { mapAllFindings } from '../mapping/engine.js';
+import { mapAllFindingsAU } from '../mapping/engine.js';
 import {
   buildComplianceReport,
   generateAgentReport,
@@ -33,7 +33,7 @@ import {
   generateSMBMarkdownReport,
   type SMBComplianceResult,
 } from '../report/smb-generator.js';
-import { updateRuleCache } from '../scanner/rules/index.js';
+import { getJurisdictionUnavailableMessage, updateRuleCache } from '../scanner/rules/index.js';
 import {
   SMB_QUESTIONS,
   SMB_QUESTIONNAIRE_VERSION,
@@ -53,12 +53,13 @@ import {
   runAttestationSession,
   saveQuestionnaireSession,
 } from '../questionnaire/index.js';
-import { RuleFreshness } from '../schema/index.js';
+import { Jurisdiction, RuleFreshness } from '../schema/index.js';
 import type {
   APPPrinciple,
   AssessmentMode,
   AttestLensFinding,
   ComplianceReport,
+  Jurisdiction as JurisdictionType,
   Question,
   QuestionnaireResponse,
   QuestionnaireSession,
@@ -99,12 +100,15 @@ program
   .option('--external-enrichment', 'Enable external OSV.dev and npm registry dependency enrichment')
   .option('--scanner-timeout <ms>', 'Per-scanner timeout in milliseconds')
   .option('--auto-update', 'Refresh the cached rule pack from ATTESTLENS_RULE_SOURCE before scanning')
+  .option('--jurisdiction <jurisdiction>', 'Jurisdiction to check against (default: au-privacy-act)', 'au-privacy-act')
   .option('--reform', 'Include Privacy Act 2026 reform impact assessment')
   .action(async (targetInput: string, options: any) => {
     console.log(chalk.bold.cyan('\n🔍 AttestLens — Privacy Act Compliance Scanner\n'));
 
     try {
       const target = await resolveCliTarget(targetInput, options.name);
+      const jurisdiction = parseJurisdictionOption(options.jurisdiction);
+      assertJurisdictionAvailableForCli(jurisdiction);
       await maybeAutoUpdateRules(options);
       const orchestrator = createOrchestrator(target.kind, options);
       const spinner = ora(target.kind === 'url' ? `Scanning URL: ${target.value}` : 'Scanning project...').start();
@@ -132,7 +136,7 @@ program
       displayFindings(findings);
 
       // Map to APP
-      const { controls: appControls } = mapAllFindings(findings);
+      const { controls: appControls } = mapAllFindingsAU(findings);
       const affectedPrinciples = appControls
         .filter(c => c.status !== 'unknown' || c.findings.length > 0)
         .map(c => c.principle);
@@ -168,6 +172,7 @@ program
   .option('--external-enrichment', 'Enable external OSV.dev and npm registry dependency enrichment')
   .option('--scanner-timeout <ms>', 'Per-scanner timeout in milliseconds')
   .option('--auto-update', 'Refresh the cached rule pack from ATTESTLENS_RULE_SOURCE before scanning')
+  .option('--jurisdiction <jurisdiction>', 'Jurisdiction to check against (default: au-privacy-act)', 'au-privacy-act')
   .option('--opinion', 'Include compliance opinion in report')
   .option('--reform', 'Include Privacy Act 2026 reform impact assessment')
 
@@ -179,6 +184,8 @@ program
         console.log(chalk.bold.cyan('\n🔍 AttestLens — Privacy Act Compliance Audit\n'));
       }
       const target = await resolveCliTarget(targetInput, options.name);
+      const jurisdiction = parseJurisdictionOption(options.jurisdiction);
+      assertJurisdictionAvailableForCli(jurisdiction);
       const projectName = target.name;
       await maybeAutoUpdateRules(options, agentOutput);
       const orchestrator = createOrchestrator(target.kind, options);
@@ -341,12 +348,15 @@ program
   .option('--gitleaks-path <path>', 'Path to gitleaks binary', 'gitleaks')
   .option('--reform', 'Include Privacy Act 2026 reform impact assessment')
   .option('--scanner-timeout <ms>', 'Per-scanner timeout in milliseconds')
+  .option('--jurisdiction <jurisdiction>', 'Jurisdiction to check against (default: au-privacy-act)', 'au-privacy-act')
   .action(async (targetInput: string, options: any) => {
     console.log(chalk.bold.cyan('\n📋 AttestLens — Compliance Check\n'));
 
     try {
       const outputFormats = parseSMBOutputFormats(options.format);
       const target = await resolveCliTarget(targetInput);
+      const jurisdiction = parseJurisdictionOption(options.jurisdiction);
+      assertJurisdictionAvailableForCli(jurisdiction);
       const outputDir = path.resolve(options.output);
       const orchestrator = createOrchestrator(target.kind, options);
       const spinner = ora(target.kind === 'url' ? `Checking URL: ${target.value}` : 'Checking project...').start();
@@ -599,11 +609,30 @@ function formatRuleFreshnessForCli(ruleFreshness: RuleFreshnessMetadata): string
   return `${ruleFreshness.version} (${ruleFreshness.source}, ${ruleFreshness.ruleCount} rules, ${age}, ${state})`;
 }
 
+function parseJurisdictionOption(rawValue: unknown): JurisdictionType {
+  const value = rawValue === undefined || rawValue === null || rawValue === ''
+    ? 'au-privacy-act'
+    : rawValue;
+  const result = Jurisdiction.safeParse(value);
+  if (!result.success) {
+    throw new Error(`Unsupported jurisdiction: ${String(value)}. Valid jurisdictions: ${Jurisdiction.options.join(', ')}`);
+  }
+  return result.data;
+}
+
+function assertJurisdictionAvailableForCli(jurisdiction: JurisdictionType): void {
+  if (jurisdiction !== 'au-privacy-act') {
+    throw new Error(getJurisdictionUnavailableMessage(jurisdiction));
+  }
+}
+
 export function buildScannerOrchestratorOptions(options: any): ScannerOrchestratorOptions {
   const externalEnrichment = options.externalEnrichment === true;
   const scannerTimeoutMs = parseScannerTimeoutOption(options.scannerTimeout);
+  const jurisdiction = parseJurisdictionOption(options.jurisdiction);
   return {
     ...(scannerTimeoutMs !== undefined ? { adapterTimeoutMs: scannerTimeoutMs } : {}),
+    jurisdictions: [jurisdiction],
     supplyChain: {
       typosquat: { enabled: options.includeTyposquat === true },
       osv: { enabled: externalEnrichment },
