@@ -1,7 +1,7 @@
 {
   "name": "@attestlens/cli",
   "version": "0.3.0",
-  "description": "Clearway by AttestLens: Australian Privacy Act compliance service powered by AI.",
+  "description": "Clearway by AttestLens: deterministic multi-jurisdiction privacy compliance runtime for AI agents.",
   "type": "module",
   "main": "dist/cli/index.js",
   "bin": {
@@ -24,8 +24,13 @@
   "keywords": [
     "compliance",
     "privacy-act",
+    "privacy-compliance",
     "privacy",
     "australia",
+    "ccpa",
+    "cpra",
+    "gdpr",
+    "multi-jurisdiction",
     "ai-agents",
     "app",
     "ndb",
