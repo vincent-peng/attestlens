@@ -9,10 +9,13 @@ import {
   RULE_PACK_FETCH_TIMEOUT_MS,
   RULE_PACK_MAX_BYTES,
   AVAILABLE_JURISDICTIONS,
+  getValidatedJurisdictionPackPath,
+  getValidatedJurisdictionRuntimePackPath,
   getJurisdictionUnavailableMessage,
   getRulePackCachePath,
   loadJurisdictionPacks,
   loadRulePack,
+  loadValidatedJurisdictionPack,
   updateRuleCache,
 } from './loader.js';
 
@@ -37,6 +40,99 @@ describe('rule pack loader', () => {
       version,
       generated: '2026-04-25T00:00:00.000Z',
     };
+  }
+
+  async function writeValidatedJurisdictionArtifacts(
+    jurisdictionDir: string,
+    options: {
+      version?: string;
+      runtimeRules?: any[];
+      validatedRules?: any[];
+    } = {},
+  ): Promise<void> {
+    const version = options.version || '2026.05.02';
+    const runtimePath = getValidatedJurisdictionRuntimePackPath('sg-pdpa', path.dirname(jurisdictionDir));
+    const validatedPath = getValidatedJurisdictionPackPath('sg-pdpa', path.dirname(jurisdictionDir));
+    await fs.mkdir(path.dirname(runtimePath), { recursive: true });
+
+    const runtimeRules = options.runtimeRules || [{
+      id: 'SGPDPA-SEC-001',
+      category: 'guardvibe-static',
+      severity: 'critical',
+      title: 'Validated override',
+      description: 'Validated override description',
+      pattern: 'HARDCODED_RUNTIME_SECRET',
+      flags: 'g',
+      fixPrompt: 'Rotate the secret',
+      appMappings: [],
+      regulationMappings: [{
+        jurisdiction: 'sg-pdpa',
+        principle: 'SGPDPA_24',
+        obligation: 'Protect personal data',
+        status: 'fail',
+        confidence: 0.9,
+      }],
+      enabled: true,
+      addedIn: version,
+      tags: ['validated'],
+    }];
+    const validatedRules = options.validatedRules || runtimeRules.map((rule) => ({
+      ...rule,
+      source: {
+        jurisdiction: 'sg-pdpa',
+        citation: 'PDPA Section 24',
+      },
+      authoring: {
+        author: 'human-validated',
+        confidence: 'high',
+        falsePositiveRisk: 'low',
+      },
+      provenance: {
+        sourceDocumentHash: 'hash',
+        approvedBy: 'reviewer',
+        approvedAt: '2026-05-02T00:00:00.000Z',
+        packVersion: version,
+      },
+      interpretation: {
+        machineCheckable: true,
+        determinism: 'deterministic',
+        reviewRequired: false,
+        falsePositiveRisk: 'low',
+      },
+      tests: {
+        positive: [],
+        negative: [],
+        edgeCase: [],
+      },
+    }));
+
+    await fs.writeFile(runtimePath, JSON.stringify({
+      schemaVersion: '1.0',
+      version,
+      generated: '2026-05-02T00:00:00.000Z',
+      jurisdiction: 'sg-pdpa',
+      rules: runtimeRules,
+    }, null, 2));
+    await fs.writeFile(validatedPath, JSON.stringify({
+      schemaVersion: '2.1',
+      version,
+      jurisdiction: 'sg-pdpa',
+      generated: '2026-05-02T00:00:00.000Z',
+      principles: [{
+        id: 'SGPDPA_24',
+        shortName: 'Protection',
+        obligation: 'Protect personal data',
+        citation: 'PDPA Section 24',
+      }],
+      rules: validatedRules,
+      provenance: {
+        proposedAt: '2026-05-01T00:00:00.000Z',
+        reviewedBy: 'reviewer',
+        reviewedAt: '2026-05-02T00:00:00.000Z',
+        sourceDocumentHash: 'hash',
+      },
+      ruleProvenance: Object.fromEntries(validatedRules.map((rule) => [rule.id, rule.provenance])),
+    }, null, 2));
   }
 
   it('loads the embedded rule pack deterministically when no cache exists', async () => {
@@ -309,6 +405,110 @@ describe('rule pack loader', () => {
     expect(sgPdpaPack!.manifest.rules.some((rule) => rule.id === 'SGPDPA-CONSENT-001')).toBe(true);
     expect(sgPdpaPack!.jurisdictionManifest?.principles.some((principle) => principle.id === 'SGPDPA_11')).toBe(true);
     expect(sgPdpaPack!.warnings).toEqual([]);
+  });
+
+  it('loads a validated runtime pack alongside validated manifest metadata', async () => {
+    const jurisdictionBaseDir = await makeTempDir();
+    process.env.ATTESTLENS_JURISDICTION_PACK_DIR = jurisdictionBaseDir;
+    await writeValidatedJurisdictionArtifacts(path.join(jurisdictionBaseDir, 'sg-pdpa'));
+
+    try {
+      const loaded = await loadValidatedJurisdictionPack('sg-pdpa', {
+        now: new Date('2026-05-02T01:00:00.000Z'),
+      });
+
+      expect(loaded.manifest.version).toBe('2026.05.02');
+      expect(loaded.manifest.rules.some((rule) => rule.id === 'SGPDPA-SEC-001')).toBe(true);
+      expect(loaded.validatedManifest?.schemaVersion).toBe('2.1');
+      expect(loaded.authoredRulesById?.get('SGPDPA-SEC-001')?.authoring.author).toBe('human-validated');
+    } finally {
+      delete process.env.ATTESTLENS_JURISDICTION_PACK_DIR;
+    }
+  });
+
+  it('skips ai-draft rules from validated runtime metadata', async () => {
+    const jurisdictionBaseDir = await makeTempDir();
+    process.env.ATTESTLENS_JURISDICTION_PACK_DIR = jurisdictionBaseDir;
+    await writeValidatedJurisdictionArtifacts(path.join(jurisdictionBaseDir, 'sg-pdpa'), {
+      runtimeRules: [{
+        id: 'SGPDPA-AI-DRAFT-001',
+        category: 'guardvibe-static',
+        severity: 'high',
+        title: 'AI draft runtime rule',
+        description: 'should be skipped',
+        pattern: 'SHOULD_NOT_LOAD',
+        appMappings: [],
+        regulationMappings: [],
+        enabled: true,
+        addedIn: '2026.05.02',
+      }],
+      validatedRules: [{
+        id: 'SGPDPA-AI-DRAFT-001',
+        category: 'guardvibe-static',
+        severity: 'high',
+        title: 'AI draft runtime rule',
+        description: 'should be skipped',
+        pattern: 'SHOULD_NOT_LOAD',
+        appMappings: [],
+        regulationMappings: [],
+        enabled: true,
+        addedIn: '2026.05.02',
+        source: {
+          jurisdiction: 'sg-pdpa',
+          citation: 'PDPA Section 24',
+        },
+        authoring: {
+          author: 'ai-draft',
+          confidence: 'high',
+          falsePositiveRisk: 'low',
+        },
+        provenance: {
+          sourceDocumentHash: 'hash',
+        },
+        interpretation: {
+          machineCheckable: true,
+          determinism: 'deterministic',
+          reviewRequired: true,
+          falsePositiveRisk: 'low',
+        },
+        tests: {
+          positive: [],
+          negative: [],
+          edgeCase: [],
+        },
+      }],
+    });
+
+    try {
+      const loaded = await loadValidatedJurisdictionPack('sg-pdpa', {
+        now: new Date('2026-05-02T01:00:00.000Z'),
+      });
+
+      expect(loaded.manifest.rules.some((rule) => rule.id === 'SGPDPA-AI-DRAFT-001')).toBe(false);
+      expect(loaded.warnings.some((warning) => warning.includes('Skipping AI-draft rule SGPDPA-AI-DRAFT-001'))).toBe(true);
+    } finally {
+      delete process.env.ATTESTLENS_JURISDICTION_PACK_DIR;
+    }
+  });
+
+  it('warns and falls back to embedded when the validated runtime pack is older than embedded', async () => {
+    const jurisdictionBaseDir = await makeTempDir();
+    process.env.ATTESTLENS_JURISDICTION_PACK_DIR = jurisdictionBaseDir;
+    await writeValidatedJurisdictionArtifacts(path.join(jurisdictionBaseDir, 'sg-pdpa'), {
+      version: '2026.04.30',
+    });
+
+    try {
+      const loaded = await loadValidatedJurisdictionPack('sg-pdpa', {
+        now: new Date('2026-05-02T01:00:00.000Z'),
+      });
+
+      expect(loaded.manifest.version).toBe('2026.05.01');
+      expect(loaded.freshness.source).toBe('embedded');
+      expect(loaded.warnings.some((warning) => warning.includes('older than embedded'))).toBe(true);
+    } finally {
+      delete process.env.ATTESTLENS_JURISDICTION_PACK_DIR;
+    }
   });
 
   it('loads mixed AU, CCPA, GDPR, and SG PDPA packs', async () => {

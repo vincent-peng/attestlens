@@ -1,0 +1,33 @@
+Singapore Personal Data Protection Act 2012 (selected excerpts for demo)
+
+Part III - General Rules With Respect to Protection Of And Accountability For Personal Data
+
+Consent obligation
+An organisation shall not collect, use or disclose personal data about an individual unless:
+1. the individual gives, or is deemed to give, consent to the collection, use or disclosure of the personal data; or
+2. the collection, use or disclosure without the consent of the individual is required or authorised under this Act or any other written law.
+
+Purpose limitation obligation
+An organisation may collect, use or disclose personal data about an individual only for purposes:
+1. that a reasonable person would consider appropriate in the circumstances; and
+2. where the individual has been informed of those purposes.
+
+Part V - Access To And Correction Of Personal Data
+
+Access obligation
+Upon request by an individual, an organisation shall provide the individual with personal data about the individual that is in the possession or under the control of the organisation, and information about the ways in which the personal data has been used or disclosed by the organisation within a year before the date of the request.
+
+Part VI - Accuracy Of Personal Data
+
+An organisation shall make a reasonable effort to ensure that personal data collected by or on behalf of the organisation is accurate and complete, if the personal data:
+1. is likely to be used by the organisation to make a decision that affects the individual to whom the personal data relates; or
+2. is likely to be disclosed by the organisation to another organisation.
+
+Part XVIII - Protection Of Personal Data
+
+Protection obligation
+An organisation shall protect personal data in its possession or under its control by making reasonable security arrangements to prevent:
+1. unauthorised access, collection, use, disclosure, copying, modification, disposal or similar risks; and
+2. the loss of any storage medium or device on which personal data is stored.
+
+This demo excerpt is shortened for product demonstration only.

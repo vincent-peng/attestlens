@@ -4,7 +4,7 @@
  * Coordinates all scanner adapters, merges findings, and deduplicates results.
  */
 
-import type { AttestLensFinding, Jurisdiction, RulePackManifest, ScanSource } from '../schema/index.js';
+import type { AttestLensFinding, AuthoredRule, Jurisdiction, RuleDefinition, RulePackManifest, ScanSource, Severity } from '../schema/index.js';
 import type {
   ScannerResult,
   ScannerAdapter,
@@ -23,6 +23,7 @@ import { UrlScanAdapter } from './url-scan.js';
 import { ReformAdapter, type ReformAdapterOptions } from './reform.js';
 import {
   getJurisdictionUnavailableMessage,
+  buildEmbeddedRulePack,
   loadJurisdictionPacks,
   type LoadedRulePack,
   type RulePackLoadOptions,
@@ -582,12 +583,63 @@ function mergeRulePackManifests(
   jurisdictions: Jurisdiction[],
 ): RulePackManifest {
   const primary = getPrimaryRulePack(packs, jurisdictions).manifest;
-  const rules = jurisdictions.flatMap((jurisdiction) => packs.get(jurisdiction)?.manifest.rules ?? []);
+  const rulesById = new Map<string, RuleDefinition>();
+
+  for (const rule of buildEmbeddedRulePack().rules) {
+    rulesById.set(rule.id, rule);
+  }
+
+  for (const jurisdiction of jurisdictions) {
+    const loaded = packs.get(jurisdiction);
+    if (!loaded) {
+      continue;
+    }
+
+    for (const rule of loaded.manifest.rules) {
+      const authoredRule = loaded.authoredRulesById?.get(rule.id);
+      rulesById.set(rule.id, {
+        ...rule,
+        severity: authoredRule ? resolveEffectiveSeverity({
+          ...authoredRule,
+          severity: rule.severity,
+        }) : rule.severity,
+      });
+    }
+  }
 
   return {
     ...primary,
-    rules,
+    rules: Array.from(rulesById.values()),
   };
+}
+
+export function resolveEffectiveSeverity(rule: AuthoredRule): Severity {
+  if (rule.authoring.author === 'ai-draft') {
+    throw new Error(`AI-draft rule ${rule.id} must not be loaded into scanner`);
+  }
+
+  const { confidence } = rule.authoring;
+  const { determinism } = rule.interpretation;
+  if (confidence === 'high' && determinism === 'deterministic') {
+    return rule.severity;
+  }
+  if (confidence === 'medium' || determinism === 'heuristic') {
+    return capSeverity(rule.severity, 'medium');
+  }
+  return 'info';
+}
+
+function capSeverity(severity: Severity, maxSeverity: 'medium' | 'info'): Severity {
+  const cappedSeverity = maxSeverity === 'medium' ? 'medium' : 'info';
+  const order: Record<Severity, number> = {
+    critical: 5,
+    high: 4,
+    medium: 3,
+    low: 2,
+    info: 1,
+  };
+
+  return order[severity] > order[cappedSeverity] ? cappedSeverity : severity;
 }
 
 function getTargetKind(target: string): 'path' | 'url' {

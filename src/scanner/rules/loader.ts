@@ -7,18 +7,24 @@ import {
   JurisdictionPackManifest,
   RuleFreshness,
   RulePackManifest,
+  ValidatedPackManifest,
   appMappingToRegulationMapping,
   type Jurisdiction,
+  type AuthoredRule as AuthoredRuleType,
   type JurisdictionPackManifest as JurisdictionPackManifestType,
   type RuleFreshness as RuleFreshnessType,
   type RulePackManifest as RulePackManifestType,
   type RulePackSource,
+  type ValidatedPackManifest as ValidatedPackManifestType,
 } from '../../schema/index.js';
 import { CCPAPrincipleInfo } from './ccpa-principles.js';
 import { GDPRPrincipleInfo } from './gdpr-principles.js';
 import { buildEmbeddedCCPARulePack, buildEmbeddedGDPRRulePack, buildEmbeddedJurisdictionPack, buildEmbeddedRulePack, buildEmbeddedSGPDPARulePack } from './embedded.js';
 
 export const RULE_PACK_CACHE_FILENAME = 'latest.json';
+export const JURISDICTION_PACK_CACHE_DIRNAME = 'jurisdictions';
+export const VALIDATED_JURISDICTION_PACK_FILENAME = 'latest.json';
+export const VALIDATED_JURISDICTION_RUNTIME_PACK_FILENAME = 'latest.runtime.json';
 export const RULE_PACK_STALE_AFTER_DAYS = 14;
 export const RULE_PACK_FETCH_TIMEOUT_MS = 10_000;
 export const RULE_PACK_MAX_BYTES = 1_000_000;
@@ -26,7 +32,9 @@ export const AVAILABLE_JURISDICTIONS: readonly Jurisdiction[] = ['au-privacy-act
 
 export interface LoadedRulePack {
   manifest: RulePackManifestType;
-  jurisdictionManifest?: JurisdictionPackManifestType;
+  jurisdictionManifest?: JurisdictionPackManifestType | ValidatedPackManifestType;
+  validatedManifest?: ValidatedPackManifestType;
+  authoredRulesById?: Map<string, AuthoredRuleType>;
   freshness: RuleFreshnessType;
   warnings: string[];
   cachePath?: string;
@@ -66,6 +74,35 @@ export function getJurisdictionRuleCacheDir(
   cacheDir = getDefaultRuleCacheDir(),
 ): string {
   return path.join(cacheDir, jurisdiction);
+}
+
+export function getDefaultJurisdictionPackDir(env: NodeJS.ProcessEnv = process.env): string {
+  if (env.ATTESTLENS_JURISDICTION_PACK_DIR) {
+    return path.resolve(env.ATTESTLENS_JURISDICTION_PACK_DIR);
+  }
+
+  return path.join(os.homedir(), '.attestlens', JURISDICTION_PACK_CACHE_DIRNAME);
+}
+
+export function getValidatedJurisdictionPackDir(
+  jurisdiction: Jurisdiction,
+  baseDir = getDefaultJurisdictionPackDir(),
+): string {
+  return path.join(baseDir, jurisdiction);
+}
+
+export function getValidatedJurisdictionPackPath(
+  jurisdiction: Jurisdiction,
+  baseDir = getDefaultJurisdictionPackDir(),
+): string {
+  return path.join(getValidatedJurisdictionPackDir(jurisdiction, baseDir), VALIDATED_JURISDICTION_PACK_FILENAME);
+}
+
+export function getValidatedJurisdictionRuntimePackPath(
+  jurisdiction: Jurisdiction,
+  baseDir = getDefaultJurisdictionPackDir(),
+): string {
+  return path.join(getValidatedJurisdictionPackDir(jurisdiction, baseDir), VALIDATED_JURISDICTION_RUNTIME_PACK_FILENAME);
 }
 
 export async function loadRulePack(options: RulePackLoadOptions = {}): Promise<LoadedRulePack> {
@@ -119,39 +156,110 @@ export async function loadJurisdictionPacks(
     }
 
     if (jurisdiction === 'us-ccpa') {
-      const manifest = validateRulePackManifest(buildEmbeddedCCPARulePack());
-      packs.set(jurisdiction, {
-        manifest,
-        jurisdictionManifest: buildEmbeddedJurisdictionPack('us-ccpa'),
-        freshness: buildRuleFreshness(manifest, 'embedded', now),
-        warnings: [],
-      });
+      packs.set(jurisdiction, await loadValidatedJurisdictionPack(jurisdiction, options));
       continue;
     }
 
     if (jurisdiction === 'eu-gdpr') {
-      const manifest = validateRulePackManifest(buildEmbeddedGDPRRulePack());
-      packs.set(jurisdiction, {
-        manifest,
-        jurisdictionManifest: buildEmbeddedJurisdictionPack('eu-gdpr'),
-        freshness: buildRuleFreshness(manifest, 'embedded', now),
-        warnings: [],
-      });
+      packs.set(jurisdiction, await loadValidatedJurisdictionPack(jurisdiction, options));
       continue;
     }
 
     if (jurisdiction === 'sg-pdpa') {
-      const manifest = validateRulePackManifest(buildEmbeddedSGPDPARulePack());
-      packs.set(jurisdiction, {
-        manifest,
-        jurisdictionManifest: buildEmbeddedJurisdictionPack('sg-pdpa'),
-        freshness: buildRuleFreshness(manifest, 'embedded', now),
-        warnings: [],
-      });
+      packs.set(jurisdiction, await loadValidatedJurisdictionPack(jurisdiction, options));
     }
   }
 
   return packs;
+}
+
+export async function loadValidatedJurisdictionPack(
+  jurisdiction: Jurisdiction,
+  options: RulePackLoadOptions = {},
+): Promise<LoadedRulePack> {
+  const now = options.now || new Date();
+  const warnings: string[] = [];
+  const embedded = getEmbeddedJurisdictionRulePack(jurisdiction);
+  const jurisdictionManifest = buildEmbeddedJurisdictionPack(jurisdiction);
+  const baseDir = getDefaultJurisdictionPackDir();
+  const runtimePath = getValidatedJurisdictionRuntimePackPath(jurisdiction, baseDir);
+  const validatedPath = getValidatedJurisdictionPackPath(jurisdiction, baseDir);
+
+  let runtimeManifest: RulePackManifestType | undefined;
+  let validatedManifest: ValidatedPackManifestType | undefined;
+
+  try {
+    runtimeManifest = await readRulePackFromFile(runtimePath);
+  } catch (error: any) {
+    if (error.code !== 'ENOENT') {
+      warnings.push(`Validated runtime pack ignored for ${jurisdiction}: ${error.message}`);
+    }
+  }
+
+  try {
+    validatedManifest = await readValidatedPackFromFile(validatedPath);
+  } catch (error: any) {
+    if (error.code !== 'ENOENT') {
+      warnings.push(`Validated pack manifest ignored for ${jurisdiction}: ${error.message}`);
+    }
+  }
+
+  if (runtimeManifest && comparePackVersions(runtimeManifest.version, embedded.version) < 0) {
+    warnings.push(
+      `Validated runtime pack for ${jurisdiction} is older than embedded (${runtimeManifest.version} < ${embedded.version}). Using embedded rules.`,
+    );
+    runtimeManifest = undefined;
+    validatedManifest = undefined;
+  }
+
+  if (!runtimeManifest) {
+    return {
+      manifest: embedded,
+      jurisdictionManifest,
+      freshness: buildRuleFreshness(embedded, 'embedded', now),
+      warnings,
+    };
+  }
+
+  const authoredRulesById = new Map<string, AuthoredRuleType>();
+  const aiDraftRuleIds = new Set<string>();
+  if (validatedManifest) {
+    for (const rule of validatedManifest.rules) {
+      if (rule.authoring.author === 'ai-draft') {
+        aiDraftRuleIds.add(rule.id);
+        warnings.push(`Skipping AI-draft rule ${rule.id} from validated manifest for ${jurisdiction}.`);
+        continue;
+      }
+      authoredRulesById.set(rule.id, rule);
+    }
+  }
+
+  const filteredRuntimeRules = runtimeManifest.rules.filter((rule) => {
+    if (aiDraftRuleIds.has(rule.id)) {
+      warnings.push(`Skipping AI-draft rule ${rule.id} from validated runtime pack for ${jurisdiction}.`);
+      return false;
+    }
+    const authoredRule = authoredRulesById.get(rule.id);
+    if (authoredRule?.authoring.author === 'ai-draft') {
+      warnings.push(`Skipping AI-draft rule ${rule.id} from validated runtime pack for ${jurisdiction}.`);
+      return false;
+    }
+    return true;
+  });
+
+  const manifest = validateRulePackManifest({
+    ...runtimeManifest,
+    rules: filteredRuntimeRules,
+  });
+
+  return {
+    manifest,
+    jurisdictionManifest: validatedManifest || jurisdictionManifest,
+    validatedManifest,
+    authoredRulesById,
+    freshness: buildRuleFreshness(manifest, 'cache', now),
+    warnings,
+  };
 }
 
 export async function updateRuleCache(options: RulePackUpdateOptions = {}): Promise<LoadedRulePack> {
@@ -235,6 +343,15 @@ async function readRulePackFromFile(filePath: string): Promise<RulePackManifestT
   return parseRulePackJson(raw, filePath);
 }
 
+async function readValidatedPackFromFile(filePath: string): Promise<ValidatedPackManifestType> {
+  const stat = await fs.stat(filePath);
+  if (stat.size > RULE_PACK_MAX_BYTES) {
+    throw new Error(`Rule pack source is too large (${stat.size} bytes, max ${RULE_PACK_MAX_BYTES})`);
+  }
+  const raw = await fs.readFile(filePath, 'utf-8');
+  return parseValidatedPackJson(raw, filePath);
+}
+
 async function fetchRulePackFromHttps(source: string, fetchImpl: typeof fetch): Promise<RulePackManifestType> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), RULE_PACK_FETCH_TIMEOUT_MS);
@@ -306,6 +423,14 @@ function parseRulePackJson(raw: string, sourceLabel: string): RulePackManifestTy
   }
 }
 
+function parseValidatedPackJson(raw: string, sourceLabel: string): ValidatedPackManifestType {
+  try {
+    return validateValidatedPackManifest(JSON.parse(raw));
+  } catch (error: any) {
+    throw new Error(`Invalid validated pack manifest from ${sourceLabel}: ${error.message}`);
+  }
+}
+
 async function writeRulePackCache(cacheDir: string, cachePath: string, manifest: RulePackManifestType): Promise<void> {
   await fs.mkdir(cacheDir, { recursive: true });
   await fs.writeFile(cachePath, `${JSON.stringify(manifest, null, 2)}\n`, 'utf-8');
@@ -331,6 +456,48 @@ function validateRulePackManifest(raw: unknown): RulePackManifestType {
         : rule.appMappings.map(appMappingToRegulationMapping),
     })),
   };
+}
+
+function validateValidatedPackManifest(raw: unknown): ValidatedPackManifestType {
+  const manifest = ValidatedPackManifest.parse(raw);
+  const seen = new Set<string>();
+
+  for (const rule of manifest.rules) {
+    if (seen.has(rule.id)) {
+      throw new Error(`Duplicate rule id in validated pack: ${rule.id}`);
+    }
+    seen.add(rule.id);
+  }
+
+  return manifest;
+}
+
+function getEmbeddedJurisdictionRulePack(jurisdiction: Jurisdiction): RulePackManifestType {
+  if (jurisdiction === 'us-ccpa') {
+    return validateRulePackManifest(buildEmbeddedCCPARulePack());
+  }
+  if (jurisdiction === 'eu-gdpr') {
+    return validateRulePackManifest(buildEmbeddedGDPRRulePack());
+  }
+  if (jurisdiction === 'sg-pdpa') {
+    return validateRulePackManifest(buildEmbeddedSGPDPARulePack());
+  }
+  return validateRulePackManifest(buildEmbeddedRulePack());
+}
+
+function comparePackVersions(left: string, right: string): number {
+  const leftParts = left.split('.').map((part) => Number(part));
+  const rightParts = right.split('.').map((part) => Number(part));
+  const length = Math.max(leftParts.length, rightParts.length);
+
+  for (let index = 0; index < length; index += 1) {
+    const delta = (leftParts[index] || 0) - (rightParts[index] || 0);
+    if (delta !== 0) {
+      return delta;
+    }
+  }
+
+  return 0;
 }
 
 function buildJurisdictionManifestFromRulePack(manifest: RulePackManifestType): JurisdictionPackManifestType {

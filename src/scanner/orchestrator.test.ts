@@ -3,10 +3,11 @@ import os from 'node:os';
 import path from 'node:path';
 
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { ScannerOrchestrator } from './orchestrator.js';
+import { ScannerOrchestrator, resolveEffectiveSeverity } from './orchestrator.js';
 import { GuardVibeAdapter } from './guardvibe.js';
 import type { ScannerAdapter, ScannerContext, ScannerProgressEvent, ScannerResult } from './types.js';
-import type { AttestLensFinding, ScanSource } from '../schema/index.js';
+import { getValidatedJurisdictionPackPath, getValidatedJurisdictionRuntimePackPath } from './rules/loader.js';
+import type { AttestLensFinding, AuthoredRule, ScanSource } from '../schema/index.js';
 
 describe('ScannerOrchestrator', { timeout: 20000 }, () => {
   let scanResult: Awaited<ReturnType<ScannerOrchestrator['scan']>>;
@@ -283,6 +284,98 @@ describe('ScannerOrchestrator', { timeout: 20000 }, () => {
       'questionnaire:timeout',
     ]);
   });
+
+  it('keeps original severity for high-confidence deterministic authored rules', () => {
+    expect(resolveEffectiveSeverity(makeAuthoredRule())).toBe('critical');
+  });
+
+  it('caps medium-confidence or heuristic authored rules at medium', () => {
+    expect(resolveEffectiveSeverity(makeAuthoredRule({
+      severity: 'critical',
+      authoring: {
+        author: 'human-validated',
+        confidence: 'medium',
+        falsePositiveRisk: 'medium',
+      },
+      interpretation: {
+        machineCheckable: true,
+        determinism: 'heuristic',
+        reviewRequired: false,
+        falsePositiveRisk: 'medium',
+      },
+    }))).toBe('medium');
+  });
+
+  it('caps low-confidence or manual-only authored rules at info', () => {
+    expect(resolveEffectiveSeverity(makeAuthoredRule({
+      severity: 'high',
+      authoring: {
+        author: 'human-validated',
+        confidence: 'low',
+        falsePositiveRisk: 'high',
+      },
+      interpretation: {
+        machineCheckable: false,
+        determinism: 'manual-only',
+        reviewRequired: false,
+        falsePositiveRisk: 'high',
+      },
+    }))).toBe('info');
+  });
+
+  it('throws if an ai-draft rule reaches severity resolution', () => {
+    expect(() => resolveEffectiveSeverity(makeAuthoredRule({
+      authoring: {
+        author: 'ai-draft',
+        confidence: 'high',
+        falsePositiveRisk: 'low',
+      },
+      interpretation: {
+        machineCheckable: true,
+        determinism: 'deterministic',
+        reviewRequired: true,
+        falsePositiveRisk: 'low',
+      },
+      provenance: {
+        sourceDocumentHash: 'hash',
+      },
+    }))).toThrow(/AI-draft rule/);
+  });
+
+  it('uses validated jurisdiction metadata to cap overridden embedded rule severity during scans', async () => {
+    const jurisdictionBaseDir = await fs.mkdtemp(path.join(os.tmpdir(), 'attestlens-jurisdiction-pack-'));
+    const projectDir = await fs.mkdtemp(path.join(os.tmpdir(), 'attestlens-jurisdiction-project-'));
+    process.env.ATTESTLENS_JURISDICTION_PACK_DIR = jurisdictionBaseDir;
+
+    try {
+      await writeValidatedGuardVibeOverride(jurisdictionBaseDir, {
+        confidence: 'medium',
+        determinism: 'heuristic',
+      });
+      await fs.writeFile(
+        path.join(projectDir, '.env'),
+        'api_key=\"1234567890abcdef1234567890abcdef\"',
+      );
+      const orchestrator = new ScannerOrchestrator({ jurisdictions: ['sg-pdpa'] });
+      orchestrator.disable('mcp-scan');
+      orchestrator.disable('supply-chain');
+      orchestrator.disable('behavioral');
+      orchestrator.disable('iac');
+      orchestrator.disable('url-scan');
+      orchestrator.disable('reform-2026');
+
+      const result = await orchestrator.scan(projectDir, ['guardvibe']);
+      const finding = result.findings.find((candidate) => candidate.sourceRule === 'VS-HARDKEY');
+
+      expect(finding).toBeDefined();
+      expect(finding?.severity).toBe('medium');
+      expect(finding?.title).toBe('Hardcoded secret key');
+    } finally {
+      delete process.env.ATTESTLENS_JURISDICTION_PACK_DIR;
+      await fs.rm(jurisdictionBaseDir, { recursive: true, force: true });
+      await fs.rm(projectDir, { recursive: true, force: true });
+    }
+  });
 });
 
 async function createVulnerableAppFixture(): Promise<string> {
@@ -404,6 +497,119 @@ function makeFinding(overrides: Partial<AttestLensFinding>): AttestLensFinding {
     },
     ...overrides,
   };
+}
+
+function makeAuthoredRule(overrides: Partial<AuthoredRule> = {}): AuthoredRule {
+  return {
+    id: 'VS-HARDKEY',
+    category: 'guardvibe-static',
+    severity: 'critical',
+    title: 'Hardcoded secret key',
+    description: 'A hardcoded secret key was found in source code.',
+    pattern: String.raw`\b[A-Za-z0-9_]*(?:api[_-]?key|secret[_-]?key|private[_-]?key|access[_-]?token)[A-Za-z0-9_]*\s*[:=]\s*['"]?[A-Za-z0-9+/=_-]{16,}['"]?`,
+    flags: 'gi',
+    fixPrompt: 'Move secrets to environment variables.',
+    regulationMappings: [],
+    appMappings: [],
+    addedIn: '2026.05.02',
+    enabled: true,
+    tags: ['validated'],
+    source: {
+      jurisdiction: 'sg-pdpa',
+      citation: 'PDPA Section 24',
+    },
+    authoring: {
+      author: 'human-validated',
+      confidence: 'high',
+      falsePositiveRisk: 'low',
+    },
+    provenance: {
+      sourceDocumentHash: 'hash',
+      approvedBy: 'reviewer',
+      approvedAt: '2026-05-02T00:00:00.000Z',
+      packVersion: '2026.05.02',
+    },
+    interpretation: {
+      machineCheckable: true,
+      determinism: 'deterministic',
+      reviewRequired: false,
+      falsePositiveRisk: 'low',
+    },
+    tests: {
+      positive: [],
+      negative: [],
+      edgeCase: [],
+    },
+    ...overrides,
+  };
+}
+
+async function writeValidatedGuardVibeOverride(
+  baseDir: string,
+  options: {
+    confidence: 'high' | 'medium' | 'low';
+    determinism: 'deterministic' | 'heuristic' | 'manual-only';
+  },
+): Promise<void> {
+  const authoredRule = makeAuthoredRule({
+    authoring: {
+      author: 'human-validated',
+      confidence: options.confidence,
+      falsePositiveRisk: options.confidence === 'low' ? 'high' : 'medium',
+    },
+    interpretation: {
+      machineCheckable: options.determinism !== 'manual-only',
+      determinism: options.determinism,
+      reviewRequired: false,
+      falsePositiveRisk: options.confidence === 'low' ? 'high' : 'medium',
+    },
+  });
+  const runtimePath = getValidatedJurisdictionRuntimePackPath('sg-pdpa', baseDir);
+  const validatedPath = getValidatedJurisdictionPackPath('sg-pdpa', baseDir);
+  await fs.mkdir(path.dirname(runtimePath), { recursive: true });
+  await fs.writeFile(runtimePath, JSON.stringify({
+    schemaVersion: '1.0',
+    version: '2026.05.02',
+    generated: '2026-05-02T00:00:00.000Z',
+    jurisdiction: 'sg-pdpa',
+    rules: [{
+      id: authoredRule.id,
+      category: authoredRule.category,
+      severity: authoredRule.severity,
+      title: authoredRule.title,
+      description: authoredRule.description,
+      pattern: authoredRule.pattern,
+      flags: authoredRule.flags,
+      fixPrompt: authoredRule.fixPrompt,
+      regulationMappings: authoredRule.regulationMappings,
+      appMappings: authoredRule.appMappings,
+      addedIn: authoredRule.addedIn,
+      enabled: authoredRule.enabled,
+      tags: authoredRule.tags,
+    }],
+  }, null, 2));
+  await fs.writeFile(validatedPath, JSON.stringify({
+    schemaVersion: '2.1',
+    version: '2026.05.02',
+    jurisdiction: 'sg-pdpa',
+    generated: '2026-05-02T00:00:00.000Z',
+    principles: [{
+      id: 'SGPDPA_24',
+      shortName: 'Protection',
+      obligation: 'Protect personal data',
+      citation: 'PDPA Section 24',
+    }],
+    rules: [authoredRule],
+    provenance: {
+      proposedAt: '2026-05-01T00:00:00.000Z',
+      reviewedBy: 'reviewer',
+      reviewedAt: '2026-05-02T00:00:00.000Z',
+      sourceDocumentHash: 'hash',
+    },
+    ruleProvenance: {
+      [authoredRule.id]: authoredRule.provenance,
+    },
+  }, null, 2));
 }
 
 async function createNoProvenanceDependencyFixture(): Promise<string> {
