@@ -1,0 +1,296 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Clearway — Privacy Compliance Deploy Gate for AI Agents</title>
+  <meta name="description" content="Deterministic privacy compliance checks for AI agents. Block violations before they ship. MCP-native, offline, multi-jurisdiction.">
+  <meta property="og:title" content="Clearway — Privacy Compliance Deploy Gate for AI Agents">
+  <meta property="og:description" content="Deterministic privacy compliance checks for AI agents. Block violations before they ship.">
+  <meta property="og:type" content="website">
+  <meta name="twitter:card" content="summary_large_image">
+  <style>
+    *{margin:0;padding:0;box-sizing:border-box}
+    :root{--bg:#0a0a0a;--surface:#141414;--border:#262626;--text:#e5e5e5;--muted:#737373;--accent:#22c55e;--accent2:#16a34a;--red:#ef4444}
+    body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',system-ui,sans-serif;background:var(--bg);color:var(--text);line-height:1.6;overflow-x:hidden}
+    .container{max-width:1120px;margin:0 auto;padding:0 24px}
+
+    /* Nav */
+    nav{padding:16px 0;border-bottom:1px solid var(--border)}
+    nav .container{display:flex;align-items:center;justify-content:space-between}
+    .logo{font-size:20px;font-weight:700;color:var(--accent);letter-spacing:-0.5px;text-decoration:none}
+    .nav-links{display:flex;gap:24px;align-items:center}
+    .nav-links a{color:var(--muted);text-decoration:none;font-size:14px;transition:color .15s}
+    .nav-links a:hover{color:var(--text)}
+
+    /* Hero */
+    .hero{padding:80px 0 60px;text-align:center}
+    .badge{display:inline-block;padding:4px 12px;border:1px solid var(--border);border-radius:100px;font-size:13px;color:var(--muted);margin-bottom:24px;background:var(--surface)}
+    .badge .dot{display:inline-block;width:6px;height:6px;border-radius:50%;background:var(--red);margin-right:8px;animation:pulse 2s infinite}
+    @keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}
+    .hero h1{font-size:clamp(36px,6vw,56px);font-weight:800;line-height:1.1;letter-spacing:-1.5px;margin-bottom:20px}
+    .hero h1 .green{color:var(--accent)}
+    .hero .sub{font-size:18px;color:var(--muted);max-width:640px;margin:0 auto 40px;line-height:1.7}
+    .install-box{display:inline-block;background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:16px 32px;font-family:'SF Mono',Monaco,monospace;font-size:15px;color:var(--accent);margin-bottom:16px;user-select:all}
+    .hero .note{font-size:13px;color:var(--muted);margin-top:8px}
+
+    /* Threat */
+    .threat{padding:60px 0;border-top:1px solid var(--border)}
+    .threat-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:24px;margin-top:40px}
+    .threat-card{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:24px}
+    .threat-card .icon{font-size:28px;margin-bottom:12px}
+    .threat-card h3{font-size:16px;font-weight:700;margin-bottom:8px}
+    .threat-card p{font-size:14px;color:var(--muted);line-height:1.6}
+
+    /* How */
+    .how{padding:60px 0;border-top:1px solid var(--border)}
+    .how h2{font-size:32px;font-weight:800;letter-spacing:-1px;margin-bottom:16px}
+    .how .sub{color:var(--muted);font-size:16px;margin-bottom:40px}
+    .how-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:20px}
+    .step{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:24px;display:flex;gap:16px;align-items:flex-start}
+    .step-num{font-size:28px;font-weight:800;color:var(--accent);line-height:1;min-width:36px}
+    .step h3{font-size:15px;font-weight:700;margin-bottom:4px}
+    .step p{font-size:14px;color:var(--muted);line-height:1.6}
+
+    /* Jurisdictions */
+    .jurisdictions{padding:60px 0;border-top:1px solid var(--border)}
+    .jurisdictions h2{font-size:32px;font-weight:800;letter-spacing:-1px;margin-bottom:40px}
+    .juris-list{display:grid;grid-template-columns:repeat(4,1fr);gap:16px}
+    .juris-item{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:20px;text-align:center}
+    .juris-item .flag{font-size:32px;margin-bottom:8px}
+    .juris-item .name{font-size:15px;font-weight:700;margin-bottom:4px}
+    .juris-item .detail{font-size:13px;color:var(--muted)}
+    .juris-item .status{display:inline-block;margin-top:8px;padding:2px 8px;border-radius:100px;font-size:11px;font-weight:600}
+    .juris-item .status.live{background:rgba(34,197,94,.15);color:var(--accent)}
+    .juris-item .status.beta{background:rgba(234,179,8,.15);color:#eab308}
+
+    /* MCP */
+    .mcp{padding:60px 0;border-top:1px solid var(--border)}
+    .mcp h2{font-size:32px;font-weight:800;letter-spacing:-1px;margin-bottom:16px}
+    .mcp .sub{color:var(--muted);font-size:16px;margin-bottom:32px}
+    .code-block{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:24px;font-family:'SF Mono',Monaco,monospace;font-size:13px;overflow-x:auto;line-height:1.7;color:#a3a3a3}
+    .code-block .key{color:var(--accent)}
+    .code-block .str{color:#60a5fa}
+    .tools-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:8px;margin-top:24px}
+    .tool-tag{background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:10px 14px;font-family:'SF Mono',Monaco,monospace;font-size:12px;display:flex;justify-content:space-between;align-items:center}
+    .tool-tag .tool-name{color:var(--accent)}
+    .tool-tag .tool-desc{color:var(--muted);font-family:-apple-system,sans-serif;font-size:12px}
+
+    /* Differentiators */
+    .diff{padding:60px 0;border-top:1px solid var(--border)}
+    .diff h2{font-size:32px;font-weight:800;letter-spacing:-1px;margin-bottom:40px}
+    .diff-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:24px}
+    .diff-card{text-align:center;padding:24px}
+    .diff-card .icon{font-size:36px;margin-bottom:12px}
+    .diff-card h3{font-size:15px;font-weight:700;margin-bottom:6px}
+    .diff-card p{font-size:14px;color:var(--muted);line-height:1.6}
+
+    /* CTA */
+    .cta{padding:80px 0;text-align:center;border-top:1px solid var(--border)}
+    .cta h2{font-size:36px;font-weight:800;letter-spacing:-1px;margin-bottom:16px}
+    .cta p{color:var(--muted);font-size:16px;margin-bottom:32px}
+    .cta-links{display:flex;gap:16px;justify-content:center;flex-wrap:wrap}
+    .cta-links a{display:inline-block;padding:12px 24px;border-radius:10px;font-size:14px;font-weight:600;text-decoration:none;transition:transform .15s,box-shadow .15s}
+    .cta-links a:hover{transform:translateY(-1px);box-shadow:0 4px 12px rgba(0,0,0,.3)}
+    .cta-links .primary{background:var(--accent);color:#000}
+    .cta-links .secondary{background:var(--surface);border:1px solid var(--border);color:var(--text)}
+
+    /* Footer */
+    footer{padding:32px 0;border-top:1px solid var(--border);color:var(--muted);font-size:13px;display:flex;justify-content:space-between;align-items:center}
+    footer a{color:var(--muted);text-decoration:none}
+    footer a:hover{color:var(--text)}
+
+    @media(max-width:768px){
+      .threat-grid,.diff-grid,.how-grid{grid-template-columns:1fr}
+      .juris-list{grid-template-columns:repeat(2,1fr)}
+      .tools-grid{grid-template-columns:1fr}
+    }
+  </style>
+</head>
+<body>
+  <nav>
+    <div class="container">
+      <a href="/" class="logo">⬡ Clearway</a>
+      <div class="nav-links">
+        <a href="https://github.com/vincent-peng/attestlens">GitHub</a>
+        <a href="#mcp-section">MCP</a>
+        <a href="https://www.npmjs.com/package/@attestlens/cli">npm</a>
+      </div>
+    </div>
+  </nav>
+
+  <section class="hero">
+    <div class="container">
+      <div class="badge"><span class="dot"></span>AI agents are automating cyber tasks. Compliance can't keep up.</div>
+      <h1>The deploy gate for<br><span class="green">AI privacy risk</span></h1>
+      <p class="sub">
+        Deterministic, offline privacy compliance checks that block violations before they ship.
+        Multi-jurisdiction. MCP-native. Zero LLM at runtime.
+      </p>
+      <div class="install-box">npx @attestlens/cli@beta scan ./my-project</div>
+      <p class="note">AU Privacy Act · US CCPA/CPRA · EU GDPR · SG PDPA</p>
+    </div>
+  </section>
+
+  <section class="threat">
+    <div class="container">
+      <h2 style="font-size:28px;font-weight:800;letter-spacing:-0.5px;text-align:center">The problem isn't compliance. It's speed.</h2>
+      <p style="text-align:center;color:var(--muted);font-size:16px;margin-top:8px">Frontier models automate multi-step cyber operations. $50M+ fines. 100K businesses newly liable.</p>
+      <div class="threat-grid">
+        <div class="threat-card">
+          <div class="icon">⚡</div>
+          <h3>Agents act at machine speed</h3>
+          <p>GPT-5.5-Cyber. Mythos. Agents now execute multi-step operations autonomously. A human can't review fast enough.</p>
+        </div>
+        <div class="threat-card">
+          <div class="icon">💰</div>
+          <h3>Liability is real</h3>
+          <p>AU Privacy Act reforms kick in July 2026. Up to $50M fines. 100K+ businesses newly regulated. Enforcement is active.</p>
+        </div>
+        <div class="threat-card">
+          <div class="icon">🔓</div>
+          <h3>No gate = guaranteed violations</h3>
+          <p>Advisory PDFs don't block deploys. You need a deterministic checkpoint that fails the build before violations ship.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="how">
+    <div class="container">
+      <h2>How it works</h2>
+      <p class="sub">Scan → Map → Opinion → Gate. Deterministic every time.</p>
+      <div class="how-grid">
+        <div class="step">
+          <div class="step-num">1</div>
+          <div>
+            <h3>Scan</h3>
+            <p>Scanner adapters collect evidence from codebases, URLs, supply chains, and infrastructure. No network needed at runtime.</p>
+          </div>
+        </div>
+        <div class="step">
+          <div class="step-num">2</div>
+          <div>
+            <h3>Map</h3>
+            <p>Findings map to jurisdiction obligations — AU APP/NDB, US CCPA, EU GDPR, SG PDPA. Same evidence, different citations.</p>
+          </div>
+        </div>
+        <div class="step">
+          <div class="step-num">3</div>
+          <div>
+            <h3>Opinion</h3>
+            <p>Structured compliance verdict with evidence. Agents act on it directly. Humans review it. CI gates on it.</p>
+          </div>
+        </div>
+        <div class="step">
+          <div class="step-num">4</div>
+          <div>
+            <h3>Gate</h3>
+            <p>Exit codes for CI. SARIF for GitHub. MCP for agents. Block the deploy or let it through — deterministic, not probabilistic.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="jurisdictions">
+    <div class="container">
+      <h2>Multi-jurisdiction. Not global.</h2>
+      <div class="juris-list">
+        <div class="juris-item">
+          <div class="flag">🇦🇺</div>
+          <div class="name">AU Privacy Act</div>
+          <div class="detail">68+ rules · APP + NDB</div>
+          <span class="status live">LIVE</span>
+        </div>
+        <div class="juris-item">
+          <div class="flag">🇺🇸</div>
+          <div class="name">US CCPA/CPRA</div>
+          <div class="detail">12 principles · 6 rules</div>
+          <span class="status live">LIVE</span>
+        </div>
+        <div class="juris-item">
+          <div class="flag">🇪🇺</div>
+          <div class="name">EU GDPR</div>
+          <div class="detail">14 principles · 6 rules</div>
+          <span class="status live">LIVE</span>
+        </div>
+        <div class="juris-item">
+          <div class="flag">🇸🇬</div>
+          <div class="name">SG PDPA</div>
+          <div class="detail">3 principles · 3 rules</div>
+          <span class="status beta">BETA</span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="mcp" id="mcp-section">
+    <div class="container">
+      <h2>MCP-native. Built for agents.</h2>
+      <p class="sub">8 structured tools. Zod schemas. First-class agent integration.</p>
+      <div class="code-block">
+{<br>
+&nbsp;&nbsp;<span class="key">"mcpServers"</span>: {<br>
+&nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"clearway"</span>: {<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"command"</span>: <span class="str">"npx"</span>,<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"args"</span>: [<span class="str">"-y"</span>, <span class="str">"--package"</span>, <span class="str">"@attestlens/cli@beta"</span>, <span class="str">"attestlens-mcp"</span>]<br>
+&nbsp;&nbsp;&nbsp;&nbsp;}<br>
+&nbsp;&nbsp;}<br>
+}
+      </div>
+      <div class="tools-grid">
+        <div class="tool-tag"><span class="tool-name">attestlens_scan</span><span class="tool-desc">Project scan</span></div>
+        <div class="tool-tag"><span class="tool-name">attestlens_scan_url</span><span class="tool-desc">URL scan</span></div>
+        <div class="tool-tag"><span class="tool-name">attestlens_audit</span><span class="tool-desc">Full audit</span></div>
+        <div class="tool-tag"><span class="tool-name">attestlens_map</span><span class="tool-desc">Regulation mapping</span></div>
+        <div class="tool-tag"><span class="tool-name">attestlens_opinion</span><span class="tool-desc">Compliance opinion</span></div>
+        <div class="tool-tag"><span class="tool-name">attestlens_check</span><span class="tool-desc">Single-principle check</span></div>
+        <div class="tool-tag"><span class="tool-name">attestlens_compliance_check</span><span class="tool-desc">SMB workflow</span></div>
+        <div class="tool-tag"><span class="tool-name">attestlens_reform</span><span class="tool-desc">Reform assessment</span></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="diff">
+    <div class="container">
+      <h2 style="text-align:center">Why Clearway</h2>
+      <div class="diff-grid">
+        <div class="diff-card">
+          <div class="icon">🔒</div>
+          <h3>Fully offline</h3>
+          <p>No network calls at runtime. No cloud dependency. Same input → same output, every time.</p>
+        </div>
+        <div class="diff-card">
+          <div class="icon">⚡</div>
+          <h3>Zero LLM</h3>
+          <p>Deterministic engine. No probabilistic compliance. No hallucinated obligations. You can trust the output.</p>
+        </div>
+        <div class="diff-card">
+          <div class="icon">🛡️</div>
+          <h3>Deploy gates, not PDFs</h3>
+          <p>Exit codes for CI. SARIF for GitHub. MCP for agents. Block before violations ship.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="cta">
+    <div class="container">
+      <h2>Ship compliant. Or don't ship.</h2>
+      <p>572 tests passing. 4 jurisdictions. MCP-native. Open source.</p>
+      <div class="cta-links">
+        <a href="https://github.com/vincent-peng/attestlens" class="primary">View on GitHub</a>
+        <a href="https://www.npmjs.com/package/@attestlens/cli" class="secondary">npm install</a>
+      </div>
+    </div>
+  </section>
+
+  <footer>
+    <div class="container">
+      <span>© 2026 Clearway by AttestLens</span>
+      <span><a href="https://github.com/vincent-peng/attestlens">GitHub</a> · <a href="https://twitter.com/vincent_peng">Twitter</a></span>
+    </div>
+  </footer>
+</body>
+</html>

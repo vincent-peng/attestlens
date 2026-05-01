@@ -3,7 +3,7 @@
   "name": "@attestlens/cli",
   "version": "0.4.0-beta",
   "description": "Clearway — Privacy Compliance Deploy Gate for AI Agents",
-  "mcpName": "attestlens",
+  "mcpName": "io.github.attestlens/clearway",
   "repository": {
     "type": "git",
     "url": "https://github.com/vincent-peng/attestlens.git"
