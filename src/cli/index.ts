@@ -666,10 +666,16 @@ program
   .requiredOption('--proposed <path>', 'Path to proposed pack JSON')
   .requiredOption('--reviewer <name>', 'Reviewer name or identifier')
   .requiredOption('--output <path>', 'Path to write validated pack JSON')
-  .option('--approve-all', 'Approve all proposed rules without prompting (testing only)')
+  .option('--approve-all', 'Approve all proposed rules without prompting (requires ATTESTLENS_UNSAFE_TEST_MODE=1)')
   .option('--reject-low-confidence', 'Automatically reject rules with low confidence')
   .action(async (options: any) => {
-    const spinner = options.approveAll ? ora('Compiling validated pack...').start() : undefined;
+    // PH11-001: --approve-all requires ATTESTLENS_UNSAFE_TEST_MODE=1 to prevent production bypass
+    if (options.approveAll && !process.env.ATTESTLENS_UNSAFE_TEST_MODE) {
+      console.error(chalk.red('--approve-all requires ATTESTLENS_UNSAFE_TEST_MODE=1 environment variable'));
+      process.exit(2);
+    }
+
+    const spinner = options.approveAll ? ora('Compiling validated pack... [UNSAFE TEST MODE]').start() : undefined;
 
     try {
       const manifest = await reviewPack({

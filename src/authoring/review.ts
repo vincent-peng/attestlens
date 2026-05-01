@@ -7,9 +7,11 @@ import { runRuleTestHarness, type TestHarnessResult } from './test-harness.js';
 import {
   AuthoredRule as AuthoredRuleSchema,
   ProposedPackManifest,
+  RulePackManifest,
   ValidatedPackManifest,
   type AuthoredRule,
   type ProposedPackManifest as ProposedPackManifestType,
+  type RuleDefinition,
   type ValidatedPackManifest as ValidatedPackManifestType,
 } from '../schema/index.js';
 
@@ -87,6 +89,13 @@ export async function reviewPack(options: ReviewPackOptions): Promise<ValidatedP
 
   await fs.mkdir(path.dirname(path.resolve(options.outputPath)), { recursive: true });
   await fs.writeFile(path.resolve(options.outputPath), `${JSON.stringify(manifest, null, 2)}\n`, 'utf-8');
+
+  // PH11-002: Also emit a runtime-consumable RulePackManifest (schema 1.0) alongside the validated manifest
+  // so the scanner can load approved rules without needing 2.1 support.
+  const runtimePack = buildRuntimePack(approvedRules, proposed.jurisdiction, reviewedAt);
+  const runtimeOutputPath = path.resolve(options.outputPath).replace(/\.json$/, '.runtime.json');
+  await fs.writeFile(runtimeOutputPath, `${JSON.stringify(runtimePack, null, 2)}\n`, 'utf-8');
+
   return manifest;
 }
 
@@ -143,4 +152,38 @@ function markRuleApproved(rule: AuthoredRule, reviewer: string, reviewedAt: stri
 
 function buildPackVersion(reviewedAt: string): string {
   return reviewedAt.slice(0, 10).replace(/-/g, '.');
+}
+
+/**
+ * PH11-002: Build a runtime-consumable RulePackManifest (schema 1.0) from approved authored rules.
+ * Strips authoring metadata, keeps only fields the scanner needs.
+ */
+function buildRuntimePack(
+  approvedRules: AuthoredRule[],
+  jurisdiction: string,
+  reviewedAt: string,
+) {
+  const runtimeRules: RuleDefinition[] = approvedRules.map((rule) => ({
+    id: rule.id,
+    category: rule.category,
+    severity: rule.severity,
+    title: rule.title,
+    description: rule.description,
+    pattern: rule.pattern,
+    flags: rule.flags,
+    fixPrompt: rule.fixPrompt,
+    regulationMappings: rule.regulationMappings,
+    appMappings: rule.appMappings,
+    cve: rule.cve,
+    addedIn: rule.addedIn,
+    enabled: rule.enabled,
+    tags: rule.tags,
+  }));
+  return RulePackManifest.parse({
+    schemaVersion: '1.0',
+    version: buildPackVersion(reviewedAt),
+    generated: reviewedAt,
+    rules: runtimeRules,
+    jurisdiction,
+  });
 }

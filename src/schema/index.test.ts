@@ -414,4 +414,100 @@ describe('Rule pack schemas', () => {
     expect(validated.schemaVersion).toBe('2.1');
     expect(validated.rules[0]?.authoring.author).toBe('human-validated');
   });
+
+  it('rejects human-validated rules without approval provenance', () => {
+    expect(() => AuthoredRule.parse({
+      id: 'SGPDPA-TEST-004',
+      category: 'guardvibe-static',
+      severity: 'medium',
+      title: 'Missing approval',
+      description: 'Should fail',
+      addedIn: '2026.05.01',
+      source: {
+        jurisdiction: 'sg-pdpa',
+        citation: 'PDPA Section 24',
+      },
+      authoring: {
+        author: 'human-validated',
+        confidence: 'high',
+        falsePositiveRisk: 'low',
+      },
+      provenance: {
+        sourceDocumentHash: 'abc123',
+        // Missing approvedBy, approvedAt
+      },
+      interpretation: {
+        machineCheckable: true,
+        determinism: 'deterministic',
+        reviewRequired: false,
+        falsePositiveRisk: 'low',
+      },
+      tests: {},
+    })).toThrow(/approvedBy/);
+  });
+
+  it('rejects human-validated rules with reviewRequired=true', () => {
+    expect(() => AuthoredRule.parse({
+      id: 'SGPDPA-TEST-005',
+      category: 'guardvibe-static',
+      severity: 'medium',
+      title: 'Still requires review',
+      description: 'Should fail',
+      addedIn: '2026.05.01',
+      source: {
+        jurisdiction: 'sg-pdpa',
+        citation: 'PDPA Section 24',
+      },
+      authoring: {
+        author: 'human-validated',
+        confidence: 'high',
+        falsePositiveRisk: 'low',
+      },
+      provenance: {
+        sourceDocumentHash: 'abc123',
+        approvedBy: 'reviewer',
+        approvedAt: '2026-05-01T01:00:00.000Z',
+        packVersion: '2026.05.01',
+      },
+      interpretation: {
+        machineCheckable: true,
+        determinism: 'deterministic',
+        reviewRequired: true,
+        falsePositiveRisk: 'low',
+      },
+      tests: {},
+    })).toThrow(/reviewRequired/);
+  });
+
+  it('rejects proposed packs with duplicate rule IDs', () => {
+    const ruleBase = {
+      id: 'SGPDPA-DUP-001',
+      category: 'guardvibe-static',
+      severity: 'high',
+      title: 'Duplicate rule',
+      description: 'Should fail',
+      addedIn: '2026.05.01',
+      source: { jurisdiction: 'sg-pdpa', citation: 'PDPA Section 24' },
+      authoring: { author: 'ai-draft' as const, confidence: 'high' as const, falsePositiveRisk: 'low' as const },
+      provenance: { sourceDocumentHash: 'abc123' },
+      interpretation: { machineCheckable: true, determinism: 'deterministic' as const, reviewRequired: true, falsePositiveRisk: 'low' as const },
+      tests: {},
+    };
+    expect(() => ProposedPackManifest.parse({
+      schemaVersion: '3.0',
+      jurisdiction: 'sg-pdpa',
+      generatedAt: '2026-05-01T00:00:00.000Z',
+      sourceDocumentHash: 'abc123',
+      principles: [],
+      rules: [ruleBase, { ...ruleBase }],
+      confidence: 'medium',
+    })).toThrow(/Duplicate rule ID/);
+  });
+
+  it('rejects unknown fields in authored rule schemas (strict mode)', () => {
+    expect(() => RuleProvenance.parse({
+      sourceDocumentHash: 'abc123',
+      unknownField: 'should fail',
+    })).toThrow();
+  });
 });

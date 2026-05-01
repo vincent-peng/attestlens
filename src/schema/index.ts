@@ -544,7 +544,7 @@ export type RuleDeterminism = z.infer<typeof RuleDeterminism>;
 export const RuleFalsePositiveRisk = z.enum(['low', 'medium', 'high']);
 export type RuleFalsePositiveRisk = z.infer<typeof RuleFalsePositiveRisk>;
 
-export const RuleProvenance = z.object({
+export const RuleProvenance = z.strictObject({
   draftedByModel: z.string().optional(),
   draftedAt: z.string().datetime().optional(),
   draftingPromptVersion: z.string().optional(),
@@ -555,7 +555,7 @@ export const RuleProvenance = z.object({
 });
 export type RuleProvenance = z.infer<typeof RuleProvenance>;
 
-export const RuleInterpretation = z.object({
+export const RuleInterpretation = z.strictObject({
   machineCheckable: z.boolean(),
   determinism: RuleDeterminism,
   reviewRequired: z.boolean(),
@@ -563,7 +563,7 @@ export const RuleInterpretation = z.object({
 });
 export type RuleInterpretation = z.infer<typeof RuleInterpretation>;
 
-export const RuleTestCase = z.object({
+export const RuleTestCase = z.strictObject({
   name: z.string(),
   input: z.string(),
   shouldTrigger: z.boolean(),
@@ -593,12 +593,37 @@ const AuthoredRuleBase = RuleDefinition.extend({
 });
 
 export const AuthoredRule = AuthoredRuleBase.superRefine((rule, ctx) => {
+  // PH11-004: ai-draft MUST require review
   if (rule.authoring.author === 'ai-draft' && rule.interpretation.reviewRequired !== true) {
     ctx.addIssue({
       code: z.ZodIssueCode.custom,
       message: 'AI-drafted rules must require review',
       path: ['interpretation', 'reviewRequired'],
     });
+  }
+  // PH11-004: human-validated MUST have approval provenance and reviewRequired=false
+  if (rule.authoring.author === 'human-validated') {
+    if (!rule.provenance.approvedBy) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'Human-validated rules must have approvedBy provenance',
+        path: ['provenance', 'approvedBy'],
+      });
+    }
+    if (!rule.provenance.approvedAt) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'Human-validated rules must have approvedAt provenance',
+        path: ['provenance', 'approvedAt'],
+      });
+    }
+    if (rule.interpretation.reviewRequired !== false) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'Human-validated rules must have reviewRequired=false',
+        path: ['interpretation', 'reviewRequired'],
+      });
+    }
   }
 });
 export type AuthoredRule = z.infer<typeof AuthoredRule>;
@@ -630,13 +655,13 @@ export const JurisdictionPackManifest = JurisdictionPackManifestBase.extend({
 });
 export type JurisdictionPackManifest = z.infer<typeof JurisdictionPackManifest>;
 
-export const ProposedPackManifest = z.object({
+export const ProposedPackManifest = z.strictObject({
   schemaVersion: z.literal('3.0'),
   jurisdiction: Jurisdiction,
   generatedAt: z.string().datetime(),
   sourceDocumentHash: z.string(),
   sourceDocumentUrl: z.string().optional(),
-  principles: z.array(z.object({
+  principles: z.array(z.strictObject({
     id: RegulationPrinciple,
     shortName: z.string(),
     fullName: z.string().optional(),
@@ -649,19 +674,45 @@ export const ProposedPackManifest = z.object({
   confidence: RuleConfidence,
   warnings: z.array(z.string()).default([]),
   gaps: z.array(z.string()).default([]),
+}).superRefine((manifest, ctx) => {
+  // PH11-003: reject duplicate rule IDs
+  const seenIds = new Set<string>();
+  for (const rule of manifest.rules) {
+    if (seenIds.has(rule.id)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: `Duplicate rule ID: ${rule.id}`,
+        path: ['rules'],
+      });
+    }
+    seenIds.add(rule.id);
+  }
 });
 export type ProposedPackManifest = z.infer<typeof ProposedPackManifest>;
 
 export const ValidatedPackManifest = JurisdictionPackManifestBase.extend({
   schemaVersion: z.literal('2.1'),
   rules: z.array(AuthoredRule),
-  provenance: z.object({
+  provenance: z.strictObject({
     proposedAt: z.string().datetime(),
     reviewedBy: z.string(),
     reviewedAt: z.string().datetime(),
     sourceDocumentHash: z.string(),
   }),
   ruleProvenance: z.record(z.string(), RuleProvenance).default({}),
+}).superRefine((manifest, ctx) => {
+  // PH11-003: reject duplicate rule IDs
+  const seenIds = new Set<string>();
+  for (const rule of manifest.rules) {
+    if (seenIds.has(rule.id)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: `Duplicate rule ID: ${rule.id}`,
+        path: ['rules'],
+      });
+    }
+    seenIds.add(rule.id);
+  }
 });
 export type ValidatedPackManifest = z.infer<typeof ValidatedPackManifest>;
 
