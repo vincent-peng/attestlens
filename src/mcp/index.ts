@@ -33,7 +33,7 @@ import { buildSMBComplianceResult } from '../report/smb-generator.js';
 import type { ComplianceReportWithSMB, ReportFormat, ReportOptions } from '../report/generator.js';
 import { ScannerOrchestrator, type ScannerOrchestratorOptions } from '../scanner/orchestrator.js';
 import type { ScannerError, ScannerResult } from '../scanner/types.js';
-import { GDPRPrincipleInfo } from '../scanner/rules/gdpr-principles.js';
+import { getRegistry } from '../jurisdiction/registry.js';
 import {
   APPInfo,
   APPPrinciple as APPPrincipleSchema,
@@ -656,27 +656,19 @@ function getJurisdictionAssessmentLabel(jurisdiction: JurisdictionType): string 
 function validateRegulationPrinciple(
   jurisdiction: JurisdictionType,
   value: unknown,
-): string | ToolErrorResponse {
+): RegulationPrinciple | ToolErrorResponse {
   const availability = validateJurisdictionAvailability(jurisdiction);
   if (isToolError(availability)) {
     return availability;
   }
 
-  if (jurisdiction === 'au-privacy-act') {
-    return validatePrinciple(value);
+  const registry = getRegistry(jurisdiction);
+  if (typeof value !== 'string' || !Object.prototype.hasOwnProperty.call(registry.principles, value)) {
+    return makeToolError(
+      `Unknown principle ${String(value)} for jurisdiction ${jurisdiction}. Valid principles: ${registry.order.join(', ')}`,
+    );
   }
-
-  if (jurisdiction === 'us-ccpa') {
-    if (typeof value !== 'string' || !/^CCPA_(?:100|105|106|110|115|120|121|125|130|135|145|150)$/.test(value)) {
-      return makeToolError(`invalid CCPA principle: ${String(value)}. Valid principles: CCPA_100, CCPA_105, CCPA_106, CCPA_110, CCPA_115, CCPA_120, CCPA_121, CCPA_125, CCPA_130, CCPA_135, CCPA_145, CCPA_150`);
-    }
-    return value;
-  }
-
-  if (typeof value !== 'string' || !Object.prototype.hasOwnProperty.call(GDPRPrincipleInfo, value)) {
-    return makeToolError(`invalid GDPR principle: ${String(value)}. Valid principles: ${Object.keys(GDPRPrincipleInfo).join(', ')}`);
-  }
-  return value;
+  return value as RegulationPrinciple;
 }
 
 function serializeFindings(findings: AttestLensFinding[]) {

@@ -35,6 +35,7 @@ import {
   reformProvisionSchema,
 } from '../schema/index.js';
 import { mapAllFindings } from '../mapping/engine.js';
+import { getRegistry } from '../jurisdiction/registry.js';
 import { getQuestionById } from '../questionnaire/index.js';
 import { buildComplianceOpinion } from '../opinion/engine.js';
 import { sanitizeTargetPathForOutput, sanitizeTargetUrlForOutput } from '../utils/target.js';
@@ -51,6 +52,10 @@ type BreachReadiness = NonNullable<ComplianceReport['breachReadiness']>;
 type BreachReadinessFactor = BreachReadiness['topFactors'][number];
 type ConsultantNarrative = NonNullable<ComplianceReport['consultantNarrative']>;
 export type ComplianceReportWithSMB = ComplianceReport & { smbCompliance?: SMBComplianceResult };
+
+function getPrincipleInfo(jurisdiction: Jurisdiction, principle: RegulationControl['principle']) {
+  return getRegistry(jurisdiction).principles[principle];
+}
 
 // ─── Report Builder ─────────────────────────────────────────────────────────
 
@@ -286,10 +291,11 @@ function buildReportAssessment(
 function regulationControlToAPPControl(
   control: RegulationControl & { jurisdiction: 'au-privacy-act'; principle: APPPrinciple },
 ): APPControl {
+  const info = getPrincipleInfo(control.jurisdiction, control.principle);
   return {
     principle: control.principle,
-    shortName: control.shortName,
-    obligation: control.obligation,
+    shortName: info?.shortName ?? control.shortName,
+    obligation: info?.obligation ?? control.obligation,
     status: control.status,
     score: control.score,
     findingCount: control.findingCount,
@@ -300,11 +306,12 @@ function regulationControlToAPPControl(
 }
 
 function appControlToRegulationControl(control: APPControl): RegulationControl {
+  const info = getPrincipleInfo('au-privacy-act', control.principle);
   return {
     jurisdiction: 'au-privacy-act',
     principle: control.principle,
-    shortName: control.shortName,
-    obligation: control.obligation,
+    shortName: info?.shortName ?? control.shortName,
+    obligation: info?.obligation ?? control.obligation,
     status: control.status,
     score: control.score,
     findingCount: control.findingCount,

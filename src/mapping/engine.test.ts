@@ -961,6 +961,38 @@ describe('mapAllFindings', () => {
     expect(finding.regulationMappings?.some(mapping => mapping.jurisdiction === 'eu-gdpr')).toBe(true);
   });
 
+  it('populates jurisdiction-specific obligation and short-name metadata for multi-jurisdiction mappings', () => {
+    const finding = makeFinding({
+      id: 'F-1',
+      sourceRule: 'VS-HARDKEY',
+      severity: 'critical',
+      title: 'Hardcoded secret key',
+    });
+
+    mapAllFindings([finding], {
+      jurisdictions: ['au-privacy-act', 'us-ccpa', 'eu-gdpr'],
+    });
+
+    expect(finding.appMappings.some((mapping) => mapping.principle === 'APP_11')).toBe(true);
+    expect(finding.regulationMappings).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        jurisdiction: 'au-privacy-act',
+        principle: 'APP_11',
+        obligation: expect.any(String),
+      }),
+      expect.objectContaining({
+        jurisdiction: 'us-ccpa',
+        principle: 'CCPA_100',
+        obligation: expect.any(String),
+      }),
+      expect.objectContaining({
+        jurisdiction: 'eu-gdpr',
+        principle: 'GDPR_Art32',
+        obligation: expect.any(String),
+      }),
+    ]));
+  });
+
   it('keeps the AU compatibility wrapper APP-shaped', () => {
     const { controls } = mapAllFindingsAU([
       makeFinding({

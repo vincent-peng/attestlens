@@ -22,9 +22,8 @@ import {
   type RegulationMapping,
   type RegulationPrinciple,
 } from '../schema/index.js';
+import { getRegistry } from '../jurisdiction/registry.js';
 import { calculateMappingConfidence } from './confidence.js';
-import { CCPAPrincipleInfo } from '../scanner/rules/ccpa-principles.js';
-import { GDPRPrincipleInfo } from '../scanner/rules/gdpr-principles.js';
 
 // ─── Mapping Rules ──────────────────────────────────────────────────────────
 
@@ -1437,57 +1436,22 @@ export function mapAllFindings(
   const unmapped: AttestLensFinding[] = [];
 
   for (const jurisdiction of jurisdictions) {
-    if (jurisdiction === 'au-privacy-act') {
-      for (const principle of Object.keys(APPInfo) as APPPrinciple[]) {
-        controlMap.set(getControlKey(jurisdiction, principle), {
-          jurisdiction,
-          principle,
-          shortName: APPInfo[principle].shortName,
-          obligation: APPInfo[principle].obligation,
-          status: 'unknown',
-          score: 100,
-          findingCount: { critical: 0, high: 0, medium: 0, low: 0, info: 0 },
-          findings: [],
-          questionnaireRequired: true,
-          lastAssessed: new Date().toISOString(),
-        });
-      }
-    }
-
-    if (jurisdiction === 'us-ccpa') {
-      for (const [principle, info] of Object.entries(CCPAPrincipleInfo)) {
-        controlMap.set(getControlKey(jurisdiction, principle), {
-          jurisdiction,
-          principle,
-          shortName: info.shortName,
-          obligation: info.obligation,
-          status: 'unknown',
-          score: 100,
-          findingCount: { critical: 0, high: 0, medium: 0, low: 0, info: 0 },
-          findings: [],
-          questionnaireRequired: true,
-          lastAssessed: new Date().toISOString(),
-          citation: info.citation,
-        });
-      }
-    }
-
-    if (jurisdiction === 'eu-gdpr') {
-      for (const [principle, info] of Object.entries(GDPRPrincipleInfo)) {
-        controlMap.set(getControlKey(jurisdiction, principle), {
-          jurisdiction,
-          principle,
-          shortName: info.shortName,
-          obligation: info.obligation,
-          status: 'unknown',
-          score: 100,
-          findingCount: { critical: 0, high: 0, medium: 0, low: 0, info: 0 },
-          findings: [],
-          questionnaireRequired: true,
-          lastAssessed: new Date().toISOString(),
-          citation: info.citation,
-        });
-      }
+    const registry = getRegistry(jurisdiction);
+    for (const principle of registry.order) {
+      const info = registry.principles[principle];
+      controlMap.set(getControlKey(jurisdiction, principle), {
+        jurisdiction,
+        principle,
+        shortName: info.shortName,
+        obligation: info.obligation,
+        status: 'unknown',
+        score: 100,
+        findingCount: { critical: 0, high: 0, medium: 0, low: 0, info: 0 },
+        findings: [],
+        questionnaireRequired: true,
+        lastAssessed: new Date().toISOString(),
+        citation: info.citation,
+      });
     }
   }
 
@@ -1614,28 +1578,18 @@ export function mapAllFindingsAU(findings: AttestLensFinding[], strictMode = fal
 }
 
 function getRegulationObligation(jurisdiction: Jurisdiction, principle: RegulationPrinciple): string {
-  if (jurisdiction === 'au-privacy-act' && Object.prototype.hasOwnProperty.call(APPInfo, principle)) {
-    return APPInfo[principle as APPPrinciple].obligation;
-  }
-  if (jurisdiction === 'us-ccpa' && Object.prototype.hasOwnProperty.call(CCPAPrincipleInfo, principle)) {
-    return CCPAPrincipleInfo[principle as keyof typeof CCPAPrincipleInfo].obligation;
-  }
-  if (jurisdiction === 'eu-gdpr' && Object.prototype.hasOwnProperty.call(GDPRPrincipleInfo, principle)) {
-    return GDPRPrincipleInfo[principle as keyof typeof GDPRPrincipleInfo].obligation;
+  const info = getRegistry(jurisdiction).principles[principle];
+  if (info) {
+    return info.obligation;
   }
 
   return JurisdictionInfo[jurisdiction].fullName;
 }
 
 function getRegulationShortName(jurisdiction: Jurisdiction, principle: RegulationPrinciple): string {
-  if (jurisdiction === 'au-privacy-act' && Object.prototype.hasOwnProperty.call(APPInfo, principle)) {
-    return APPInfo[principle as APPPrinciple].shortName;
-  }
-  if (jurisdiction === 'us-ccpa' && Object.prototype.hasOwnProperty.call(CCPAPrincipleInfo, principle)) {
-    return CCPAPrincipleInfo[principle as keyof typeof CCPAPrincipleInfo].shortName;
-  }
-  if (jurisdiction === 'eu-gdpr' && Object.prototype.hasOwnProperty.call(GDPRPrincipleInfo, principle)) {
-    return GDPRPrincipleInfo[principle as keyof typeof GDPRPrincipleInfo].shortName;
+  const info = getRegistry(jurisdiction).principles[principle];
+  if (info) {
+    return info.shortName;
   }
 
   return principle;

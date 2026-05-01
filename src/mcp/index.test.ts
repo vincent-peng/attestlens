@@ -387,7 +387,33 @@ describe('MCP Server', () => {
       });
 
       expect(response).toEqual({
-        content: [{ type: 'text', text: expect.stringContaining('invalid APP principle') }],
+        content: [{ type: 'text', text: expect.stringContaining('Unknown principle APP_99 for jurisdiction au-privacy-act') }],
+        isError: true,
+      });
+
+      expect(scanSpy).not.toHaveBeenCalled();
+    });
+
+    it('rejects principles that belong to a different jurisdiction registry', async () => {
+      const scanSpy = vi.spyOn(ScannerOrchestrator.prototype, 'scan');
+
+      const ccpaResponse = await handleToolCall('attestlens_check', {
+        path: tempDir,
+        jurisdiction: 'us-ccpa',
+        principle: 'APP_11',
+      });
+      expect(ccpaResponse).toEqual({
+        content: [{ type: 'text', text: expect.stringContaining('Unknown principle APP_11 for jurisdiction us-ccpa') }],
+        isError: true,
+      });
+
+      const gdprResponse = await handleToolCall('attestlens_check', {
+        path: tempDir,
+        jurisdiction: 'eu-gdpr',
+        principle: 'CCPA_100',
+      });
+      expect(gdprResponse).toEqual({
+        content: [{ type: 'text', text: expect.stringContaining('Unknown principle CCPA_100 for jurisdiction eu-gdpr') }],
         isError: true,
       });
 
