@@ -34,6 +34,7 @@ const noScannerAttestOptions = {
   ...fastAttestScanOptions,
   supplyChain: false,
 } as const;
+const packageJson = JSON.parse(await fs.readFile(path.join(repoRoot, 'package.json'), 'utf-8')) as { version: string };
 
 async function runCli(
   args: string[],
@@ -206,6 +207,25 @@ describe('CLI URL handling', () => {
     } finally {
       await fs.rm(tempDir, { recursive: true, force: true });
     }
+  });
+});
+
+describe('CLI metadata', () => {
+  it('reports the package version', async () => {
+    const result = await runCli(['--version']);
+
+    expect(result.code).toBe(0);
+    expect(result.stdout.trim()).toBe(packageJson.version);
+  });
+
+  it('exposes the reform subcommand', async () => {
+    const result = await runCli(['reform', '--help']);
+
+    expect(result.code).toBe(0);
+    expect(result.stdout).toContain('Standalone Privacy Act 2026 reform impact assessment');
+    expect(result.stdout).toContain('--jurisdiction');
+    expect(result.stdout).toContain('--output');
+    expect(result.stdout).toContain('--format');
   });
 });
 

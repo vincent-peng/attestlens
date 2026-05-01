@@ -1,80 +1,81 @@
 # Design Partner Strategy
 
-## Target
+**Last Updated:** 2026-05-01
+**Source:** GTM Debate consensus (3 agents, unanimous)
 
-3-5 Australian SMEs facing July 2026 Privacy Act obligations.
+---
 
-Primary fit:
+## Target Profile
 
-- Has a real software product, website, or internal application with personal information flows.
-- Expects to fall under Privacy Act obligations by July 2026.
-- Needs a practical compliance starting point before paying for a full legal review.
-- Can share code, scan output, or a sanitized findings export under agreed confidentiality.
+AU/ANZ mid-market SaaS companies with:
+- PII exposure (health, fintech, HR tech, edtech)
+- Modern CI (GitHub Actions or GitLab CI)
+- Active AI/coding-agent adoption
+- 20-500 engineers
 
-## Offer
+## Ranked Target List
 
-Free compliance audit, opinion, and ongoing monitoring for the feedback period.
+### Tier 1 — Most Reachable (warm-intro likely)
+| Company | Why | Warm-intro path |
+|---|---|---|
+| **Employment Hero** | HR tech, massive PII, AU-based | AU startup ecosystem, Blackbird network |
+| **Deputy** | Workforce management, PII, AU-founded | AU startup ecosystem |
+| **SafetyCulture** | Inspect/audit platform, PII, AU-based | AU startup ecosystem, Atlassian alumni |
+| **Eucalyptus** | Digital health, PHI, AU-based | AU health-tech network |
+| **Harrison.ai** | AI health diagnostics, PHI | AU AI/health-tech network |
 
-Deliverables:
+### Tier 2 — Good Fits (need warmer intro)
+| Company | Why | Warm-intro path |
+|---|---|---|
+| **Culture Amp** | HR tech, PII, AU-founded | AU SaaS network |
+| **Airwallex** | Fintech, financial PII, AU-founded | AU fintech network |
+| **Finder** | Comparison/finance, PII, AU-based | AU fintech network |
+| **Athena** | Home loans, financial PII | AU fintech network |
 
-- Initial Clearway scan across AU Privacy Act obligations.
-- Opinion-grade compliance verdict with evidence and remediation priorities.
-- SMB compliance-check report where the business profile fits.
-- Follow-up scan after fixes.
-- Optional US CCPA/CPRA or EU GDPR comparison if the business sells into those markets.
+### Aspiration (too slow for first pilots)
+- Canva, Atlassian — too big, too slow for 6-week pilot cycle
 
-## Ask
+## Outreach Method
 
-Structured feedback on:
+**Founder-led warm intros only.** No cold outbound for trust-sensitive compliance tooling.
 
-- Report clarity: Can a founder or operator understand what failed and why?
-- Verdict accuracy: Does the opinion match the team's real system and compliance posture?
-- Remediation usefulness: Are the suggested fixes specific enough to act on?
-- Workflow fit: Does CLI, MCP, or CI integration match how the team ships?
-- Trust boundary: What evidence would make them comfortable gating deployments on Clearway?
+Paths:
+- AU startup/investor networks (Blackbird, Startmate, Tank Stream Labs)
+- AU security/privacy community (AISA, OAIC networks)
+- LinkedIn warm intros through mutual connections
+- YC AU alumni network (if accepted)
 
-## Timeline
+## Pilot Structure (6-8 Weeks, Staged)
 
-4-6 weeks of feedback before npm publish.
+| Week | Activity | Mode |
+|------|----------|------|
+| 1 | Install + baseline in CI | **Advisory (non-blocking)** |
+| 2-4 | Shadow mode: triage findings, tune rules, suppress FPs | **Advisory** |
+| 5-6 | Enable blocking for **high-confidence AU findings only** | **Blocking (configurable)** |
+| 7-8 | Conversion review: paid contract decision or testimonial | **Decision** |
 
-Suggested cadence:
+### Exchange
+- Free Pro/Enterprise-lite pilot
+- Founder-led setup + limited custom rules/suppressions
+- Weekly feedback sessions
+- Anonymized metrics
+- Private reference by default
+- Public logo/case study only after clear win
 
-| Week | Activity |
-| --- | --- |
-| 1 | Recruit and qualify 3-5 partners. Run baseline scans. |
-| 2 | Review reports live with each partner. Capture unclear language and false positives. |
-| 3 | Partners attempt first remediation pass. Clearway tracks before/after changes. |
-| 4 | Run follow-up scans. Validate verdict movement and remediation usefulness. |
-| 5 | Consolidate product feedback and fix high-signal report or scanner issues. |
-| 6 | Final publish-readiness review and partner quotes, if approved. |
+### Critical Addition (from GTM debate)
+Each pilot must include a **pre-agreed paid conversion path** (discounted first annual contract). This validates willingness to pay, not just curiosity about free tooling.
 
-## Selection Criteria
+### Pilot Success Plan
+One-page document per partner with:
+1. Baseline privacy risk score
+2. Target improvement (e.g., "reduce high-severity findings by 50%")
+3. FP suppression rate target
+4. Conversion criteria and timeline
+5. Named internal champion at partner
 
-Must-have:
+## Success Metrics
 
-- Has a codebase or URL Clearway can scan.
-- Is under, or expects to be under, Privacy Act obligations.
-- Is willing to share findings and feedback.
-- Has someone who can validate whether remediation advice is technically feasible.
-
-Prefer:
-
-- Handles customer accounts, support messages, bookings, payments, health, identity, or other personal information.
-- Operates in Australia with possible US or EU customer exposure.
-- Ships frequently enough that CI or agent-native compliance checks matter.
-- Has a founder/operator who will review the report directly.
-
-Avoid for the first cohort:
-
-- Businesses with no software surface to scan.
-- Enterprises with procurement cycles that slow feedback.
-- Heavily regulated edge cases that need specialist legal interpretation before product feedback is useful.
-- Teams unwilling to share even sanitized findings.
-
-## Success Criteria
-
-- At least 3 partners complete initial scan and feedback.
-- At least 2 partners complete a remediation and re-scan loop.
-- Clear report language issues are fixed before npm publish.
-- False positives or confusing jurisdiction mappings are logged with reproducible fixtures.
-- At least 1 partner says they would run Clearway again in CI, MCP, or a release checklist.
+- 1-2 pilots completed with measurable risk reduction
+- At least 1 paid conversion
+- 1 testimonial or case study
+- FP suppression rate < 10% of total findings

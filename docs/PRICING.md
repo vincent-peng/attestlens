@@ -1,48 +1,104 @@
-# Pricing
+# Clearway — Pricing
 
-Internal planning document. Not public.
+**Last Updated:** 2026-05-01
+**Status:** Internal planning. Not public. Subject to change before launch.
+**Source:** GTM Debate consensus (3 agents, 3 rounds, unanimous)
 
-Pricing is indicative and subject to change before launch.
+---
+
+## Pricing Philosophy
+
+1. **Price by protected software surface** (repos/pipelines), not per-scan or per-seat
+2. **Unlimited scans** within a subscription — frequent agent preflights should feel free
+3. **Jurisdiction packs included** in paid plans — don't gate the core value
+4. **MCP is the free adoption wedge** — don't meter agent calls
+5. **CI enforcement + evidence retention is the monetized layer**
+
+---
 
 ## Tiers
 
-### Free
+### Free — $0/mo
 
-- Scan locally
-- Access to 3 core tools
-- Basic project and URL assessment
-- Local reports for early evaluation
+- Local CLI scanning (code + URL)
+- MCP server (all 8 tools, local)
+- 1 private repo
+- Core jurisdiction packs (AU, US, EU)
+- Basic HTML/JSON reports
+- No retained evidence
+- Community support
 
-### Pro
+### Pro — $99-199/mo per 5 protected repos/pipelines
 
-$29/month
-
-- All 8 MCP tools
-- Opinion engine
-- Reform module
+- Everything in Free
+- **Unlimited scans** per protected repo
+- CI deploy gating (GitHub Action, GitLab CI)
+- Opinion-grade verdicts with regulatory citations
+- Reform module + remediation suggestions
 - Agent-native report format
 - SMB compliance-check workflow
+- Full evidence retention (HTML, MD, JSON, PDF)
+- Severity-based blocking (configurable thresholds)
+- Slack/email alerts for new findings
+- Standard support
 
-### Enterprise
+### Enterprise — $15-50K+/yr
 
-Custom pricing
+- Everything in Pro
+- **Unlimited protected repos/pipelines**
+- SSO / SAML
+- Self-hosted option (air-gapped)
+- Custom jurisdiction packs (private/sector-specific)
+- Custom rule authoring pipeline
+- Team + org workflows
+- OneTrust / Jira / Slack integrations
+- Dedicated customer success manager
+- Custom compliance reporting
+- Named support + SLA
 
-- Custom onboarding and support
-- Team and organisation workflows
-- Deployment and procurement support
-- Custom compliance reporting requirements
+---
 
 ## Feature Comparison
 
 | Feature | Free | Pro | Enterprise |
-| --- | --- | --- | --- |
-| Local project scan | Yes | Yes | Yes |
-| Public URL scan | Yes | Yes | Yes |
-| MCP tools | 3 core tools | All 8 tools | All 8 tools |
-| Deterministic opinion engine | No | Yes | Yes |
-| SMB questionnaire | Limited | Yes | Yes |
-| Reform module | No | Yes | Yes |
-| Agent-native report format | No | Yes | Yes |
-| Structured MCP responses | Basic | Full | Full |
-| Team workflows | No | No | Custom |
-| Support | Community | Standard | Custom |
+|---|---|---|---|
+| Local CLI scan | ✅ | ✅ | ✅ |
+| URL scan | ✅ | ✅ | ✅ |
+| MCP server (8 tools) | ✅ | ✅ | ✅ |
+| Jurisdiction packs | AU, US, EU | AU, US, EU | All + custom |
+| Private repos | 1 | 5 per unit | Unlimited |
+| Scans per repo | Unlimited | Unlimited | Unlimited |
+| CI deploy gating | ❌ | ✅ | ✅ |
+| Opinion-grade verdicts | ❌ | ✅ | ✅ |
+| Reform module | ❌ | ✅ | ✅ |
+| Agent-native format | ❌ | ✅ | ✅ |
+| Evidence retention | ❌ | ✅ | ✅ |
+| Severity-based blocking | ❌ | ✅ | ✅ |
+| Alerts (Slack/email) | ❌ | ✅ | ✅ |
+| SSO | ❌ | ❌ | ✅ |
+| Self-hosted | ❌ | ❌ | ✅ |
+| Custom packs | ❌ | ❌ | ✅ |
+| Governance integrations | ❌ | ❌ | ✅ |
+| Support | Community | Standard | Named + SLA |
+
+---
+
+## Why NOT Per-Scan or Per-Seat
+
+**Per-scan** penalizes the exact behavior we want (frequent CI checks, agent preflights before every merge). If scanning costs money, teams scan less. Less scanning = more violations shipped.
+
+**Per-seat** breaks in the agent era. AI coding agents don't have headcounts. Autonomous PRs from agents should trigger compliance checks without counting as a "seat."
+
+**Protected surface** aligns price to value: we're protecting your repos/pipelines from privacy-law violations. More repos = more value = more revenue. Scans are just how you realize that value.
+
+---
+
+## HoundDog / Privado Pricing Context
+
+| | Free | Paid | Enterprise |
+|---|---|---|---|
+| **HoundDog** | $0 (limited) | $100/yr per dev | Custom |
+| **Privado** | OSS scanner | $4,200/mo (200 devs) | Custom |
+| **Clearway** | $0 (full CLI+MCP) | $99-199/mo per 5 repos | $15-50K+/yr |
+
+See `docs/COMPETITIVE-LANDSCAPE.md` for detailed competitive analysis.

@@ -12,6 +12,7 @@ import { Command } from 'commander';
 import chalk from 'chalk';
 import ora from 'ora';
 import { select } from '@inquirer/prompts';
+import { readFileSync } from 'node:fs';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -64,6 +65,7 @@ import type {
   Question,
   QuestionnaireResponse,
   QuestionnaireSession,
+  ReformImpactAssessment,
   RegulationControl,
   RuleFreshness as RuleFreshnessMetadata,
 } from '../schema/index.js';
@@ -73,12 +75,13 @@ import type { AttestationPromptRunner, AttestationScanSnapshot, SessionTarget } 
 import { getHostnameFromTargetUrl } from '../utils/target.js';
 import { registerMonitorCommands } from '../monitor/cli.js';
 
+const CLI_VERSION = readCliPackageVersion();
 const program = new Command();
 
 program
   .name('attestlens')
   .description('AI Compliance Scanner & Privacy Act Attestation Tool')
-  .version('0.2.0');
+  .version(CLI_VERSION);
 
 registerMonitorCommands(program);
 
@@ -431,6 +434,74 @@ program
 
       const reportPaths = await writeSMBComplianceFiles(report, reportOptions, outputFormats, questionnaireSession);
       displaySMBTerminalSummary(getSMBComplianceResult(report, questionnaireSession), reportPaths, outputDir);
+      displayScannerWarnings(scanResult.errors);
+    } catch (error: any) {
+      console.error(chalk.red(`\nError: ${error.message}`));
+      process.exit(1);
+    }
+  });
+
+// ─── Reform Command ───────────────────────────────────────────────────────────
+
+program
+  .command('reform')
+  .description('Standalone Privacy Act 2026 reform impact assessment')
+  .argument('<target>', 'Path to project directory')
+  .option('-o, --output <dir>', 'Output directory', './attestlens-reports')
+  .option('-f, --format <formats>', 'Output formats (json,html,markdown)', 'json,markdown')
+  .option('--jurisdiction <jurisdiction>', 'Jurisdiction to check against (default: au-privacy-act)', 'au-privacy-act')
+  .action(async (targetInput: string, options: any) => {
+    console.log(chalk.bold.cyan('\n🏛️  AttestLens — Reform Impact Assessment\n'));
+
+    try {
+      const outputFormats = parseReformOutputFormats(options.format);
+      const target = await resolveCliTarget(targetInput);
+      if (target.kind !== 'path') {
+        throw new Error('Reform impact assessment currently supports project directories only.');
+      }
+
+      const jurisdiction = parseJurisdictionOption(options.jurisdiction);
+      assertJurisdictionAvailableForCli(jurisdiction);
+      const outputDir = path.resolve(options.output);
+      const orchestrator = createOrchestrator(target.kind, { ...options, reform: true });
+      const spinner = ora('Assessing reform impact...').start();
+      const startTime = Date.now();
+
+      const scanResult = await orchestrator.scan(target.value);
+      const duration = Date.now() - startTime;
+      spinner.succeed(`Reform scan complete in ${(duration / 1000).toFixed(1)}s`);
+      displayRuleFreshness(scanResult.ruleFreshness);
+
+      const reportOptions: ReportOptions = {
+        targetName: target.name,
+        targetPath: target.value,
+        formats: ['json'],
+        outputDir,
+        strictMode: false,
+        includeReform: true,
+        ruleFreshness: scanResult.ruleFreshness,
+        jurisdiction,
+      };
+
+      const report = buildComplianceReport(scanResult.findings, reportOptions, duration);
+      report.metadata.scannerVersions = Object.fromEntries(
+        scanResult.results.map(r => [r.source, r.version]),
+      );
+
+      const assessment = report.reformImpactAssessment;
+      if (!assessment) {
+        throw new Error('Reform impact assessment generation failed.');
+      }
+
+      const reportPaths = await writeReformAssessmentFiles(
+        assessment,
+        report.target.name,
+        report.timestamp,
+        outputDir,
+        outputFormats,
+      );
+
+      displayReformTerminalSummary(assessment, reportPaths, outputDir);
       displayScannerWarnings(scanResult.errors);
     } catch (error: any) {
       console.error(chalk.red(`\nError: ${error.message}`));
@@ -1389,6 +1460,15 @@ function formatUrlScanFailure(error: ScannerError): string {
   }
 }
 
+function readCliPackageVersion(): string {
+  const packageJsonUrl = new URL('../../package.json', import.meta.url);
+  const packageJson = JSON.parse(readFileSync(packageJsonUrl, 'utf-8')) as { version?: unknown };
+  if (typeof packageJson.version !== 'string' || packageJson.version.length === 0) {
+    throw new Error('Unable to determine CLI version from package.json');
+  }
+  return packageJson.version;
+}
+
 function parseReportFormats(rawFormats: string): ReportFormat[] {
   const supported = new Set<ReportFormat>(SUPPORTED_REPORT_FORMATS);
   const formats = rawFormats
@@ -1415,6 +1495,37 @@ function parseReportFormats(rawFormats: string): ReportFormat[] {
 
 function isAgentReportFormat(formats: ReportFormat[]): boolean {
   return formats.length === 1 && formats[0] === 'agent';
+}
+
+type ReformOutputFormat = 'json' | 'html' | 'markdown';
+
+function parseReformOutputFormats(rawFormats: string): ReformOutputFormat[] {
+  const formats = rawFormats
+    .split(',')
+    .map(value => value.trim().toLowerCase())
+    .filter(Boolean);
+
+  if (formats.length === 0) {
+    throw new Error('At least one reform output format is required');
+  }
+
+  const normalized = new Set<ReformOutputFormat>();
+  for (const format of formats) {
+    switch (format) {
+      case 'json':
+      case 'html':
+      case 'markdown':
+        normalized.add(format);
+        break;
+      case 'md':
+        normalized.add('markdown');
+        break;
+      default:
+        throw new Error(`Unsupported reform format: ${format}`);
+    }
+  }
+
+  return Array.from(normalized);
 }
 
 function resolveReportTarget(
@@ -1500,6 +1611,199 @@ async function writeReportFiles(
   }
 
   return outputs;
+}
+
+async function writeReformAssessmentFiles(
+  assessment: ReformImpactAssessment,
+  targetName: string,
+  timestamp: string,
+  outputDir: string,
+  outputFormats: ReformOutputFormat[],
+): Promise<Array<{ label: string; path: string }>> {
+  const resolvedOutputDir = path.resolve(outputDir);
+  await fs.mkdir(resolvedOutputDir, { recursive: true });
+
+  const filename = `${buildReportFilename(targetName, timestamp)}-reform`;
+  const outputs: Array<{ label: string; path: string }> = [];
+
+  for (const format of outputFormats) {
+    switch (format) {
+      case 'json': {
+        const filePath = path.join(resolvedOutputDir, `${filename}.json`);
+        await fs.writeFile(filePath, JSON.stringify(assessment, null, 2));
+        outputs.push({ label: 'Reform assessment JSON', path: filePath });
+        break;
+      }
+      case 'markdown': {
+        const filePath = path.join(resolvedOutputDir, `${filename}.md`);
+        await fs.writeFile(filePath, generateReformAssessmentMarkdown(assessment, targetName));
+        outputs.push({ label: 'Reform assessment Markdown', path: filePath });
+        break;
+      }
+      case 'html': {
+        const filePath = path.join(resolvedOutputDir, `${filename}.html`);
+        await fs.writeFile(filePath, generateReformAssessmentHTML(assessment, targetName));
+        outputs.push({ label: 'Reform assessment HTML', path: filePath });
+        break;
+      }
+    }
+  }
+
+  return outputs;
+}
+
+function generateReformAssessmentMarkdown(
+  assessment: ReformImpactAssessment,
+  targetName: string,
+): string {
+  const lines: string[] = [
+    `# Reform Impact Assessment — ${targetName}`,
+    '',
+    `- **Overall Impact:** ${assessment.overallImpact.toUpperCase()}`,
+    `- **Assessment Date:** ${assessment.assessmentDate}`,
+    '',
+    assessment.disclaimer,
+    '',
+    '## Provisions',
+    '',
+  ];
+
+  for (const provision of assessment.provisions) {
+    lines.push(`### ${provision.shortName}`);
+    lines.push(`- **Provision:** ${provision.provision}`);
+    lines.push(`- **Status:** ${provision.status}`);
+    lines.push(`- **Effective Date:** ${provision.effectiveDate}`);
+    lines.push(`- **Findings:** ${provision.findingCount}`);
+    lines.push('');
+    lines.push(provision.summary);
+    lines.push('');
+
+    if (provision.findings.length === 0) {
+      lines.push('No reform-specific findings detected.');
+      lines.push('');
+      continue;
+    }
+
+    for (const finding of provision.findings) {
+      lines.push(`- **${finding.id}** ${finding.title} (${finding.severity})`);
+      lines.push(`  ${finding.description}`);
+      if (finding.file) {
+        lines.push(`  File: ${finding.file}${finding.line ? `:${finding.line}` : ''}`);
+      }
+      if (finding.remediation) {
+        lines.push(`  Remediation: ${finding.remediation}`);
+      }
+    }
+    lines.push('');
+  }
+
+  lines.push('## Action Items');
+  lines.push('');
+  if (assessment.actionItems.length === 0) {
+    lines.push('No action items.');
+  } else {
+    for (const actionItem of assessment.actionItems) {
+      lines.push(`- **${actionItem.title}** (${actionItem.priority}, deadline ${actionItem.deadline})`);
+      lines.push(`  ${actionItem.description}`);
+    }
+  }
+
+  return `${lines.join('\n')}\n`;
+}
+
+function generateReformAssessmentHTML(
+  assessment: ReformImpactAssessment,
+  targetName: string,
+): string {
+  const escapeHtml = (value: string): string => value
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#39;');
+
+  return `<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Reform Impact Assessment — ${escapeHtml(targetName)}</title>
+  <style>
+    :root { color-scheme: light; }
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; margin: 40px; color: #1f2933; background: #f8fafc; }
+    main { max-width: 960px; margin: 0 auto; background: #fff; border-radius: 16px; padding: 32px; box-shadow: 0 12px 30px rgba(15, 23, 42, 0.08); }
+    h1, h2, h3 { color: #102a43; }
+    .meta { color: #486581; margin-bottom: 24px; }
+    .badge { display: inline-block; padding: 4px 10px; border-radius: 999px; background: #d9e2ec; font-weight: 700; }
+    .provision { border-top: 1px solid #e5e7eb; padding-top: 20px; margin-top: 20px; }
+    .finding { background: #f8fafc; border-radius: 12px; padding: 16px; margin-top: 12px; }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>Reform Impact Assessment — ${escapeHtml(targetName)}</h1>
+    <p class="meta"><strong>Overall Impact:</strong> <span class="badge">${escapeHtml(assessment.overallImpact.toUpperCase())}</span> · <strong>Assessment Date:</strong> ${escapeHtml(assessment.assessmentDate)}</p>
+    <p>${escapeHtml(assessment.disclaimer)}</p>
+    <h2>Provisions</h2>
+    ${assessment.provisions.map((provision) => `
+      <section class="provision">
+        <h3>${escapeHtml(provision.shortName)}</h3>
+        <p><strong>Provision:</strong> ${escapeHtml(provision.provision)}<br />
+        <strong>Status:</strong> ${escapeHtml(provision.status)}<br />
+        <strong>Effective Date:</strong> ${escapeHtml(provision.effectiveDate)}<br />
+        <strong>Findings:</strong> ${provision.findingCount}</p>
+        <p>${escapeHtml(provision.summary)}</p>
+        ${provision.findings.length === 0 ? '<p>No reform-specific findings detected.</p>' : provision.findings.map((finding) => `
+          <article class="finding">
+            <strong>${escapeHtml(finding.id)}</strong> ${escapeHtml(finding.title)} (${escapeHtml(finding.severity)})</br>
+            <p>${escapeHtml(finding.description)}</p>
+            ${finding.file ? `<p><strong>File:</strong> ${escapeHtml(finding.file)}${finding.line ? `:${finding.line}` : ''}</p>` : ''}
+            ${finding.remediation ? `<p><strong>Remediation:</strong> ${escapeHtml(finding.remediation)}</p>` : ''}
+          </article>
+        `).join('')}
+      </section>
+    `).join('')}
+    <h2>Action Items</h2>
+    ${assessment.actionItems.length === 0 ? '<p>No action items.</p>' : `<ul>${assessment.actionItems.map((actionItem) => `
+      <li><strong>${escapeHtml(actionItem.title)}</strong> (${escapeHtml(actionItem.priority)}, deadline ${escapeHtml(actionItem.deadline)}) — ${escapeHtml(actionItem.description)}</li>
+    `).join('')}</ul>`}
+  </main>
+</body>
+</html>`;
+}
+
+function displayReformTerminalSummary(
+  assessment: ReformImpactAssessment,
+  reportPaths: Array<{ label: string; path: string }>,
+  outputDir: string,
+): void {
+  console.log('');
+  console.log(`Overall Impact: ${assessment.overallImpact.toUpperCase()}`);
+  console.log(`Assessment Date: ${assessment.assessmentDate}`);
+  console.log('');
+
+  for (const provision of assessment.provisions) {
+    console.log(chalk.bold(`${provision.shortName} (${provision.status})`));
+    console.log(`  Effective: ${provision.effectiveDate}`);
+    console.log(`  Findings: ${provision.findingCount}`);
+    console.log(`  ${provision.summary}`);
+  }
+
+  console.log(chalk.bold('\nAction Items:'));
+  if (assessment.actionItems.length === 0) {
+    console.log('  No action items.');
+  } else {
+    assessment.actionItems.forEach((actionItem, index) => {
+      console.log(`  ${index + 1}. ${actionItem.title} [${actionItem.priority}] (${actionItem.deadline})`);
+      console.log(`     ${actionItem.description}`);
+    });
+  }
+
+  console.log('');
+  for (const output of reportPaths) {
+    console.log(chalk.green(`  📄 ${output.label}: ${output.path}`));
+  }
+  console.log(chalk.green(`\nReform assessment saved to ${formatOutputDirForDisplay(outputDir)}/`));
 }
 
 function displayFindings(findings: AttestLensFinding[]) {

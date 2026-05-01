@@ -1,9 +1,14 @@
-# AttestLens Competitive Gap Analysis
+# AttestLens Competitive Gap Analysis (Vibe-Scanner Era)
 
-**Date:** 2026-04-18 (updated 2026-04-29)
-**Purpose:** Competitive landscape reference data. For current product positioning, see `docs/YC-RFS-EVOLUTION.md`.
+**Date:** 2026-04-18 (updated 2026-05-01)
+**Status:** ARCHIVED — preserved for vibe-scanner competitive data
 
-> **Note:** This competitive analysis was conducted pre-internationalization (April 2026). AttestLens now supports multi-jurisdiction compliance (AU + US CCPA + EU GDPR). The competitive landscape data remains valid but the product positioning has evolved. See `docs/YC-RFS-EVOLUTION.md` and `docs/INTERNATIONAL-STRATEGY.md` for current positioning.
+> ⚠️ **This doc is superseded for direct competitor analysis.**
+> For current HoundDog.ai + Privado.ai deep-dive with pricing, capabilities, and Clearway differentiation, see **`docs/COMPETITIVE-LANDSCAPE.md`**.
+>
+> This doc retains useful data on the broader vibe-scanning market (15+ tools) that still informs adjacent competitive positioning.
+
+**Purpose:** Vibe-scanner competitive reference data. For current positioning, see `docs/YC-RFS-EVOLUTION.md`.
 
 ---
 
