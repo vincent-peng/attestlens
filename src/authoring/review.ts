@@ -29,6 +29,7 @@ export interface ReviewPackOptions {
 }
 
 export async function reviewPack(options: ReviewPackOptions): Promise<ValidatedPackManifestType> {
+  const outputPaths = resolveReviewOutputPaths(path.resolve(options.outputPath));
   const proposed = ProposedPackManifest.parse(
     JSON.parse(await fs.readFile(path.resolve(options.proposedPath), 'utf-8')),
   );
@@ -87,14 +88,26 @@ export async function reviewPack(options: ReviewPackOptions): Promise<ValidatedP
     ruleProvenance,
   });
 
-  await fs.mkdir(path.dirname(path.resolve(options.outputPath)), { recursive: true });
-  await fs.writeFile(path.resolve(options.outputPath), `${JSON.stringify(manifest, null, 2)}\n`, 'utf-8');
-
-  // PH11-002: Also emit a runtime-consumable RulePackManifest (schema 1.0) alongside the validated manifest
-  // so the scanner can load approved rules without needing 2.1 support.
   const runtimePack = buildRuntimePack(approvedRules, proposed.jurisdiction, reviewedAt);
-  const runtimeOutputPath = path.resolve(options.outputPath).replace(/\.json$/, '.runtime.json');
-  await fs.writeFile(runtimeOutputPath, `${JSON.stringify(runtimePack, null, 2)}\n`, 'utf-8');
+  const validatedContents = `${JSON.stringify(manifest, null, 2)}\n`;
+  const runtimeContents = `${JSON.stringify(runtimePack, null, 2)}\n`;
+  const validatedTempPath = `${outputPaths.validatedPath}.tmp`;
+  const runtimeTempPath = `${outputPaths.runtimePath}.tmp`;
+
+  await fs.mkdir(path.dirname(outputPaths.validatedPath), { recursive: true });
+
+  try {
+    await fs.writeFile(validatedTempPath, validatedContents, 'utf-8');
+    await fs.writeFile(runtimeTempPath, runtimeContents, 'utf-8');
+    await fs.rename(runtimeTempPath, outputPaths.runtimePath);
+    await fs.rename(validatedTempPath, outputPaths.validatedPath);
+  } catch (error) {
+    await Promise.all([
+      fs.rm(validatedTempPath, { force: true }),
+      fs.rm(runtimeTempPath, { force: true }),
+    ]);
+    throw error;
+  }
 
   return manifest;
 }
@@ -152,6 +165,21 @@ function markRuleApproved(rule: AuthoredRule, reviewer: string, reviewedAt: stri
 
 function buildPackVersion(reviewedAt: string): string {
   return reviewedAt.slice(0, 10).replace(/-/g, '.');
+}
+
+function resolveReviewOutputPaths(outputPath: string): { validatedPath: string; runtimePath: string } {
+  const parsed = path.parse(outputPath);
+  if (parsed.ext !== '.json') {
+    throw new Error(`review-pack output path must end in .json: ${outputPath}`);
+  }
+  if (parsed.name.endsWith('.runtime')) {
+    throw new Error(`review-pack output path must not end in .runtime.json: ${outputPath}`);
+  }
+
+  return {
+    validatedPath: outputPath,
+    runtimePath: path.join(parsed.dir, `${parsed.name}.runtime${parsed.ext}`),
+  };
 }
 
 /**

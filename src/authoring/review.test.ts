@@ -143,4 +143,16 @@ describe('reviewPack', () => {
     expect(manifest.rules[0]?.id).toBe('SGPDPA-SEC-001');
     expect(manifest.ruleProvenance['SGPDPA-SEC-LOW']).toBeUndefined();
   });
+
+  it('rejects output paths that do not end in .json', async () => {
+    const dir = await makeTempDir();
+
+    await expect(reviewPack({
+      proposedPath: await writeProposedPack(dir),
+      reviewer: 'alice',
+      outputPath: path.join(dir, 'validated'),
+      approveAll: true,
+      now: new Date('2026-05-01T01:00:00.000Z'),
+    })).rejects.toThrow('must end in .json');
+  });
 });

@@ -204,6 +204,24 @@ export async function loadValidatedJurisdictionPack(
     }
   }
 
+  if (runtimeManifest && !validatedManifest) {
+    warnings.push(
+      `Validated runtime pack ignored for ${jurisdiction}: matching validated manifest unavailable. Using embedded rules.`,
+    );
+    runtimeManifest = undefined;
+  }
+
+  if (runtimeManifest && validatedManifest) {
+    const consistencyError = getValidatedRuntimeConsistencyError(jurisdiction, runtimeManifest, validatedManifest);
+    if (consistencyError) {
+      warnings.push(
+        `Validated runtime pack ignored for ${jurisdiction}: ${consistencyError}. Using embedded rules.`,
+      );
+      runtimeManifest = undefined;
+      validatedManifest = undefined;
+    }
+  }
+
   if (runtimeManifest && comparePackVersions(runtimeManifest.version, embedded.version) < 0) {
     warnings.push(
       `Validated runtime pack for ${jurisdiction} is older than embedded (${runtimeManifest.version} < ${embedded.version}). Using embedded rules.`,
@@ -485,19 +503,72 @@ function getEmbeddedJurisdictionRulePack(jurisdiction: Jurisdiction): RulePackMa
   return validateRulePackManifest(buildEmbeddedRulePack());
 }
 
+function getValidatedRuntimeConsistencyError(
+  expectedJurisdiction: Jurisdiction,
+  runtimeManifest: RulePackManifestType,
+  validatedManifest: ValidatedPackManifestType,
+): string | null {
+  if (runtimeManifest.jurisdiction !== expectedJurisdiction || validatedManifest.jurisdiction !== expectedJurisdiction) {
+    return `jurisdiction mismatch between validated artifacts and requested jurisdiction (${validatedManifest.jurisdiction} / ${runtimeManifest.jurisdiction} !== ${expectedJurisdiction})`;
+  }
+
+  if (runtimeManifest.jurisdiction !== validatedManifest.jurisdiction) {
+    return `jurisdiction mismatch between validated manifest and runtime pack (${validatedManifest.jurisdiction} !== ${runtimeManifest.jurisdiction})`;
+  }
+
+  if (!isNumericDotVersion(runtimeManifest.version) || !isNumericDotVersion(validatedManifest.version)) {
+    return `invalid version format in validated artifacts (${validatedManifest.version} / ${runtimeManifest.version})`;
+  }
+
+  if (runtimeManifest.version !== validatedManifest.version) {
+    return `version mismatch between validated manifest and runtime pack (${validatedManifest.version} !== ${runtimeManifest.version})`;
+  }
+
+  const validatedRuleIds = new Set(validatedManifest.rules.map((rule) => rule.id));
+  for (const rule of runtimeManifest.rules) {
+    if (!validatedRuleIds.has(rule.id)) {
+      return `runtime pack contains rule ${rule.id} that is not present in the validated manifest`;
+    }
+  }
+
+  return null;
+}
+
 function comparePackVersions(left: string, right: string): number {
-  const leftParts = left.split('.').map((part) => Number(part));
-  const rightParts = right.split('.').map((part) => Number(part));
+  const leftParts = parseNumericDotVersion(left);
+  const rightParts = parseNumericDotVersion(right);
+
+  if (!leftParts || !rightParts) {
+    return 0;
+  }
+
   const length = Math.max(leftParts.length, rightParts.length);
 
   for (let index = 0; index < length; index += 1) {
-    const delta = (leftParts[index] || 0) - (rightParts[index] || 0);
+    const delta = (leftParts[index] ?? 0) - (rightParts[index] ?? 0);
     if (delta !== 0) {
       return delta;
     }
   }
 
   return 0;
+}
+
+function isNumericDotVersion(version: string): boolean {
+  return parseNumericDotVersion(version) !== undefined;
+}
+
+function parseNumericDotVersion(version: string): number[] | undefined {
+  if (!/^\d+(?:\.\d+)*$/.test(version)) {
+    return undefined;
+  }
+
+  const parts = version.split('.').map((part) => Number.parseInt(part, 10));
+  if (parts.some((part) => Number.isNaN(part))) {
+    return undefined;
+  }
+
+  return parts;
 }
 
 function buildJurisdictionManifestFromRulePack(manifest: RulePackManifestType): JurisdictionPackManifestType {
