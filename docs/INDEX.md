@@ -25,6 +25,8 @@
 | [RULE-UPDATE-PIPELINE.md](RULE-UPDATE-PIPELINE.md) | Rule update pipeline & rapid response architecture | ⚠️ Foundation shipped; future features deferred |
 | [SUPPLY-CHAIN-DETECTION.md](SUPPLY-CHAIN-DETECTION.md) | Supply chain / dependency detection architecture | ⚠️ Shipped — see STATUS.md for current status |
 | [CI-INTEGRATION.md](CI-INTEGRATION.md) | CI/CD integration guide | ⚠️ Exists, needs GitHub Action template |
+| [RESEARCH-PHASE-10.5-11.md](RESEARCH-PHASE-10.5-11.md) | Phase 10.5 + 11 best practices research (merged) | ✅ Research complete |
+| [RESEARCH-PHASE-10.5-11-SUPPLEMENT.md](RESEARCH-PHASE-10.5-11-SUPPLEMENT.md) | Codex cross-examination findings (archived) | ✅ Archived (merged into main) |
 
 ## Strategy & Research
 
@@ -55,3 +57,4 @@ All docs updated to reflect:
 - [x] Phase 10.5 (GitHub Action + MCP recipes) added to roadmap
 - [x] Design partner target list with ranked companies
 - [x] YC app draft updated with deploy gate positioning + competitors section
+- [x] Phase 10.5/11 research: SARIF, GitHub Actions, MCP distribution, rule authoring

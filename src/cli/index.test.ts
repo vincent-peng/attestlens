@@ -19,7 +19,7 @@ import {
 } from '../questionnaire/index.js';
 import { OSV_QUERY_BATCH_URL } from '../scanner/osv.js';
 import { buildEmbeddedRulePack } from '../scanner/rules/index.js';
-import { buildScannerOrchestratorOptions, executeAttestCommand } from './index.js';
+import { buildScannerOrchestratorOptions, executeAttestCommand, hasFindingsAtOrAboveThreshold } from './index.js';
 
 const execFileAsync = promisify(execFile);
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
@@ -160,7 +160,7 @@ describe('CLI URL handling', () => {
     const result = await runCli(['scan', 'http://localhost:3000']);
     const output = `${result.stdout}\n${result.stderr}`;
 
-    expect(result.code).toBe(1);
+    expect(result.code).toBe(2);
     expect(output).toContain('URL target is not allowed for scanning.');
     expect(output).not.toContain('No compliance findings detected.');
   });
@@ -173,7 +173,7 @@ describe('CLI URL handling', () => {
       const output = `${result.stdout}\n${result.stderr}`;
       const files = await fs.readdir(outputDir);
 
-      expect(result.code).toBe(1);
+      expect(result.code).toBe(2);
       expect(output).toContain('URL target is not allowed for scanning.');
       expect(files).toHaveLength(0);
     } finally {
@@ -227,6 +227,17 @@ describe('CLI metadata', () => {
     expect(result.stdout).toContain('--output');
     expect(result.stdout).toContain('--format');
   });
+
+  it('exposes the install and uninstall subcommands', async () => {
+    const installResult = await runCli(['install', '--help']);
+    const uninstallResult = await runCli(['uninstall', '--help']);
+
+    expect(installResult.code).toBe(0);
+    expect(installResult.stdout).toContain('Install the Clearway MCP server');
+    expect(installResult.stdout).toContain('--client');
+    expect(uninstallResult.code).toBe(0);
+    expect(uninstallResult.stdout).toContain('Remove the Clearway MCP server');
+  });
 });
 
 describe('CLI agent report format', () => {
@@ -261,6 +272,118 @@ describe('CLI agent report format', () => {
       expect(result.stdout).not.toContain('Report generated successfully');
     } finally {
       await fs.rm(projectDir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('CLI SARIF and exit thresholds', () => {
+  it('returns exit code 0 when findings do not exceed the threshold', async () => {
+    const findings = [
+      {
+        severity: 'medium',
+      },
+    ] as any;
+
+    expect(hasFindingsAtOrAboveThreshold(findings, 'error')).toBe(false);
+    expect(hasFindingsAtOrAboveThreshold(findings, 'warning')).toBe(true);
+  });
+
+  it('writes SARIF to stdout for scan and honors --no-fail', async () => {
+    const projectDir = await fs.mkdtemp(path.join(os.tmpdir(), 'attestlens-cli-sarif-'));
+
+    try {
+      await fs.writeFile(path.join(projectDir, 'Dockerfile'), 'FROM node:latest\nUSER root\n');
+
+      const result = await runCli([
+        'scan',
+        projectDir,
+        '--format',
+        'sarif',
+        '--no-guardvibe',
+        '--no-mcp-scan',
+        '--no-supply-chain',
+        '--no-behavioral',
+        '--no-fail',
+      ]);
+
+      const payload = JSON.parse(result.stdout);
+      expect(result.code).toBe(0);
+      expect(payload.version).toBe('2.1.0');
+      expect(payload.runs[0].results).toEqual(expect.any(Array));
+    } finally {
+      await fs.rm(projectDir, { recursive: true, force: true });
+    }
+  });
+
+  it('writes SARIF to a file for audit and exits 1 when findings exceed the default threshold', async () => {
+    const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'attestlens-cli-audit-sarif-'));
+    const projectDir = path.join(tempDir, 'project');
+    const outputDir = path.join(tempDir, 'reports');
+    const sarifPath = path.join(outputDir, 'result.sarif');
+
+    try {
+      await fs.mkdir(projectDir, { recursive: true });
+      await fs.writeFile(path.join(projectDir, 'Dockerfile'), 'FROM node:latest\nUSER root\n');
+
+      const result = await runCli([
+        'audit',
+        projectDir,
+        '--format',
+        'sarif',
+        '--output',
+        outputDir,
+        '--sarif-output',
+        sarifPath,
+        '--no-guardvibe',
+        '--no-mcp-scan',
+        '--no-supply-chain',
+        '--no-behavioral',
+      ]);
+
+      const payload = JSON.parse(await fs.readFile(sarifPath, 'utf-8'));
+      expect(result.code).toBe(1);
+      expect(payload.runs[0].results.length).toBeGreaterThan(0);
+    } finally {
+      await fs.rm(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it('treats invalid fail-on-severity values as tool errors', async () => {
+    const result = await runCli(['scan', repoRoot, '--fail-on-severity', 'bad-level']);
+    expect(result.code).toBe(2);
+    expect(`${result.stdout}\n${result.stderr}`).toContain('Unsupported fail severity');
+  });
+
+  it('rejects SARIF output paths outside the current working directory and output directory', async () => {
+    const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'attestlens-cli-sarif-path-'));
+    const projectDir = path.join(tempDir, 'project');
+    const outputDir = path.join(tempDir, 'reports');
+    const outsidePath = path.join(os.tmpdir(), 'attestlens-cli-outside.sarif');
+
+    try {
+      await fs.mkdir(projectDir, { recursive: true });
+      await fs.writeFile(path.join(projectDir, 'Dockerfile'), 'FROM node:latest\nUSER root\n');
+
+      const result = await runCli([
+        'audit',
+        projectDir,
+        '--format',
+        'sarif',
+        '--output',
+        outputDir,
+        '--sarif-output',
+        outsidePath,
+        '--no-guardvibe',
+        '--no-mcp-scan',
+        '--no-supply-chain',
+        '--no-behavioral',
+      ]);
+
+      expect(result.code).toBe(2);
+      expect(`${result.stdout}\n${result.stderr}`).toContain('SARIF output path must be within the current working directory or the configured output directory.');
+    } finally {
+      await fs.rm(tempDir, { recursive: true, force: true });
+      await fs.rm(outsidePath, { force: true });
     }
   });
 });
@@ -570,7 +693,7 @@ describe('CLI external enrichment option', () => {
       ]);
       const output = `${result.stdout}\n${result.stderr}`;
 
-      expect(result.code, output).toBe(1);
+      expect(result.code, output).toBe(2);
       expect(output).toContain('SMB compliance check is currently AU-only');
       expect(output).toContain('audit --jurisdiction us-ccpa');
     } finally {
@@ -592,7 +715,7 @@ describe('CLI external enrichment option', () => {
       ]);
       const output = `${result.stdout}\n${result.stderr}`;
 
-      expect(result.code).toBe(1);
+      expect(result.code).toBe(2);
       expect(output).toContain('SMB compliance check is currently AU-only');
       expect(output).toContain('audit --jurisdiction eu-gdpr');
     } finally {

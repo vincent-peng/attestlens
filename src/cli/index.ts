@@ -8,7 +8,7 @@
  *   attestlens report <path>   Generate report from existing scan data
  */
 
-import { Command } from 'commander';
+import { Command, CommanderError } from 'commander';
 import chalk from 'chalk';
 import ora from 'ora';
 import { select } from '@inquirer/prompts';
@@ -17,6 +17,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 
+import { formatSarif, mapFindingSeverityToSarifLevel } from '../formatters/sarif.js';
 import { ScannerOrchestrator, type ScannerOrchestratorOptions } from '../scanner/orchestrator.js';
 import { mapAllFindings } from '../mapping/engine.js';
 import {
@@ -73,6 +74,11 @@ import type { ComplianceReportWithSMB, ReportFormat, ReportOptions } from '../re
 import type { ScannerError, ScannerResult } from '../scanner/types.js';
 import type { AttestationPromptRunner, AttestationScanSnapshot, SessionTarget } from '../questionnaire/index.js';
 import { getHostnameFromTargetUrl } from '../utils/target.js';
+import {
+  installClients,
+  uninstallClients,
+  type SupportedClient,
+} from './install.js';
 import { registerMonitorCommands } from '../monitor/cli.js';
 
 const CLI_VERSION = readCliPackageVersion();
@@ -82,6 +88,7 @@ program
   .name('attestlens')
   .description('AI Compliance Scanner & Privacy Act Attestation Tool')
   .version(CLI_VERSION);
+program.exitOverride();
 
 registerMonitorCommands(program);
 
@@ -92,7 +99,10 @@ program
   .description('Scan a project directory or URL for privacy compliance findings')
   .argument('<target>', 'Path to project directory or URL (https://...)')
   .option('-o, --output <dir>', 'Output directory', './attestlens-reports')
-  .option('-f, --format <formats>', 'Output formats (json,html,markdown,pdf,agent)', 'json,html')
+  .option('-f, --format <formats>', 'Output formats (json,html,markdown,pdf,sarif,agent)', 'json,html')
+  .option('--sarif-output <path>', 'Write SARIF output to a file instead of stdout')
+  .option('--fail-on-severity <level>', 'Exit 1 when findings at or above this level exist (error, warning, note)', 'error')
+  .option('--no-fail', 'Always exit 0')
   .option('--strict', 'Treat UNKNOWN controls as FAIL')
   .option('--no-guardvibe', 'Disable GuardVibe scanner')
   .option('--no-mcp-scan', 'Disable mcp-scan')
@@ -108,9 +118,13 @@ program
   .option('--jurisdiction <jurisdiction>', 'Jurisdiction to check against (default: au-privacy-act)', 'au-privacy-act')
   .option('--reform', 'Include Privacy Act 2026 reform impact assessment')
   .action(async (targetInput: string, options: any) => {
-    console.log(chalk.bold.cyan('\n🔍 AttestLens — Privacy Act Compliance Scanner\n'));
+    const sarifRequested = isSarifRequested(options.format);
+    if (!sarifRequested) {
+      console.log(chalk.bold.cyan('\n🔍 AttestLens — Privacy Act Compliance Scanner\n'));
+    }
 
     try {
+      const failConfig = parseFailureControlOptions(options);
       const target = await resolveCliTarget(targetInput, options.name);
       const jurisdiction = parseJurisdictionOption(options.jurisdiction);
       assertJurisdictionAvailableForCli(jurisdiction);
@@ -127,10 +141,23 @@ program
       }
       const duration = Date.now() - startTime;
       spinner.succeed(`${target.kind === 'url' ? 'URL scan' : 'Scan'} complete in ${(duration / 1000).toFixed(1)}s`);
-      displayRuleFreshness(result.ruleFreshness);
-      displayScannerWarnings(result.errors);
+      if (!sarifRequested) {
+        displayRuleFreshness(result.ruleFreshness);
+        displayScannerWarnings(result.errors);
+      }
 
       const findings = result.findings;
+      if (sarifRequested) {
+        const sarif = await formatSarif({
+          findings,
+          jurisdiction,
+          version: CLI_VERSION,
+          basePath: target.kind === 'path' ? target.value : undefined,
+        });
+        await emitSarifOutput(sarif, options.sarifOutput, path.resolve(options.output));
+        process.exit(determineExitCode(findings, failConfig));
+      }
+
       if (findings.length === 0) {
         console.log(chalk.green('\n✅ No compliance findings detected.'));
         console.log(chalk.gray(`   Run \`attestlens audit --jurisdiction ${jurisdiction}\` for a full ${getJurisdictionAssessmentLabel(jurisdiction)} control assessment.`));
@@ -147,12 +174,13 @@ program
         .map(c => c.principle);
       console.log(chalk.cyan(`\n📋 Affected Controls: ${affectedPrinciples.join(', ')}`));
       console.log(chalk.gray(`   Run \`attestlens audit ${target.rawInput}\` for a full compliance report.`));
+      process.exit(determineExitCode(findings, failConfig));
 
     } catch (error: any) {
       const label = isUrlTarget(targetInput) ? 'URL scan failed' : 'Scan failed';
       console.error(chalk.red(`\n${label.replace(/^./, s => s.toUpperCase())}`));
       console.error(chalk.red(`\nError: ${error.message}`));
-      process.exit(1);
+      process.exit(2);
     }
   });
 
@@ -164,7 +192,10 @@ program
   .argument('<target>', 'Path to project directory or URL (https://...)')
   .option('-n, --name <name>', 'Project name', '')
   .option('-o, --output <dir>', 'Output directory', './attestlens-reports')
-  .option('-f, --format <formats>', 'Output formats (json,html,markdown,pdf,agent)', 'html,json')
+  .option('-f, --format <formats>', 'Output formats (json,html,markdown,pdf,sarif,agent)', 'html,json')
+  .option('--sarif-output <path>', 'Write SARIF output to a file instead of stdout')
+  .option('--fail-on-severity <level>', 'Exit 1 when findings at or above this level exist (error, warning, note)', 'error')
+  .option('--no-fail', 'Always exit 0')
   .option('--strict', 'Treat UNKNOWN controls as FAIL')
   .option('--no-guardvibe', 'Disable GuardVibe scanner')
   .option('--no-mcp-scan', 'Disable mcp-scan')
@@ -183,8 +214,11 @@ program
 
   .action(async (targetInput: string, options: any) => {
     try {
+      const failConfig = parseFailureControlOptions(options);
       const reportFormats = parseReportFormats(options.format);
       const agentOutput = isAgentReportFormat(reportFormats);
+      const includesSarif = reportFormats.includes('sarif');
+      const sarifOnly = reportFormats.length === 1 && reportFormats[0] === 'sarif';
       if (!agentOutput) {
         console.log(chalk.bold.cyan('\n🔍 AttestLens — Privacy Act Compliance Audit\n'));
       }
@@ -206,12 +240,25 @@ program
         throw new Error(urlScanFailure);
       }
       const duration = Date.now() - startTime;
+      if (sarifOnly) {
+        const sarif = await formatSarif({
+          findings: scanResult.findings,
+          jurisdiction,
+          version: CLI_VERSION,
+          basePath: target.kind === 'path' ? target.value : undefined,
+        });
+        spinner?.succeed(`Audit complete in ${(duration / 1000).toFixed(1)}s`);
+        displayRuleFreshness(scanResult.ruleFreshness);
+        displayScannerWarnings(scanResult.errors);
+        await emitSarifOutput(sarif, options.sarifOutput, path.resolve(options.output));
+        process.exit(determineExitCode(scanResult.findings, failConfig));
+      }
 
       const reportOptions: ReportOptions = {
         targetName: projectName,
         targetPath: target.kind === 'path' ? target.value : undefined,
         targetUrl: target.kind === 'url' ? target.value : undefined,
-        formats: reportFormats,
+        formats: reportFormats.filter((format) => format !== 'sarif'),
         outputDir: path.resolve(options.output),
         strictMode: options.strict,
         includeOpinion: options.opinion,
@@ -228,28 +275,7 @@ program
 
       if (agentOutput) {
         console.log(generateAgentReport(report, effectiveControls));
-        // Exit 1 for NON_COMPLIANT verdict or failing controls without opinion
-        const verdict = report.complianceOpinion?.overallVerdict;
-        if (verdict === 'NON_COMPLIANT') {
-          process.exit(1);
-        }
-        if (!verdict) {
-          // No opinion available — fail on any failing controls
-          const failCount = effectiveControls.filter(c => c.status === 'fail').length;
-          if (failCount > 0) {
-            process.exit(1);
-          }
-          // In strict mode, UNKNOWN controls also fail
-          if (options.strict) {
-            const unknownCount = effectiveControls.filter(c => c.status === 'unknown').length;
-            if (unknownCount > 0) {
-              process.exit(1);
-            }
-          }
-        }
-        if (verdict === 'PARTIALLY_COMPLIANT' && options.strict) {
-          process.exit(1);
-        }
+        process.exit(determineExitCode(scanResult.findings, failConfig));
         return;
       }
 
@@ -285,25 +311,65 @@ program
       for (const output of await writeReportFiles(report, reportOptions)) {
         console.log(chalk.green(`  📄 ${output.label}: ${output.path}`));
       }
+      if (includesSarif) {
+        const sarif = await formatSarif({
+          findings: scanResult.findings,
+          jurisdiction,
+          version: CLI_VERSION,
+          basePath: target.kind === 'path' ? target.value : undefined,
+        });
+        const sarifPath = options.sarifOutput || path.join(path.resolve(options.output), `${buildReportFilename(projectName, report.timestamp)}.sarif`);
+        await emitSarifOutput(sarif, sarifPath, path.resolve(options.output));
+        console.log(chalk.green(`  📄 SARIF report: ${sarifPath}`));
+      }
 
       displayScannerWarnings(scanResult.errors);
 
       console.log(chalk.gray(`\n  ${report.disclaimer}`));
-
-      // Exit with non-zero if critical findings
-      const criticalCount = report.findings.filter(f => f.severity === 'critical').length;
-      if (criticalCount > 0) {
-        process.exit(2);
-      }
-      const failCount = effectiveControls.filter(c => c.status === 'fail').length;
-      if (failCount > 0) {
-        process.exit(1);
-      }
+      process.exit(determineExitCode(scanResult.findings, failConfig));
 
     } catch (error: any) {
       console.error(chalk.red(`\nError: ${error.message}`));
-      process.exit(1);
+      process.exit(2);
     }
+  });
+
+program
+  .command('install')
+  .description('Install the Clearway MCP server into a supported client config')
+  .option('--client <name>', 'Specific client to configure (claude-desktop, cline, continue, cursor)')
+  .option('--dry-run', 'Show the changes without writing files')
+  .action(async (options: { client?: SupportedClient; dryRun?: boolean }) => {
+    try {
+      const results = await installClients({ client: options.client, dryRun: options.dryRun });
+      displayClientMutationResults(results, 'install');
+    } catch (error: any) {
+      console.error(chalk.red(`Error: ${error.message}`));
+      process.exit(2);
+    }
+  });
+
+program
+  .command('uninstall')
+  .description('Remove the Clearway MCP server from supported client configs')
+  .option('--client <name>', 'Specific client to configure (claude-desktop, cline, continue, cursor)')
+  .option('--dry-run', 'Show the changes without writing files')
+  .action(async (options: { client?: SupportedClient; dryRun?: boolean }) => {
+    try {
+      const results = await uninstallClients({ client: options.client, dryRun: options.dryRun });
+      displayClientMutationResults(results, 'uninstall');
+    } catch (error: any) {
+      console.error(chalk.red(`Error: ${error.message}`));
+      process.exit(2);
+    }
+  });
+
+program
+  .command('mcp')
+  .description('Run the Clearway MCP server over stdio')
+  .action(async () => {
+    const { main } = await import('../mcp/index.js');
+    await main();
   });
 
 // ─── Attest Command ───────────────────────────────────────────────────────────
@@ -338,7 +404,7 @@ program
       await executeAttestCommand(targetInput, options);
     } catch (error: any) {
       console.error(chalk.red(`\nError: ${error.message}`));
-      process.exit(1);
+      process.exit(2);
     }
   });
 
@@ -437,7 +503,7 @@ program
       displayScannerWarnings(scanResult.errors);
     } catch (error: any) {
       console.error(chalk.red(`\nError: ${error.message}`));
-      process.exit(1);
+      process.exit(2);
     }
   });
 
@@ -505,7 +571,7 @@ program
       displayScannerWarnings(scanResult.errors);
     } catch (error: any) {
       console.error(chalk.red(`\nError: ${error.message}`));
-      process.exit(1);
+      process.exit(2);
     }
   });
 
@@ -549,7 +615,7 @@ program
       console.log(chalk.green('✅ Report generated successfully.'));
     } catch (error: any) {
       console.error(chalk.red(`Error: ${error.message}`));
-      process.exit(1);
+      process.exit(2);
     }
   });
 
@@ -578,7 +644,7 @@ program
     } catch (error: any) {
       spinner.fail('Rule update failed');
       console.error(chalk.red(`Error: ${error.message}`));
-      process.exit(1);
+      process.exit(2);
     }
   });
 
@@ -1503,6 +1569,118 @@ function isAgentReportFormat(formats: ReportFormat[]): boolean {
   return formats.length === 1 && formats[0] === 'agent';
 }
 
+function isSarifRequested(rawFormats: string): boolean {
+  const formats = rawFormats
+    .split(',')
+    .map((value) => value.trim().toLowerCase())
+    .filter(Boolean);
+  return formats.includes('sarif');
+}
+
+type FailureSeverityThreshold = 'error' | 'warning' | 'note';
+
+interface FailureControlOptions {
+  threshold: FailureSeverityThreshold;
+  noFail: boolean;
+}
+
+function parseFailureControlOptions(options: { failOnSeverity?: unknown; fail?: boolean }): FailureControlOptions {
+  const rawThreshold = String(options.failOnSeverity ?? 'error').trim().toLowerCase();
+  if (rawThreshold !== 'error' && rawThreshold !== 'warning' && rawThreshold !== 'note') {
+    throw new Error(`Unsupported fail severity: ${String(options.failOnSeverity)}. Valid values: error, warning, note`);
+  }
+
+  return {
+    threshold: rawThreshold,
+    noFail: options.fail === false,
+  };
+}
+
+function determineExitCode(findings: AttestLensFinding[], options: FailureControlOptions): number {
+  if (options.noFail) {
+    return 0;
+  }
+
+  return hasFindingsAtOrAboveThreshold(findings, options.threshold) ? 1 : 0;
+}
+
+export function hasFindingsAtOrAboveThreshold(
+  findings: AttestLensFinding[],
+  threshold: FailureSeverityThreshold,
+): boolean {
+  const thresholdRank = getSarifLevelRank(threshold);
+  return findings.some((finding) => getSarifLevelRank(mapFindingSeverityToSarifLevel(finding.severity)) <= thresholdRank);
+}
+
+function getSarifLevelRank(level: FailureSeverityThreshold): number {
+  switch (level) {
+    case 'error':
+      return 0;
+    case 'warning':
+      return 1;
+    case 'note':
+      return 2;
+  }
+}
+
+async function emitSarifOutput(payload: unknown, outputPath?: string, allowedOutputDir?: string): Promise<void> {
+  const content = `${JSON.stringify(payload, null, 2)}\n`;
+  if (!outputPath) {
+    process.stdout.write(content);
+    return;
+  }
+
+  const resolvedOutputPath = resolveSarifOutputPath(outputPath, allowedOutputDir);
+  await fs.mkdir(path.dirname(resolvedOutputPath), { recursive: true });
+  await fs.writeFile(resolvedOutputPath, content, 'utf-8');
+}
+
+function resolveSarifOutputPath(outputPath: string, allowedOutputDir?: string): string {
+  const cwd = process.cwd();
+  const resolvedOutputPath = path.resolve(cwd, outputPath);
+  const allowedRoots = [cwd];
+  if (allowedOutputDir) {
+    allowedRoots.push(path.resolve(allowedOutputDir));
+  }
+
+  if (allowedRoots.some((root) => isPathWithinRoot(resolvedOutputPath, root))) {
+    return resolvedOutputPath;
+  }
+
+  throw new Error('SARIF output path must be within the current working directory or the configured output directory.');
+}
+
+function isPathWithinRoot(candidatePath: string, rootPath: string): boolean {
+  const relative = path.relative(rootPath, candidatePath);
+  return relative === '' || (!relative.startsWith('..') && !path.isAbsolute(relative));
+}
+
+function displayClientMutationResults(
+  results: Array<{
+    client: SupportedClient;
+    configPath: string;
+    changed: boolean;
+    backupPath?: string;
+    dryRun: boolean;
+  }>,
+  action: 'install' | 'uninstall',
+): void {
+  if (results.length === 0) {
+    console.log(chalk.yellow('No client configs matched.'));
+    return;
+  }
+
+  for (const result of results) {
+    const verb = action === 'install' ? 'Configured' : 'Removed';
+    const suffix = result.changed ? '' : ' (no changes)';
+    const prefix = result.dryRun ? '[dry-run] ' : '';
+    console.log(`${prefix}${verb} ${result.client}: ${result.configPath}${suffix}`);
+    if (result.backupPath) {
+      console.log(chalk.gray(`  backup: ${result.backupPath}`));
+    }
+  }
+}
+
 type ReformOutputFormat = 'json' | 'html' | 'markdown';
 
 function parseReformOutputFormats(rawFormats: string): ReformOutputFormat[] {
@@ -1612,6 +1790,7 @@ async function writeReportFiles(
         break;
       }
       case 'agent':
+      case 'sarif':
         break;
     }
   }
@@ -1868,5 +2047,19 @@ function getRiskDisplay(risk: string): string {
 // ─── Run ──────────────────────────────────────────────────────────────────────
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
-  await program.parseAsync();
+  try {
+    await program.parseAsync();
+  } catch (error: any) {
+    if (error instanceof CommanderError) {
+      const exitCode = error.exitCode === 0 ? 0 : 2;
+      if (error.code !== 'commander.helpDisplayed' && error.code !== 'commander.version') {
+        if (error.message) {
+          process.stderr.write(`${error.message}\n`);
+        }
+      }
+      process.exit(exitCode);
+    }
+    console.error(chalk.red(`Error: ${error.message}`));
+    process.exit(2);
+  }
 }

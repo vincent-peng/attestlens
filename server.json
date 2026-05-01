@@ -1,0 +1,43 @@
+{
+  "name": "io.github.attestlens/clearway",
+  "version": "0.4.0",
+  "description": "Clearway MCP server — Privacy compliance scanning and deploy gating for AI agents",
+  "transport": "stdio",
+  "tools": [
+    {
+      "name": "attestlens_scan",
+      "description": "Scan a local project directory for privacy compliance violations"
+    },
+    {
+      "name": "attestlens_scan_url",
+      "description": "Scan a URL for privacy compliance violations"
+    },
+    {
+      "name": "attestlens_audit",
+      "description": "Audit a project's privacy compliance posture"
+    },
+    {
+      "name": "attestlens_opinion",
+      "description": "Generate a compliance opinion for a project"
+    },
+    {
+      "name": "attestlens_check",
+      "description": "Check a single regulation principle"
+    },
+    {
+      "name": "attestlens_compliance_check",
+      "description": "Run SMB compliance questionnaire check"
+    },
+    {
+      "name": "attestlens_map",
+      "description": "Map findings to regulation principles"
+    },
+    {
+      "name": "attestlens_reform",
+      "description": "Generate reform recommendations"
+    }
+  ],
+  "resources": [],
+  "repository": "https://github.com/vincent-peng/attestlens",
+  "npmPackage": "@attestlens/cli"
+}

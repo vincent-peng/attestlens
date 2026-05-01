@@ -866,7 +866,7 @@ describe('MCP Server', () => {
           'reform-2026': '1.0.0',
         },
       }));
-      expect(scanSpy).toHaveBeenCalledWith(tempDir, undefined, { signal: undefined });
+      expect(scanSpy).toHaveBeenCalledWith(await fs.realpath(tempDir), undefined, { signal: undefined });
     });
 
     it('returns URL scan output keyed by targetUrl', async () => {

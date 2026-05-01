@@ -1,7 +1,8 @@
 {
   "name": "@attestlens/cli",
   "version": "0.4.0",
-  "description": "Clearway by AttestLens: deterministic multi-jurisdiction privacy compliance runtime for AI agents.",
+  "mcpName": "io.github.attestlens/clearway",
+  "description": "Clearway — Privacy Compliance Deploy Gate for AI Agents",
   "type": "module",
   "main": "dist/cli/index.js",
   "bin": {
@@ -36,7 +37,10 @@
     "ndb",
     "security",
     "scanner",
-    "mcp"
+    "mcp",
+    "sarif",
+    "deploy-gate",
+    "clearway"
   ],
   "author": "Vincent Peng",
   "license": "MIT",
@@ -68,6 +72,7 @@
   },
   "files": [
     "dist/",
+    "server.json",
     "README.md",
     "CHANGELOG.md",
     "LICENSE"

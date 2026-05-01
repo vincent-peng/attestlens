@@ -6,6 +6,7 @@
  */
 
 import crypto from 'node:crypto';
+import { readFileSync } from 'node:fs';
 import { PassThrough } from 'node:stream';
 import type PDFDocument from 'pdfkit';
 import type {
@@ -42,11 +43,11 @@ import { sanitizeTargetPathForOutput, sanitizeTargetUrlForOutput } from '../util
 import { buildSMBComplianceResult } from './smb-generator.js';
 import type { SMBComplianceResult } from './smb-generator.js';
 
-const ATTESTLENS_VERSION = '0.2.0';
+const ATTESTLENS_VERSION = readPackageVersion();
 const GDPR_SCOPE_NOTE =
   'This assessment covers a subset of GDPR articles (Art 3,5,6,9,13-14,15,17,22,25,32,33-34,35,44-49). Other articles are deferred.';
 
-export const SUPPORTED_REPORT_FORMATS = ['json', 'html', 'markdown', 'pdf', 'agent', 'smb'] as const;
+export const SUPPORTED_REPORT_FORMATS = ['json', 'html', 'markdown', 'pdf', 'sarif', 'agent', 'smb'] as const;
 export type ReportFormat = (typeof SUPPORTED_REPORT_FORMATS)[number];
 type BreachReadiness = NonNullable<ComplianceReport['breachReadiness']>;
 type BreachReadinessFactor = BreachReadiness['topFactors'][number];
@@ -55,6 +56,15 @@ export type ComplianceReportWithSMB = ComplianceReport & { smbCompliance?: SMBCo
 
 function getPrincipleInfo(jurisdiction: Jurisdiction, principle: RegulationControl['principle']) {
   return getRegistry(jurisdiction).principles[principle];
+}
+
+function readPackageVersion(): string {
+  const packageJsonUrl = new URL('../../package.json', import.meta.url);
+  const packageJson = JSON.parse(readFileSync(packageJsonUrl, 'utf-8')) as { version?: unknown };
+  if (typeof packageJson.version !== 'string' || packageJson.version.length === 0) {
+    throw new Error('Unable to determine AttestLens version from package.json');
+  }
+  return packageJson.version;
 }
 
 // ─── Report Builder ─────────────────────────────────────────────────────────

@@ -8,7 +8,9 @@
 
 ## Current Focus
 
-**Phase 10-lite: Schema Decoupling — DONE** — Jurisdiction pack portability proven. SG PDPA stub flows end-to-end without touching AU types.
+**Phase 10.5/11: Research complete** — Best practices and modern workflows documented. Ready to build.
+
+Key findings: SARIF severity ≠ CI blocking (separate concerns), upload-sarif@v4 is current, Semgrep action deprecated (CLI-first pattern), official MCP Registry with `server.json` is the distribution path (not just Smithery), AI-drafted rules must never ship as blocking, provenance fields critical for legal defensibility.
 
 All phases 1-10 shipped. 523 tests, tsc clean. 4 jurisdiction packs live.
 
@@ -62,8 +64,8 @@ All phases 1-10 shipped. 523 tests, tsc clean. 4 jurisdiction packs live.
 | Phase | What | Timebox | Status |
 |-------|------|---------|--------|
 | 10-lite | Schema Decoupling | 3-5 days | ✅ Done |
-| 10.5 | GitHub Action + MCP Recipes | 1-2 days | ⏳ Next |
-| 11 | Rule Authoring Pipeline (demo) | 1-2 weeks | ⏳ After 10.5 |
+| 10.5 | GitHub Action + MCP Distribution | 1-2 days | 📋 Research done |
+| 11 | Rule Authoring Pipeline (demo) | 1-2 weeks | 📋 Research done |
 | 12 | Post-MVP (PII tracking, IDE plugins, Docker) | Post-pilot | 🔮 Deferred |
 
 ---
@@ -84,6 +86,13 @@ All phases 1-10 shipped. 523 tests, tsc clean. 4 jurisdiction packs live.
 - **Direct competitors:** HoundDog.ai ($3.1M seed, PII taint tracking), Privado.ai ($17.5M Series A, governance platform)
 - **Clearway's unique wedge:** Only product with AU Privacy Act mapping + deploy gating + fully offline + MCP-native
 - **Full analysis:** `docs/COMPETITIVE-LANDSCAPE.md`
+
+---
+
+## Research
+
+- `docs/RESEARCH-PHASE-10.5-11.md` — Merged research (original + Codex cross-examination)
+- `docs/RESEARCH-PHASE-10.5-11-SUPPLEMENT.md` — Codex's independent findings (archived)
 
 ---
 

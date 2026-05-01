@@ -484,7 +484,8 @@ export async function validatePath(targetPath: unknown): Promise<string | ToolEr
     return makeToolError('no valid allowed roots configured');
   }
 
-  const isCandidate = resolvedRoots.some((root) => isPathWithinRoot(resolved, root));
+  const isCandidate = resolvedRoots.some((root) => isPathWithinRoot(resolved, root))
+    || canonicalRoots.some((root) => isPathWithinRoot(resolved, root));
   if (!isCandidate) {
     return makeToolError('path is outside allowed workspace roots');
   }
