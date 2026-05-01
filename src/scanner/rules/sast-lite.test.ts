@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { SAST_LITE_RULES, scanSastLiteFiles } from './sast-lite.js';
+import { ATTESTLENS_VERSION } from '../../version.js';
 
 const CASES: Array<{ ruleId: string; positive: string; negative: string }> = [
   {
@@ -115,7 +116,7 @@ describe('SAST-lite rules', () => {
     const findings = scanSastLiteFiles([{
       relativePath: `src/${ruleId}.ts`,
       content: positive,
-    }], '0.2.0');
+    }], ATTESTLENS_VERSION);
 
     expect(findings.some(finding => finding.sourceRule === ruleId)).toBe(true);
     expect(findings.find(finding => finding.sourceRule === ruleId)?.fixPrompt).toBeTruthy();
@@ -125,7 +126,7 @@ describe('SAST-lite rules', () => {
     const findings = scanSastLiteFiles([{
       relativePath: `src/${ruleId}.ts`,
       content: negative,
-    }], '0.2.0');
+    }], ATTESTLENS_VERSION);
 
     expect(findings.some(finding => finding.sourceRule === ruleId)).toBe(false);
   });

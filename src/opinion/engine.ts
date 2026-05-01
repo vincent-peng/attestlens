@@ -7,9 +7,9 @@ import type {
   APPControl,
   RegulationControl,
 } from '../schema/index.js';
+import { ATTESTLENS_VERSION } from '../version.js';
 
-// Keep in sync with package.json and src/report/generator.ts
-const OPINION_VERSION = '0.2.0';
+const OPINION_VERSION = ATTESTLENS_VERSION;
 
 // ─── Options ─────────────────────────────────────────────────────────────────
 

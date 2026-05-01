@@ -12,7 +12,6 @@ import { Command, CommanderError } from 'commander';
 import chalk from 'chalk';
 import ora from 'ora';
 import { select } from '@inquirer/prompts';
-import { readFileSync } from 'node:fs';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -82,13 +81,14 @@ import {
 import { registerMonitorCommands } from '../monitor/cli.js';
 import { proposeRules } from '../authoring/propose.js';
 import { reviewPack } from '../authoring/review.js';
+import { ATTESTLENS_VERSION } from '../version.js';
 
-const CLI_VERSION = readCliPackageVersion();
+const CLI_VERSION = ATTESTLENS_VERSION;
 const program = new Command();
 
 program
   .name('attestlens')
-  .description('AI Compliance Scanner & Privacy Act Attestation Tool')
+  .description('Privacy Compliance Deploy Gate for AI Agents')
   .version(CLI_VERSION);
 program.exitOverride();
 
@@ -1606,15 +1606,6 @@ function formatUrlScanFailure(error: ScannerError): string {
     default:
       return 'URL scan failed before findings could be collected.';
   }
-}
-
-function readCliPackageVersion(): string {
-  const packageJsonUrl = new URL('../../package.json', import.meta.url);
-  const packageJson = JSON.parse(readFileSync(packageJsonUrl, 'utf-8')) as { version?: unknown };
-  if (typeof packageJson.version !== 'string' || packageJson.version.length === 0) {
-    throw new Error('Unable to determine CLI version from package.json');
-  }
-  return packageJson.version;
 }
 
 function parseReportFormats(rawFormats: string): ReportFormat[] {

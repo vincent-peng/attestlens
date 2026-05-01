@@ -48,8 +48,7 @@ import {
 } from '../schema/index.js';
 import type { APPPrinciple, AttestLensFinding, Jurisdiction as JurisdictionType, ReformImpactAssessment } from '../schema/index.js';
 import { sanitizeTargetPathForOutput, sanitizeTargetUrlForOutput } from '../utils/target.js';
-
-const ATTESTLENS_VERSION = '0.2.0';
+import { ATTESTLENS_VERSION } from '../version.js';
 
 type ToolResponse = {
   content: Array<{ type: 'text'; text: string }>;

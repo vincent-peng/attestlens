@@ -1,17 +1,15 @@
 {
   "name": "@attestlens/cli",
-  "version": "0.4.0",
+  "version": "0.4.0-beta",
   "mcpName": "io.github.attestlens/clearway",
   "description": "Clearway — Privacy Compliance Deploy Gate for AI Agents",
   "type": "module",
-  "main": "dist/cli/index.js",
   "bin": {
-    "cli": "./dist/cli/index.js",
     "attestlens": "./dist/cli/index.js",
     "attestlens-mcp": "./dist/mcp/index.js"
   },
   "scripts": {
-    "build": "tsc",
+    "build": "node -e \"require('node:fs').rmSync('dist', { recursive: true, force: true })\" && tsc -p tsconfig.build.json",
     "dev": "tsx src/cli/index.ts",
     "lint": "tsc --noEmit",
     "test": "vitest run",
@@ -52,6 +50,12 @@
     "url": "https://github.com/vincent-peng/attestlens/issues"
   },
   "homepage": "https://github.com/vincent-peng/attestlens#readme",
+  "publishConfig": {
+    "access": "public"
+  },
+  "engines": {
+    "node": ">=20.12.0"
+  },
   "dependencies": {
     "@inquirer/prompts": "^8.4.1",
     "@modelcontextprotocol/sdk": "^1.29.0",

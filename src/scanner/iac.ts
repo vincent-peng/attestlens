@@ -9,6 +9,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 
 import type { AttestLensFinding, ScanSource, Severity } from '../schema/index.js';
+import { ATTESTLENS_VERSION } from '../version.js';
 import type { ScannerAdapter, ScannerContext, ScannerError, ScannerResult } from './types.js';
 import { shouldSkipRepoScanPath } from './rules/repo-stack-checks.js';
 
@@ -236,7 +237,7 @@ const RULES: Record<string, IacRule> = {
 
 export class IacAdapter implements ScannerAdapter {
   readonly name: ScanSource = 'iac';
-  readonly version = '0.2.0';
+  readonly version = ATTESTLENS_VERSION;
   private readonly maxFileBytes: number;
 
   constructor(options: IacAdapterOptions = {}) {

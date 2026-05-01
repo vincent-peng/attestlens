@@ -9,6 +9,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 
 import type { AttestLensFinding, ScanSource, Severity } from '../schema/index.js';
+import { ATTESTLENS_VERSION } from '../version.js';
 import type { ScannerAdapter, ScannerContext, ScannerError, ScannerResult } from './types.js';
 
 export interface BehavioralAdapterOptions {
@@ -150,7 +151,7 @@ const BEHAVIORAL_RULES: BehavioralRule[] = [
 
 export class BehavioralAdapter implements ScannerAdapter {
   readonly name: ScanSource = 'behavioral';
-  readonly version = '0.2.0';
+  readonly version = ATTESTLENS_VERSION;
   private readonly options: Required<Pick<BehavioralAdapterOptions, 'includeDevDependencies' | 'maxPackageBytes'>>;
 
   constructor(options: BehavioralAdapterOptions = {}) {

@@ -8,6 +8,7 @@ import type {
   ControlStatus,
 } from '../schema/index.js';
 import { APPInfo } from '../schema/index.js';
+import { ATTESTLENS_VERSION } from '../version.js';
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -198,7 +199,7 @@ describe('buildComplianceOpinion', () => {
     const report = makeReport(controls);
     const opinion = buildComplianceOpinion(report);
 
-    expect(opinion.signedBy).toBe('AttestLens v0.2.0');
+    expect(opinion.signedBy).toBe(`AttestLens v${ATTESTLENS_VERSION}`);
     expect(opinion.signedAt).toBeTruthy();
     expect(opinion.disclaimer).toContain('deterministically');
     expect(opinion.disclaimer).toContain('legal advice');

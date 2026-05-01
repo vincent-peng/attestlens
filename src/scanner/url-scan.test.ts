@@ -8,6 +8,7 @@ import { HEADER_CHECKS } from './rules/url-headers.js';
 import { KEY_PATTERNS } from './rules/exposed-keys.js';
 import { INFRA_CHECKS } from './rules/infra-checks.js';
 import { JS_PATTERNS } from './rules/js-analysis.js';
+import { ATTESTLENS_VERSION } from '../version.js';
 
 function response(body: string, init: ResponseInit = {}): Response {
   return new Response(body, init);
@@ -46,7 +47,7 @@ describe('UrlScanAdapter', () => {
 
   it('should return version', async () => {
     const version = await adapter.getVersion();
-    expect(version).toBe('1.0.0');
+    expect(version).toBe(ATTESTLENS_VERSION);
   });
 
   it('should reject invalid URLs', async () => {

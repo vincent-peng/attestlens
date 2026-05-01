@@ -10,11 +10,12 @@ import crypto from 'node:crypto';
 import path from 'node:path';
 import fs from 'node:fs/promises';
 import type { AttestLensFinding, ScanSource } from '../schema/index.js';
+import { ATTESTLENS_VERSION } from '../version.js';
 import type { ScannerAdapter, ScannerContext, ScannerResult, ScannerError, McpScanResult } from './types.js';
 
 export class McpScanAdapter implements ScannerAdapter {
   readonly name: ScanSource = 'mcp-scan';
-  readonly version = '0.2.0';
+  readonly version = ATTESTLENS_VERSION;
 
   private binaryPath: string;
 

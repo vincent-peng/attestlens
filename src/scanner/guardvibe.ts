@@ -11,13 +11,14 @@
 import crypto from 'node:crypto';
 import path from 'node:path';
 import type { AttestLensFinding, ScanSource } from '../schema/index.js';
+import { ATTESTLENS_VERSION } from '../version.js';
 import type { ScannerAdapter, ScannerContext, ScannerResult, ScannerError, GuardVibeFinding, GuardVibeAuditResult } from './types.js';
 import { getExecutableGuardVibeStaticRuleSet } from './rules/executable.js';
 import { scanRepoStackChecks, shouldSkipRepoScanPath } from './rules/repo-stack-checks.js';
 
 export class GuardVibeAdapter implements ScannerAdapter {
   readonly name: ScanSource = 'guardvibe';
-  readonly version = '0.2.0';
+  readonly version = ATTESTLENS_VERSION;
   
   private binaryPath: string;
 

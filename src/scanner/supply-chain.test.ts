@@ -5,6 +5,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import os from 'node:os';
 import crypto from 'node:crypto';
+import { ATTESTLENS_VERSION } from '../version.js';
 
 describe('SupplyChainAdapter', { timeout: 20000 }, () => {
   const adapter = new SupplyChainAdapter({
@@ -307,7 +308,7 @@ describe('SupplyChainAdapter', { timeout: 20000 }, () => {
 
     const result = await adapter.scan(scriptDir);
     expect(result.source).toBe('supply-chain');
-    expect(result.version).toBe('0.2.0');
+    expect(result.version).toBe(ATTESTLENS_VERSION);
     expect(result.timestamp).toBeDefined();
     expect(result.durationMs).toBeGreaterThanOrEqual(0);
 

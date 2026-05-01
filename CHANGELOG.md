@@ -1,5 +1,45 @@
 # Changelog
 
+## 0.4.0-beta (2026-05-01)
+
+### Phase 11: Rule Authoring Pipeline
+
+- Added the AuthoredRule schema and authored-pack review flow
+- Added AI-assisted rule drafting via `propose-rules`
+- Added human approval and pack promotion via `review-pack`
+- Added authored-rule test harness coverage and scanner integration
+- Added confidence gates so drafted rules never ship as blocking by default
+- Added SG PDPA demo coverage for the authoring workflow
+
+### Phase 10.5: SARIF, Installers, and npm Polish
+
+- Added SARIF exporter support for CLI audit and scan flows
+- Added exit-threshold controls for CI gating
+- Added CLI installer and uninstaller commands for supported MCP clients
+- Added `mcp` subcommand for stdio server launch
+- Rebuilt the publish artifact from current source and aligned CLI help with shipped commands
+- Hardened npm package metadata for first public beta release
+
+### Phase 10-lite: Schema Decoupling
+
+- Added PrincipleRegistry for jurisdiction-aware principle lookup
+- Added SG PDPA jurisdiction pack support without changing APPPrinciple
+- Proved zero APPPrinciple schema churn while expanding multi-jurisdiction coverage
+- Kept multi-jurisdiction report generation aligned across AU, US, EU, and SG surfaces
+
+### Phase 9: YC App Prep
+
+- Added the multi-jurisdiction demo flow for YC and design-partner conversations
+- Rewrote the README and supporting public docs around the deploy-gate positioning
+- Added YC application support docs and product thesis material
+
+### Security and Release Hardening
+
+- Included all prior MCP hardening and security review fixes in the beta release line
+- Preserved DNS pinning, TOCTOU revalidation, opaque MCP resources, and sanitized scanner errors
+- Excluded compiled test artifacts from the published build output
+- Aligned runtime version reads to `package.json` so CLI, MCP, reports, and scanners ship the same version metadata
+
 ## 0.3.0 (2026-04-30)
 
 ### Phase 8: EU GDPR Subset Pack

@@ -9,6 +9,7 @@ import {
   mapFindingToRegulation,
 } from './engine.js';
 import type { AttestLensFinding } from '../schema/index.js';
+import { ATTESTLENS_VERSION } from '../version.js';
 
 // ─── Test Fixtures ────────────────────────────────────────────────────────────
 
@@ -256,7 +257,7 @@ describe('mapFindingToAPP', () => {
       url: 'https://example.com/login',
       evidence: {
         timestamp: new Date().toISOString(),
-        scannerVersion: '0.2.0',
+        scannerVersion: ATTESTLENS_VERSION,
         rawOutput: { url: 'https://example.com/login' },
       },
     });
@@ -331,7 +332,7 @@ describe('mapFindingToAPP', () => {
       description: 'npm audit found a critical vulnerability in "pkg".',
       evidence: {
         timestamp: new Date().toISOString(),
-        scannerVersion: '0.2.0',
+        scannerVersion: ATTESTLENS_VERSION,
         rawOutput: {
           packageName: 'pkg',
           osvSourceRule: 'VS-OSV-GHSA-abcd-1234-wxyz',
@@ -357,7 +358,7 @@ describe('mapFindingToAPP', () => {
       title: 'Potential typosquat: "lodas" resembles "lodash"',
       evidence: {
         timestamp: new Date().toISOString(),
-        scannerVersion: '0.2.0',
+        scannerVersion: ATTESTLENS_VERSION,
         rawOutput: { packageName: 'lodas', typosquatTarget: 'lodash', typosquatDistance: 1 },
       },
     });
@@ -366,7 +367,7 @@ describe('mapFindingToAPP', () => {
       id: 'FIND-DIST-2',
       evidence: {
         timestamp: new Date().toISOString(),
-        scannerVersion: '0.2.0',
+        scannerVersion: ATTESTLENS_VERSION,
         rawOutput: { packageName: 'loash', typosquatTarget: 'lodash', typosquatDistance: 2 },
       },
     });
@@ -398,7 +399,7 @@ describe('mapFindingToAPP', () => {
       title: 'Dependency has weak package maturity signals',
       evidence: {
         timestamp: new Date().toISOString(),
-        scannerVersion: '0.2.0',
+        scannerVersion: ATTESTLENS_VERSION,
         rawOutput: { packageName: 'pkg', maturityRisk: 0.55 },
       },
     });
@@ -407,7 +408,7 @@ describe('mapFindingToAPP', () => {
       id: 'FIND-MATURITY-HIGH',
       evidence: {
         timestamp: new Date().toISOString(),
-        scannerVersion: '0.2.0',
+        scannerVersion: ATTESTLENS_VERSION,
         rawOutput: { packageName: 'pkg', maturityRisk: 0.9 },
       },
     });

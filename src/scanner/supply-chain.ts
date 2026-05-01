@@ -18,6 +18,7 @@ import crypto from 'node:crypto';
 import path from 'node:path';
 import fs from 'node:fs/promises';
 import type { AttestLensFinding, ScanSource, Severity } from '../schema/index.js';
+import { ATTESTLENS_VERSION } from '../version.js';
 import type { ScannerAdapter, ScannerContext, ScannerResult, ScannerError } from './types.js';
 import {
   fetchJsonWithLimit,
@@ -475,7 +476,7 @@ function isNonEmptyString(value: unknown): boolean {
 
 export class SupplyChainAdapter implements ScannerAdapter {
   readonly name: ScanSource = 'supply-chain';
-  readonly version = '0.2.0';
+  readonly version = ATTESTLENS_VERSION;
   private readonly options: SupplyChainAdapterOptions;
 
   constructor(options: SupplyChainAdapterOptions = {}) {

@@ -12,6 +12,7 @@ import path from 'node:path';
 import { promisify } from 'node:util';
 
 import type { AttestLensFinding, ScanSource, Severity } from '../schema/index.js';
+import { ATTESTLENS_VERSION } from '../version.js';
 import type { ScannerAdapter, ScannerContext, ScannerError, ScannerResult } from './types.js';
 
 const execFileAsync = promisify(execFile);
@@ -93,7 +94,7 @@ const GITLEAKS_CATEGORY_MAP: Record<string, GitleaksCategory> = {
 
 export class GitleaksAdapter implements ScannerAdapter {
   readonly name: ScanSource = 'gitleaks';
-  readonly version = '0.2.0';
+  readonly version = ATTESTLENS_VERSION;
   private readonly binaryPath: string;
   private readonly runner: GitleaksRunner;
 

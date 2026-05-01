@@ -8,6 +8,7 @@ import {
   scanOsvVulnerabilities,
   type FetchLike,
 } from './osv.js';
+import { ATTESTLENS_VERSION } from '../version.js';
 
 describe('scanOsvVulnerabilities', () => {
   let tmpDir: string;
@@ -27,7 +28,7 @@ describe('scanOsvVulnerabilities', () => {
     const result = await scanOsvVulnerabilities(
       [{ name: 'safe-package', version: '1.0.0' }],
       tmpDir,
-      '0.2.0',
+      ATTESTLENS_VERSION,
       { fetchImpl },
     );
 
@@ -66,7 +67,7 @@ describe('scanOsvVulnerabilities', () => {
     const result = await scanOsvVulnerabilities(
       [{ name: 'vulnerable-package', version: '1.0.0' }],
       tmpDir,
-      '0.2.0',
+      ATTESTLENS_VERSION,
       { fetchImpl },
     );
 
@@ -94,7 +95,7 @@ describe('scanOsvVulnerabilities', () => {
     const result = await scanOsvVulnerabilities(
       [{ name: 'unsafe-package', version: '1.0.0' }],
       tmpDir,
-      '0.2.0',
+      ATTESTLENS_VERSION,
       { fetchImpl },
     );
 
@@ -137,7 +138,7 @@ describe('scanOsvVulnerabilities', () => {
     const result = await scanOsvVulnerabilities(
       [{ name: 'unsafe-package', version: '1.0.0' }],
       tmpDir,
-      '0.2.0',
+      ATTESTLENS_VERSION,
       { fetchImpl },
     );
 
@@ -204,7 +205,7 @@ describe('scanOsvVulnerabilities', () => {
       const result = await scanOsvVulnerabilities(
         [{ name: 'vulnerable-package', version: '1.0.0' }],
         tmpDir,
-        '0.2.0',
+        ATTESTLENS_VERSION,
         { fetchImpl },
       );
 
@@ -226,7 +227,7 @@ describe('scanOsvVulnerabilities', () => {
     const result = await scanOsvVulnerabilities(
       [{ name: 'vulnerable-package', version: '1.0.0' }],
       tmpDir,
-      '0.2.0',
+      ATTESTLENS_VERSION,
       { fetchImpl, timeoutMs: 1 },
     );
 
@@ -248,7 +249,7 @@ describe('scanOsvVulnerabilities', () => {
     const result = await scanOsvVulnerabilities(
       [{ name: 'vulnerable-package', version: '1.0.0' }],
       tmpDir,
-      '0.2.0',
+      ATTESTLENS_VERSION,
       { fetchImpl, maxBytes: 10 },
     );
 

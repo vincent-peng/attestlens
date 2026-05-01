@@ -19,13 +19,14 @@ import https from 'node:https';
 import { isIP } from 'node:net';
 import { URL } from 'node:url';
 import type { AttestLensFinding, ScanSource, Severity } from '../schema/index.js';
+import { ATTESTLENS_VERSION, buildAttestLensUserAgent } from '../version.js';
 import type { ScannerAdapter, ScannerContext, ScannerResult, ScannerError } from './types.js';
 import { HEADER_CHECKS } from './rules/url-headers.js';
 import { KEY_PATTERNS } from './rules/exposed-keys.js';
 import { INFRA_CHECKS, type InfraCheck } from './rules/infra-checks.js';
 import { JS_PATTERNS } from './rules/js-analysis.js';
 
-const USER_AGENT = 'AttestLens/0.2.0 (Security Scanner; +https://attestlens.dev)';
+const USER_AGENT = buildAttestLensUserAgent();
 const REQUEST_TIMEOUT = 30_000; // 30s per page
 const JS_TIMEOUT = 10_000; // 10s per JS bundle
 const MAX_HTML_SIZE = 5 * 1024 * 1024; // 5MB HTML limit
@@ -69,7 +70,7 @@ class BlockedUrlError extends Error {
 
 export class UrlScanAdapter implements ScannerAdapter {
   readonly name: ScanSource = 'url-scan';
-  readonly version = '1.0.0';
+  readonly version = ATTESTLENS_VERSION;
 
   async isAvailable(): Promise<boolean> {
     return true; // URL scanning always available (uses built-in fetch)
