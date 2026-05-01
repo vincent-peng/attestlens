@@ -80,6 +80,8 @@ import {
   type SupportedClient,
 } from './install.js';
 import { registerMonitorCommands } from '../monitor/cli.js';
+import { proposeRules } from '../authoring/propose.js';
+import { reviewPack } from '../authoring/review.js';
 
 const CLI_VERSION = readCliPackageVersion();
 const program = new Command();
@@ -620,6 +622,74 @@ program
   });
 
 // ─── Rule Update Command ─────────────────────────────────────────────────────
+
+program
+  .command('propose-rules')
+  .description('Draft a proposed rule pack from legislation text using an LLM')
+  .requiredOption('--jurisdiction <jurisdiction>', 'Jurisdiction to draft for')
+  .requiredOption('--source <path>', 'Path to legislation text file')
+  .option('--source-url <url>', 'Official legislation source URL')
+  .requiredOption('--output <path>', 'Path to write proposed pack JSON')
+  .option('--model <model>', 'LLM model to use', 'gpt-5.5')
+  .option('--api-key <key>', 'API key (defaults to OPENAI_API_KEY)')
+  .option('--base-url <url>', 'OpenAI-compatible base URL')
+  .option('--existing-pack <path>', 'Existing pack JSON for prompt diffing')
+  .action(async (options: any) => {
+    const spinner = ora('Drafting proposed rule pack...').start();
+
+    try {
+      const manifest = await proposeRules({
+        jurisdiction: parseJurisdictionOption(options.jurisdiction),
+        sourcePath: options.source,
+        sourceUrl: options.sourceUrl,
+        outputPath: options.output,
+        model: options.model,
+        apiKey: options.apiKey,
+        baseUrl: options.baseUrl,
+        existingPackPath: options.existingPack,
+      });
+
+      spinner.succeed(`Proposed pack created for ${manifest.jurisdiction}`);
+      console.log(chalk.gray(`  Rules: ${manifest.rules.length}`));
+      console.log(chalk.gray(`  Confidence: ${manifest.confidence}`));
+      console.log(chalk.gray(`  Output: ${path.resolve(options.output)}`));
+    } catch (error: any) {
+      spinner.fail('Rule proposal failed');
+      console.error(chalk.red(`Error: ${error.message}`));
+      process.exit(2);
+    }
+  });
+
+program
+  .command('review-pack')
+  .description('Review a proposed AI-authored rule pack and emit a validated pack')
+  .requiredOption('--proposed <path>', 'Path to proposed pack JSON')
+  .requiredOption('--reviewer <name>', 'Reviewer name or identifier')
+  .requiredOption('--output <path>', 'Path to write validated pack JSON')
+  .option('--approve-all', 'Approve all proposed rules without prompting (testing only)')
+  .option('--reject-low-confidence', 'Automatically reject rules with low confidence')
+  .action(async (options: any) => {
+    const spinner = options.approveAll ? ora('Compiling validated pack...').start() : undefined;
+
+    try {
+      const manifest = await reviewPack({
+        proposedPath: options.proposed,
+        reviewer: options.reviewer,
+        outputPath: options.output,
+        approveAll: options.approveAll === true,
+        rejectLowConfidence: options.rejectLowConfidence === true,
+      });
+
+      spinner?.succeed(`Validated pack created for ${manifest.jurisdiction}`);
+      console.log(chalk.gray(`  Rules approved: ${manifest.rules.length}`));
+      console.log(chalk.gray(`  Reviewer: ${manifest.provenance.reviewedBy}`));
+      console.log(chalk.gray(`  Output: ${path.resolve(options.output)}`));
+    } catch (error: any) {
+      spinner?.fail('Pack review failed');
+      console.error(chalk.red(`Error: ${error.message}`));
+      process.exit(2);
+    }
+  });
 
 program
   .command('update-rules')

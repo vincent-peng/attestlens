@@ -44,6 +44,7 @@ export interface ScannerProgressEvent {
 
 export interface ScannerContext {
   rulePack: RulePackManifest;
+  allowCustomRules?: boolean;
   signal?: AbortSignal;
   onProgress?: (event: ScannerProgressEvent) => void;
 }

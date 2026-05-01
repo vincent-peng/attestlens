@@ -1,14 +1,19 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  AuthoredRule,
   CCPAPrinciple,
   GDPRPrinciple,
   JurisdictionPackManifest,
+  ProposedPackManifest,
   RegulationMapping,
   RuleDefinition,
+  RuleInterpretation,
+  RuleProvenance,
   RuleFreshness,
   RulePackManifest,
   ScanSource,
+  ValidatedPackManifest,
 } from './index.js';
 
 describe('ScanSource', () => {
@@ -239,5 +244,174 @@ describe('Rule pack schemas', () => {
 
     expect(rule.appMappings[0]?.principle).toBe('APP_11');
     expect(rule.regulationMappings).toBeUndefined();
+  });
+
+  it('validates authored rules and keeps them compatible with rule definitions', () => {
+    const authoredRule = AuthoredRule.parse({
+      id: 'SGPDPA-TEST-001',
+      category: 'guardvibe-static',
+      severity: 'high',
+      title: 'Test authored rule',
+      description: 'Detects hardcoded secrets',
+      pattern: 'apiKey\\s*=',
+      addedIn: '2026.05.01',
+      source: {
+        jurisdiction: 'sg-pdpa',
+        citation: 'PDPA Section 24',
+        legislationUrl: 'https://example.com/pdpa',
+      },
+      authoring: {
+        author: 'ai-draft',
+        confidence: 'medium',
+        falsePositiveRisk: 'medium',
+      },
+      provenance: {
+        draftedByModel: 'gpt-5.5',
+        draftedAt: '2026-05-01T00:00:00.000Z',
+        draftingPromptVersion: 'phase-11-v1',
+        sourceDocumentHash: 'abc123',
+      },
+      interpretation: {
+        machineCheckable: true,
+        determinism: 'deterministic',
+        reviewRequired: true,
+        falsePositiveRisk: 'medium',
+      },
+      tests: {
+        positive: [{ name: 'positive', input: 'const apiKey = "secret";', shouldTrigger: true }],
+      },
+    });
+
+    const parsedRule = RuleDefinition.parse(authoredRule);
+    expect(parsedRule.id).toBe('SGPDPA-TEST-001');
+    expect(authoredRule.tests.negative).toEqual([]);
+    expect(authoredRule.tests.edgeCase).toEqual([]);
+  });
+
+  it('rejects ai-draft authored rules that do not require review', () => {
+    expect(() => AuthoredRule.parse({
+      id: 'SGPDPA-TEST-002',
+      category: 'guardvibe-static',
+      severity: 'medium',
+      title: 'Invalid authored rule',
+      description: 'Should fail validation',
+      addedIn: '2026.05.01',
+      source: {
+        jurisdiction: 'sg-pdpa',
+        citation: 'PDPA Section 24',
+      },
+      authoring: {
+        author: 'ai-draft',
+        confidence: 'low',
+        falsePositiveRisk: 'high',
+      },
+      provenance: {
+        sourceDocumentHash: 'abc123',
+      },
+      interpretation: {
+        machineCheckable: true,
+        determinism: 'heuristic',
+        reviewRequired: false,
+        falsePositiveRisk: 'high',
+      },
+      tests: {},
+    })).toThrow(/require review/);
+  });
+
+  it('validates proposed and validated pack manifests', () => {
+    const provenance = RuleProvenance.parse({
+      draftedByModel: 'gpt-5.5',
+      draftedAt: '2026-05-01T00:00:00.000Z',
+      draftingPromptVersion: 'phase-11-v1',
+      sourceDocumentHash: 'abc123',
+    });
+    const interpretation = RuleInterpretation.parse({
+      machineCheckable: true,
+      determinism: 'deterministic',
+      reviewRequired: true,
+      falsePositiveRisk: 'low',
+    });
+
+    const proposed = ProposedPackManifest.parse({
+      schemaVersion: '3.0',
+      jurisdiction: 'sg-pdpa',
+      generatedAt: '2026-05-01T00:00:00.000Z',
+      sourceDocumentHash: 'abc123',
+      principles: [{
+        id: 'SGPDPA_24',
+        shortName: 'Protection',
+        obligation: 'Protect personal data',
+      }],
+      rules: [{
+        id: 'SGPDPA-TEST-003',
+        category: 'guardvibe-static',
+        severity: 'high',
+        title: 'Proposed rule',
+        description: 'Detects secrets',
+        pattern: 'secret',
+        addedIn: '2026.05.01',
+        source: {
+          jurisdiction: 'sg-pdpa',
+          citation: 'PDPA Section 24',
+        },
+        authoring: {
+          author: 'ai-draft',
+          confidence: 'high',
+          falsePositiveRisk: 'low',
+        },
+        provenance,
+        interpretation,
+        tests: {},
+      }],
+      confidence: 'medium',
+    });
+
+    expect(proposed.rules[0]?.authoring.author).toBe('ai-draft');
+
+    const validated = ValidatedPackManifest.parse({
+      schemaVersion: '2.1',
+      version: '2026.05.01',
+      jurisdiction: 'sg-pdpa',
+      generated: '2026-05-01T01:00:00.000Z',
+      principles: [{
+        id: 'SGPDPA_24',
+        shortName: 'Protection',
+        obligation: 'Protect personal data',
+      }],
+      rules: [{
+        ...proposed.rules[0],
+        authoring: {
+          ...proposed.rules[0]!.authoring,
+          author: 'human-validated',
+        },
+        provenance: {
+          ...proposed.rules[0]!.provenance,
+          approvedBy: 'reviewer',
+          approvedAt: '2026-05-01T01:00:00.000Z',
+          packVersion: '2026.05.01',
+        },
+        interpretation: {
+          ...proposed.rules[0]!.interpretation,
+          reviewRequired: false,
+        },
+      }],
+      provenance: {
+        proposedAt: '2026-05-01T00:00:00.000Z',
+        reviewedBy: 'reviewer',
+        reviewedAt: '2026-05-01T01:00:00.000Z',
+        sourceDocumentHash: 'abc123',
+      },
+      ruleProvenance: {
+        'SGPDPA-TEST-003': {
+          ...proposed.rules[0]!.provenance,
+          approvedBy: 'reviewer',
+          approvedAt: '2026-05-01T01:00:00.000Z',
+          packVersion: '2026.05.01',
+        },
+      },
+    });
+
+    expect(validated.schemaVersion).toBe('2.1');
+    expect(validated.rules[0]?.authoring.author).toBe('human-validated');
   });
 });

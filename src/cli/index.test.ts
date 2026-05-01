@@ -228,6 +228,21 @@ describe('CLI metadata', () => {
     expect(result.stdout).toContain('--format');
   });
 
+  it('exposes the propose-rules and review-pack subcommands', async () => {
+    const proposeResult = await runCli(['propose-rules', '--help']);
+    const reviewResult = await runCli(['review-pack', '--help']);
+
+    expect(proposeResult.code).toBe(0);
+    expect(proposeResult.stdout).toContain('--jurisdiction');
+    expect(proposeResult.stdout).toContain('--source');
+    expect(proposeResult.stdout).toContain('--api-key');
+
+    expect(reviewResult.code).toBe(0);
+    expect(reviewResult.stdout).toContain('--proposed');
+    expect(reviewResult.stdout).toContain('--reviewer');
+    expect(reviewResult.stdout).toContain('--approve-all');
+  });
+
   it('exposes the install and uninstall subcommands', async () => {
     const installResult = await runCli(['install', '--help']);
     const uninstallResult = await runCli(['uninstall', '--help']);

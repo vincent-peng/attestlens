@@ -532,6 +532,77 @@ export const RuleDefinition = z.object({
 });
 export type RuleDefinition = z.infer<typeof RuleDefinition>;
 
+export const RuleAuthorStage = z.enum(['ai-draft', 'human-validated', 'community']);
+export type RuleAuthorStage = z.infer<typeof RuleAuthorStage>;
+
+export const RuleConfidence = z.enum(['high', 'medium', 'low']);
+export type RuleConfidence = z.infer<typeof RuleConfidence>;
+
+export const RuleDeterminism = z.enum(['deterministic', 'heuristic', 'manual-only']);
+export type RuleDeterminism = z.infer<typeof RuleDeterminism>;
+
+export const RuleFalsePositiveRisk = z.enum(['low', 'medium', 'high']);
+export type RuleFalsePositiveRisk = z.infer<typeof RuleFalsePositiveRisk>;
+
+export const RuleProvenance = z.object({
+  draftedByModel: z.string().optional(),
+  draftedAt: z.string().datetime().optional(),
+  draftingPromptVersion: z.string().optional(),
+  sourceDocumentHash: z.string(),
+  approvedBy: z.string().optional(),
+  approvedAt: z.string().datetime().optional(),
+  packVersion: z.string().optional(),
+});
+export type RuleProvenance = z.infer<typeof RuleProvenance>;
+
+export const RuleInterpretation = z.object({
+  machineCheckable: z.boolean(),
+  determinism: RuleDeterminism,
+  reviewRequired: z.boolean(),
+  falsePositiveRisk: RuleFalsePositiveRisk,
+});
+export type RuleInterpretation = z.infer<typeof RuleInterpretation>;
+
+export const RuleTestCase = z.object({
+  name: z.string(),
+  input: z.string(),
+  shouldTrigger: z.boolean(),
+  description: z.string().optional(),
+});
+export type RuleTestCase = z.infer<typeof RuleTestCase>;
+
+const AuthoredRuleBase = RuleDefinition.extend({
+  source: z.object({
+    jurisdiction: Jurisdiction,
+    citation: z.string(),
+    legislationUrl: z.string().optional(),
+    effectiveDate: z.string().optional(),
+  }),
+  authoring: z.object({
+    author: RuleAuthorStage,
+    confidence: RuleConfidence,
+    falsePositiveRisk: RuleFalsePositiveRisk,
+  }),
+  provenance: RuleProvenance,
+  interpretation: RuleInterpretation,
+  tests: z.object({
+    positive: z.array(RuleTestCase).default([]),
+    negative: z.array(RuleTestCase).default([]),
+    edgeCase: z.array(RuleTestCase).default([]),
+  }),
+});
+
+export const AuthoredRule = AuthoredRuleBase.superRefine((rule, ctx) => {
+  if (rule.authoring.author === 'ai-draft' && rule.interpretation.reviewRequired !== true) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: 'AI-drafted rules must require review',
+      path: ['interpretation', 'reviewRequired'],
+    });
+  }
+});
+export type AuthoredRule = z.infer<typeof AuthoredRule>;
+
 export const RulePackManifest = z.object({
   schemaVersion: z.literal('1.0'),
   version: z.string(),
@@ -541,8 +612,7 @@ export const RulePackManifest = z.object({
 });
 export type RulePackManifest = z.infer<typeof RulePackManifest>;
 
-export const JurisdictionPackManifest = z.object({
-  schemaVersion: z.literal('2.0'),
+const JurisdictionPackManifestBase = z.object({
   version: z.string(),
   jurisdiction: Jurisdiction,
   generated: z.string().datetime(),
@@ -554,7 +624,49 @@ export const JurisdictionPackManifest = z.object({
   })),
   rules: z.array(RuleDefinition),
 });
+
+export const JurisdictionPackManifest = JurisdictionPackManifestBase.extend({
+  schemaVersion: z.literal('2.0'),
+});
 export type JurisdictionPackManifest = z.infer<typeof JurisdictionPackManifest>;
+
+export const ProposedPackManifest = z.object({
+  schemaVersion: z.literal('3.0'),
+  jurisdiction: Jurisdiction,
+  generatedAt: z.string().datetime(),
+  sourceDocumentHash: z.string(),
+  sourceDocumentUrl: z.string().optional(),
+  principles: z.array(z.object({
+    id: RegulationPrinciple,
+    shortName: z.string(),
+    fullName: z.string().optional(),
+    obligation: z.string(),
+    citation: z.string().optional(),
+  })),
+  rules: z.array(AuthoredRule),
+  mappingRules: z.array(RegulationMapping).default([]),
+  questions: z.array(Question).default([]),
+  confidence: RuleConfidence,
+  warnings: z.array(z.string()).default([]),
+  gaps: z.array(z.string()).default([]),
+});
+export type ProposedPackManifest = z.infer<typeof ProposedPackManifest>;
+
+export const ValidatedPackManifest = JurisdictionPackManifestBase.extend({
+  schemaVersion: z.literal('2.1'),
+  rules: z.array(AuthoredRule),
+  provenance: z.object({
+    proposedAt: z.string().datetime(),
+    reviewedBy: z.string(),
+    reviewedAt: z.string().datetime(),
+    sourceDocumentHash: z.string(),
+  }),
+  ruleProvenance: z.record(z.string(), RuleProvenance).default({}),
+});
+export type ValidatedPackManifest = z.infer<typeof ValidatedPackManifest>;
+
+export const AnyJurisdictionPackManifest = z.union([JurisdictionPackManifest, ValidatedPackManifest]);
+export type AnyJurisdictionPackManifest = z.infer<typeof AnyJurisdictionPackManifest>;
 
 export const RuleFreshness = z.object({
   version: z.string(),

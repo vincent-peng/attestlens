@@ -21,6 +21,7 @@ export interface ExecutableGuardVibeStaticRuleSet {
 
 export function getExecutableGuardVibeStaticRuleSet(
   activeRulePack?: RulePackManifest,
+  options?: { allowCustomRules?: boolean },
 ): ExecutableGuardVibeStaticRuleSet {
   const embedded = buildEmbeddedRulePack();
   const embeddedDefinitions = getGuardVibeStaticDefinitions(embedded);
@@ -30,7 +31,7 @@ export function getExecutableGuardVibeStaticRuleSet(
     return { rules: embeddedRules, warnings: [] };
   }
 
-  const activeResult = compileActiveDefinitions(activeRulePack, embeddedDefinitions);
+  const activeResult = compileActiveDefinitions(activeRulePack, embeddedDefinitions, options);
   if (activeResult.warnings.length > 0) {
     return {
       rules: embeddedRules,
@@ -53,12 +54,25 @@ export function getExecutableGuardVibeStaticRules(
 function compileActiveDefinitions(
   activeManifest: RulePackManifest,
   embeddedDefinitions: RuleDefinition[],
+  options?: { allowCustomRules?: boolean },
 ): ExecutableGuardVibeStaticRuleSet {
   const embeddedById = new Map(embeddedDefinitions.map((definition) => [definition.id, definition]));
   const activeDefinitions = activeManifest.rules
-    .filter((definition) => definition.category === GUARDVIBE_STATIC_CATEGORY && embeddedById.has(definition.id));
-  const activeById = new Map(activeDefinitions.map((definition) => [definition.id, definition]));
+    .filter((definition) => definition.category === GUARDVIBE_STATIC_CATEGORY);
+  const embeddedActiveDefinitions = activeDefinitions.filter((definition) => embeddedById.has(definition.id));
+  const customDefinitions = activeDefinitions.filter((definition) => !embeddedById.has(definition.id));
+  const activeById = new Map(embeddedActiveDefinitions.map((definition) => [definition.id, definition]));
   const warnings: string[] = [];
+
+  if (embeddedActiveDefinitions.length === 0 && customDefinitions.length > 0) {
+    if (!options?.allowCustomRules) {
+      return { rules: [], warnings: ['Custom rules require allowCustomRules opt-in. Using embedded rules.'] };
+    }
+    return {
+      rules: compileDefinitions(customDefinitions.filter((definition) => definition.enabled !== false)),
+      warnings: [],
+    };
+  }
 
   for (const embeddedDefinition of embeddedDefinitions) {
     const activeDefinition = activeById.get(embeddedDefinition.id);
@@ -86,7 +100,9 @@ function compileActiveDefinitions(
   }
 
   return {
-    rules: compileDefinitions(activeDefinitions.filter((definition) => definition.enabled !== false)),
+    rules: compileDefinitions(
+      embeddedActiveDefinitions.filter((definition) => definition.enabled !== false),
+    ),
     warnings: [],
   };
 }

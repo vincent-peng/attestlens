@@ -157,7 +157,7 @@ export class GuardVibeAdapter implements ScannerAdapter {
     const errors: ScannerError[] = [];
     const fs = await import('node:fs/promises');
     const pathModule = await import('node:path');
-    const executableRules = getExecutableGuardVibeStaticRuleSet(context?.rulePack);
+    const executableRules = getExecutableGuardVibeStaticRuleSet(context?.rulePack, { allowCustomRules: context?.allowCustomRules });
     const patterns = executableRules.rules;
 
     for (const warning of executableRules.warnings) {
