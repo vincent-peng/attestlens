@@ -1,6 +1,6 @@
 {
   "name": "@attestlens/cli",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "Clearway by AttestLens: deterministic multi-jurisdiction privacy compliance runtime for AI agents.",
   "type": "module",
   "main": "dist/cli/index.js",
