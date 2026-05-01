@@ -15,6 +15,7 @@ import type {
 import {
   CCPA_QUESTION_BANK,
   GDPR_QUESTION_BANK,
+  SG_PDPA_QUESTION_BANK,
   LEGACY_QUESTION_BANK_V1,
   LEGACY_QUESTIONNAIRE_VERSION,
   PRE_REMEDIATION_QUESTION_BANK_V2,
@@ -130,6 +131,13 @@ describe('question bank coverage and flow', () => {
       GDPR_QUESTION_BANK.map((question) => question.id),
     );
     expect(getQuestionBankForJurisdiction('eu-gdpr')[0]?.appPrinciple).toBe('GDPR_Art3');
+  });
+
+  it('orders the SG PDPA question bank by SG PDPA principle order', () => {
+    expect(getQuestionBankForJurisdiction('sg-pdpa').map((question) => question.id)).toEqual(
+      SG_PDPA_QUESTION_BANK.map((question) => question.id),
+    );
+    expect(getQuestionBankForJurisdiction('sg-pdpa')[0]?.appPrinciple).toBe('SGPDPA_11');
   });
 
   it('evaluates CCPA no-discrimination as a control where yes fails and no passes', () => {

@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { APPInfo, JurisdictionInfo } from '../schema/index.js';
 import { CCPAPrincipleInfo } from '../scanner/rules/ccpa-principles.js';
 import { GDPRPrincipleInfo } from '../scanner/rules/gdpr-principles.js';
+import { SGPDPAPrincipleInfo } from '../scanner/rules/sg-pdpa-principles.js';
 import { getRegistry } from './registry.js';
 
 describe('getRegistry', () => {
@@ -43,6 +44,19 @@ describe('getRegistry', () => {
       fullName: GDPRPrincipleInfo.GDPR_Art32.shortName,
       obligation: GDPRPrincipleInfo.GDPR_Art32.obligation,
       citation: GDPRPrincipleInfo.GDPR_Art32.citation,
+    });
+  });
+
+  it('builds the SG PDPA registry from SGPDPAPrincipleInfo', () => {
+    const registry = getRegistry('sg-pdpa');
+
+    expect(registry.jurisdiction).toBe('sg-pdpa');
+    expect(registry.order).toEqual(Object.keys(SGPDPAPrincipleInfo));
+    expect(registry.principles.SGPDPA_24).toEqual({
+      shortName: SGPDPAPrincipleInfo.SGPDPA_24.shortName,
+      fullName: SGPDPAPrincipleInfo.SGPDPA_24.shortName,
+      obligation: SGPDPAPrincipleInfo.SGPDPA_24.obligation,
+      citation: SGPDPAPrincipleInfo.SGPDPA_24.citation,
     });
   });
 });

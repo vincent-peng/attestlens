@@ -9,6 +9,7 @@ import crypto from 'node:crypto';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 
+import { appMappingToRegulationMapping } from '../schema/index.js';
 import type { APPMapping, APPPrinciple, AttestLensFinding, ScanSource, Severity } from '../schema/index.js';
 import type { ScannerAdapter, ScannerContext, ScannerError, ScannerResult } from './types.js';
 
@@ -473,6 +474,8 @@ export class ReformAdapter implements ScannerAdapter {
   }
 
   private makeFinding(rule: ReformRule, file: SourceFile, match: ReformMatch): AttestLensFinding {
+    const appMappings = makeAppMappings(rule.provision, rule.id);
+
     return {
       id: this.generateId(rule.id, file.relativeFile, match.line, match.snippet),
       source: this.name,
@@ -486,8 +489,8 @@ export class ReformAdapter implements ScannerAdapter {
       code: match.snippet,
       fix: rule.fix,
       fixPrompt: `${rule.fix} Add a focused regression fixture or policy check for ${rule.id}.`,
-      regulationMappings: [],
-      appMappings: makeAppMappings(rule.provision, rule.id),
+      regulationMappings: appMappings.map(appMappingToRegulationMapping),
+      appMappings,
       evidence: {
         timestamp: new Date().toISOString(),
         scannerVersion: this.version,

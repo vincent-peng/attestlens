@@ -180,6 +180,35 @@ describe('buildComplianceReport', () => {
     expect(report.complianceOpinion?.principles.some((principle) => principle.principle === 'GDPR_Art32')).toBe(true);
   });
 
+  it('generates SG PDPA reports with SG PDPA controls', () => {
+    const findings = [
+      makeFinding({
+        id: 'F-1',
+        sourceRule: 'SGPDPA-SEC-001',
+        title: 'Plaintext personal data in repository',
+        regulationMappings: [{
+          jurisdiction: 'sg-pdpa',
+          principle: 'SGPDPA_24',
+          obligation: 'Make reasonable security arrangements to protect personal data',
+          status: 'fail',
+          confidence: 0.88,
+          citation: 'PDPA 2012 (Singapore) s 24',
+        }],
+      }),
+    ];
+    const report = buildComplianceReport(findings, {
+      ...defaultOptions,
+      jurisdiction: 'sg-pdpa',
+      includeOpinion: true,
+    }, 1000);
+    const markdown = generateMarkdownReport(report);
+
+    expect(report.appControls).toEqual([]);
+    expect(markdown).toContain('Singapore Personal Data Protection Act (PDPA) Compliance Report');
+    expect(markdown).toContain('SGPDPA_24');
+    expect(report.complianceOpinion?.principles.some((principle) => principle.principle === 'SGPDPA_24')).toBe(true);
+  });
+
   it('keeps GDPR-SEC-001 special-category values redacted across report formats', () => {
     const findings = scanGdprChecks([
       { relativePath: 'data/patient.json', content: '{"health_condition":"asthma"}' },

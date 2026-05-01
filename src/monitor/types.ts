@@ -3,6 +3,7 @@ import type {
   AttestLensFinding,
   ComplianceReport,
   ControlStatus,
+  RegulationPrinciple,
   ReportGrade,
 } from '../schema/index.js';
 
@@ -69,6 +70,7 @@ export interface FindingDelta {
   file?: string;
   line?: number;
   appPrinciples: APPPrinciple[];
+  regulationPrinciples: RegulationPrinciple[];
 }
 
 export interface AppControlStatusChange {

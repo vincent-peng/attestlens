@@ -31,6 +31,8 @@ describe('compareReports', () => {
     expect(diff.gradeChange).toEqual({ previous: 'A', current: 'B' });
     expect(diff.newFindings).toHaveLength(1);
     expect(diff.resolvedFindings).toHaveLength(1);
+    expect(diff.newFindings[0]?.regulationPrinciples).toEqual(['APP_11']);
+    expect(diff.resolvedFindings[0]?.regulationPrinciples).toEqual(['APP_11']);
     expect(diff.newAppFailures).toHaveLength(1);
     expect(diff.summary).toContain('New APP failures');
   });
@@ -96,7 +98,13 @@ function makeFinding(
     description: title,
     file: 'src/app.ts',
     line: 1,
-    regulationMappings: [],
+    regulationMappings: [{
+      jurisdiction: 'au-privacy-act',
+      principle: 'APP_11',
+      obligation: 'Security',
+      status: 'fail',
+      confidence: 1,
+    }],
     appMappings: [{
       principle: 'APP_11',
       obligation: 'Security',

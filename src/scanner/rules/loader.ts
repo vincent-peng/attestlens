@@ -16,13 +16,13 @@ import {
 } from '../../schema/index.js';
 import { CCPAPrincipleInfo } from './ccpa-principles.js';
 import { GDPRPrincipleInfo } from './gdpr-principles.js';
-import { buildEmbeddedCCPARulePack, buildEmbeddedGDPRRulePack, buildEmbeddedJurisdictionPack, buildEmbeddedRulePack } from './embedded.js';
+import { buildEmbeddedCCPARulePack, buildEmbeddedGDPRRulePack, buildEmbeddedJurisdictionPack, buildEmbeddedRulePack, buildEmbeddedSGPDPARulePack } from './embedded.js';
 
 export const RULE_PACK_CACHE_FILENAME = 'latest.json';
 export const RULE_PACK_STALE_AFTER_DAYS = 14;
 export const RULE_PACK_FETCH_TIMEOUT_MS = 10_000;
 export const RULE_PACK_MAX_BYTES = 1_000_000;
-export const AVAILABLE_JURISDICTIONS: readonly Jurisdiction[] = ['au-privacy-act', 'us-ccpa', 'eu-gdpr'];
+export const AVAILABLE_JURISDICTIONS: readonly Jurisdiction[] = ['au-privacy-act', 'us-ccpa', 'eu-gdpr', 'sg-pdpa'];
 
 export interface LoadedRulePack {
   manifest: RulePackManifestType;
@@ -134,6 +134,17 @@ export async function loadJurisdictionPacks(
       packs.set(jurisdiction, {
         manifest,
         jurisdictionManifest: buildEmbeddedJurisdictionPack('eu-gdpr'),
+        freshness: buildRuleFreshness(manifest, 'embedded', now),
+        warnings: [],
+      });
+      continue;
+    }
+
+    if (jurisdiction === 'sg-pdpa') {
+      const manifest = validateRulePackManifest(buildEmbeddedSGPDPARulePack());
+      packs.set(jurisdiction, {
+        manifest,
+        jurisdictionManifest: buildEmbeddedJurisdictionPack('sg-pdpa'),
         freshness: buildRuleFreshness(manifest, 'embedded', now),
         warnings: [],
       });

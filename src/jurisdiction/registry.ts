@@ -9,6 +9,7 @@ import {
 } from '../schema/index.js';
 import { CCPAPrincipleInfo } from '../scanner/rules/ccpa-principles.js';
 import { GDPRPrincipleInfo } from '../scanner/rules/gdpr-principles.js';
+import { SGPDPAPrincipleInfo } from '../scanner/rules/sg-pdpa-principles.js';
 
 export interface PrincipleInfo {
   shortName: string;
@@ -26,6 +27,7 @@ export interface PrincipleRegistry {
 const AU_ORDER: APPPrincipleType[] = APPPrinciple.options;
 const CCPA_ORDER: RegulationPrinciple[] = Object.keys(CCPAPrincipleInfo);
 const GDPR_ORDER: RegulationPrinciple[] = Object.keys(GDPRPrincipleInfo);
+const SG_PDPA_ORDER: RegulationPrinciple[] = Object.keys(SGPDPAPrincipleInfo);
 
 const AU_REGISTRY: PrincipleRegistry = {
   jurisdiction: 'au-privacy-act',
@@ -75,10 +77,27 @@ const GDPR_REGISTRY: PrincipleRegistry = {
   order: GDPR_ORDER,
 };
 
+const SG_PDPA_REGISTRY: PrincipleRegistry = {
+  jurisdiction: 'sg-pdpa',
+  principles: Object.fromEntries(
+    SG_PDPA_ORDER.map((principle) => [
+      principle,
+      {
+        shortName: SGPDPAPrincipleInfo[principle as keyof typeof SGPDPAPrincipleInfo].shortName,
+        fullName: SGPDPAPrincipleInfo[principle as keyof typeof SGPDPAPrincipleInfo].shortName,
+        obligation: SGPDPAPrincipleInfo[principle as keyof typeof SGPDPAPrincipleInfo].obligation,
+        citation: SGPDPAPrincipleInfo[principle as keyof typeof SGPDPAPrincipleInfo].citation,
+      },
+    ]),
+  ),
+  order: SG_PDPA_ORDER,
+};
+
 const REGISTRIES: Record<JurisdictionType, PrincipleRegistry> = {
   'au-privacy-act': AU_REGISTRY,
   'us-ccpa': CCPA_REGISTRY,
   'eu-gdpr': GDPR_REGISTRY,
+  'sg-pdpa': SG_PDPA_REGISTRY,
 };
 
 export function getRegistry(jurisdiction: JurisdictionType): PrincipleRegistry {

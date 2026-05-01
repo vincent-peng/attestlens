@@ -417,6 +417,16 @@ describe('MCP Server', () => {
         isError: true,
       });
 
+      const sgPdpaResponse = await handleToolCall('attestlens_check', {
+        path: tempDir,
+        jurisdiction: 'sg-pdpa',
+        principle: 'GDPR_Art32',
+      });
+      expect(sgPdpaResponse).toEqual({
+        content: [{ type: 'text', text: expect.stringContaining('Unknown principle GDPR_Art32 for jurisdiction sg-pdpa') }],
+        isError: true,
+      });
+
       expect(scanSpy).not.toHaveBeenCalled();
     });
 
@@ -498,6 +508,72 @@ describe('MCP Server', () => {
         findings: [
           expect.objectContaining({
             id: 'FIND-APP11',
+            severity: 'critical',
+          }),
+        ],
+      }));
+    });
+
+    it('supports SG PDPA jurisdiction for attestlens_check', async () => {
+      vi.spyOn(ScannerOrchestrator.prototype, 'scan').mockResolvedValue({
+        findings: [
+          makeFinding({
+            id: 'FIND-SGPDPA-24',
+            sourceRule: 'SGPDPA-SEC-001',
+            title: 'Plaintext personal data in repository',
+            regulationMappings: [{
+              jurisdiction: 'sg-pdpa',
+              principle: 'SGPDPA_24',
+              obligation: 'Make reasonable security arrangements to protect personal data',
+              status: 'fail',
+              confidence: 0.88,
+              citation: 'PDPA 2012 (Singapore) s 24',
+            }],
+          }),
+        ],
+        results: [
+          {
+            source: 'guardvibe',
+            version: '1.0.0',
+            timestamp: new Date().toISOString(),
+            findings: [
+              makeFinding({
+                id: 'FIND-SGPDPA-24',
+                sourceRule: 'SGPDPA-SEC-001',
+                title: 'Plaintext personal data in repository',
+                regulationMappings: [{
+                  jurisdiction: 'sg-pdpa',
+                  principle: 'SGPDPA_24',
+                  obligation: 'Make reasonable security arrangements to protect personal data',
+                  status: 'fail',
+                  confidence: 0.88,
+                  citation: 'PDPA 2012 (Singapore) s 24',
+                }],
+              }),
+            ],
+            errors: [],
+            durationMs: 12,
+          },
+        ],
+        errors: [],
+        totalDurationMs: 12,
+        ruleFreshness: makeRuleFreshness(),
+      });
+
+      const response = await handleToolCall('attestlens_check', {
+        path: tempDir,
+        jurisdiction: 'sg-pdpa',
+        principle: 'SGPDPA_24',
+      });
+      const payload = expectJsonStructuredPayload(response);
+
+      expect(payload).toEqual(expect.objectContaining({
+        jurisdiction: 'sg-pdpa',
+        principle: 'SGPDPA_24',
+        verdict: 'NON_COMPLIANT',
+        findings: [
+          expect.objectContaining({
+            id: 'FIND-SGPDPA-24',
             severity: 'critical',
           }),
         ],

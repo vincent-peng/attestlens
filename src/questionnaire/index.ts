@@ -9,6 +9,11 @@ export {
   getGDPRQuestionsForPrinciples,
 } from './gdpr-questions.js';
 export {
+  SG_PDPA_QUESTION_BANK,
+  SG_PDPA_QUESTIONNAIRE_VERSION,
+  getSGPDPAQuestionsForPrinciples,
+} from './sg-pdpa-questions.js';
+export {
   LEGACY_QUESTION_BANK_V1,
   LEGACY_QUESTIONNAIRE_VERSION,
   PRE_REMEDIATION_QUESTION_BANK_V2,

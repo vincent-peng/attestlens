@@ -16,6 +16,7 @@ import { aggregatePrincipleResults, evaluateResponse } from './evaluator.js';
 import { getApplicableQuestions, getNextQuestion, getQuestionBankForJurisdiction } from './flow.js';
 import { CCPA_QUESTIONNAIRE_VERSION } from './ccpa-questions.js';
 import { GDPR_QUESTIONNAIRE_VERSION } from './gdpr-questions.js';
+import { SG_PDPA_QUESTIONNAIRE_VERSION } from './sg-pdpa-questions.js';
 import type { AttestationPromptRunner } from './prompts.js';
 import {
   QUESTIONNAIRE_VERSION,
@@ -159,6 +160,9 @@ function inferQuestionnaireJurisdiction(principles: RegulationPrinciple[]): Juri
   if (principles.some((principle) => principle.startsWith('GDPR_'))) {
     return 'eu-gdpr';
   }
+  if (principles.some((principle) => principle.startsWith('SGPDPA_'))) {
+    return 'sg-pdpa';
+  }
   return 'au-privacy-act';
 }
 
@@ -168,6 +172,9 @@ function getQuestionnaireVersionForJurisdiction(jurisdiction: Jurisdiction): str
   }
   if (jurisdiction === 'eu-gdpr') {
     return GDPR_QUESTIONNAIRE_VERSION;
+  }
+  if (jurisdiction === 'sg-pdpa') {
+    return SG_PDPA_QUESTIONNAIRE_VERSION;
   }
   return QUESTIONNAIRE_VERSION;
 }

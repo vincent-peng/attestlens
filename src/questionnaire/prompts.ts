@@ -2,14 +2,12 @@ import { checkbox, input, select } from '@inquirer/prompts';
 import chalk from 'chalk';
 
 import {
-  APPInfo,
   type AssessmentMode,
   type AttestLensFinding,
   type Question,
   type QuestionnaireResponse,
 } from '../schema/index.js';
-import { CCPAPrincipleInfo } from '../scanner/rules/ccpa-principles.js';
-import { GDPRPrincipleInfo } from '../scanner/rules/gdpr-principles.js';
+import { getRegistry } from '../jurisdiction/registry.js';
 
 export type AttestationPromptResult =
   | { kind: 'save_and_exit' }
@@ -72,16 +70,11 @@ function printQuestionContext(question: Question, context: AttestationPromptCont
 }
 
 function getPrincipleLabel(principle: string): string {
-  if (Object.prototype.hasOwnProperty.call(APPInfo, principle)) {
-    return APPInfo[principle as keyof typeof APPInfo].shortName;
-  }
-
-  if (Object.prototype.hasOwnProperty.call(CCPAPrincipleInfo, principle)) {
-    return CCPAPrincipleInfo[principle as keyof typeof CCPAPrincipleInfo].shortName;
-  }
-
-  if (Object.prototype.hasOwnProperty.call(GDPRPrincipleInfo, principle)) {
-    return GDPRPrincipleInfo[principle as keyof typeof GDPRPrincipleInfo].shortName;
+  for (const jurisdiction of ['au-privacy-act', 'us-ccpa', 'eu-gdpr', 'sg-pdpa'] as const) {
+    const info = getRegistry(jurisdiction).principles[principle];
+    if (info) {
+      return info.shortName;
+    }
   }
 
   return principle;

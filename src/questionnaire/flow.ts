@@ -1,16 +1,15 @@
 import {
-  APPInfo,
   type AssessmentMode,
   type Jurisdiction,
   type Question,
   type QuestionnaireResponse,
   type RegulationPrinciple,
 } from '../schema/index.js';
-import { CCPAPrincipleInfo } from '../scanner/rules/ccpa-principles.js';
-import { GDPRPrincipleInfo } from '../scanner/rules/gdpr-principles.js';
+import { getRegistry } from '../jurisdiction/registry.js';
 import { CCPA_QUESTION_BANK } from './ccpa-questions.js';
 import { GDPR_QUESTION_BANK } from './gdpr-questions.js';
 import { QUESTION_BANK } from './questions.js';
+import { SG_PDPA_QUESTION_BANK } from './sg-pdpa-questions.js';
 
 const DEFAULT_ASSESSMENT_MODE: AssessmentMode = 'operator_attested';
 
@@ -19,29 +18,23 @@ export function getQuestionById(questionId: string, questions: Question[] = QUES
 }
 
 export function getQuestionBankForJurisdiction(jurisdiction: Jurisdiction = 'au-privacy-act'): Question[] {
-  if (jurisdiction === 'us-ccpa') {
-    const principleRank = new Map(
-      getQuestionPrincipleOrder(Object.keys(CCPAPrincipleInfo), 'us-ccpa')
-        .map((principle, index) => [principle, index]),
-    );
-    return [...CCPA_QUESTION_BANK].sort((left, right) => (
-      (principleRank.get(left.regulationPrinciple) ?? Number.MAX_SAFE_INTEGER)
-      - (principleRank.get(right.regulationPrinciple) ?? Number.MAX_SAFE_INTEGER)
-    ));
-  }
-
-  if (jurisdiction === 'eu-gdpr') {
-    const principleRank = new Map(
-      getQuestionPrincipleOrder(Object.keys(GDPRPrincipleInfo), 'eu-gdpr')
-        .map((principle, index) => [principle, index]),
-    );
-    return [...GDPR_QUESTION_BANK].sort((left, right) => (
-      (principleRank.get(left.regulationPrinciple) ?? Number.MAX_SAFE_INTEGER)
-      - (principleRank.get(right.regulationPrinciple) ?? Number.MAX_SAFE_INTEGER)
-    ));
-  }
-
-  return QUESTION_BANK;
+  const questionBank = jurisdiction === 'us-ccpa'
+    ? CCPA_QUESTION_BANK
+    : jurisdiction === 'eu-gdpr'
+      ? GDPR_QUESTION_BANK
+      : jurisdiction === 'sg-pdpa'
+        ? SG_PDPA_QUESTION_BANK
+        : QUESTION_BANK;
+  const principleRank = new Map(
+    getQuestionPrincipleOrder(
+      questionBank.map((question) => question.regulationPrinciple),
+      jurisdiction,
+    ).map((principle, index) => [principle, index]),
+  );
+  return [...questionBank].sort((left, right) => (
+    (principleRank.get(left.regulationPrinciple) ?? Number.MAX_SAFE_INTEGER)
+    - (principleRank.get(right.regulationPrinciple) ?? Number.MAX_SAFE_INTEGER)
+  ));
 }
 
 function normalizeAnswers(value: QuestionnaireResponse['answer']): Array<boolean | string> {
@@ -95,11 +88,7 @@ export function getQuestionPrincipleOrder(
   principles: RegulationPrinciple[],
   jurisdiction: Jurisdiction = inferJurisdictionForPrinciples(principles),
 ): RegulationPrinciple[] {
-  const orderedPrinciples = jurisdiction === 'us-ccpa'
-    ? Object.keys(CCPAPrincipleInfo)
-    : jurisdiction === 'eu-gdpr'
-      ? Object.keys(GDPRPrincipleInfo)
-      : Object.keys(APPInfo);
+  const orderedPrinciples = getRegistry(jurisdiction).order;
   const requested = new Set(principles);
   return orderedPrinciples.filter((principle) => requested.has(principle));
 }
@@ -141,6 +130,9 @@ function inferJurisdictionForPrinciples(principles: RegulationPrinciple[]): Juri
   }
   if (principles.some((principle) => principle.startsWith('GDPR_'))) {
     return 'eu-gdpr';
+  }
+  if (principles.some((principle) => principle.startsWith('SGPDPA_'))) {
+    return 'sg-pdpa';
   }
   return 'au-privacy-act';
 }

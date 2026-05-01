@@ -1,4 +1,9 @@
-import type { APPPrinciple, AttestLensFinding, ComplianceReport } from '../schema/index.js';
+import type {
+  APPPrinciple,
+  AttestLensFinding,
+  ComplianceReport,
+  RegulationPrinciple,
+} from '../schema/index.js';
 import type {
   AppControlStatusChange,
   Baseline,
@@ -157,11 +162,16 @@ function toFindingDelta(finding: AttestLensFinding): FindingDelta {
     file: finding.file,
     line: finding.line,
     appPrinciples: getFindingPrinciples(finding),
+    regulationPrinciples: getFindingRegulationPrinciples(finding),
   };
 }
 
 function getFindingPrinciples(finding: AttestLensFinding): APPPrinciple[] {
   return Array.from(new Set(finding.appMappings.map((mapping) => mapping.principle)));
+}
+
+function getFindingRegulationPrinciples(finding: AttestLensFinding): RegulationPrinciple[] {
+  return Array.from(new Set(finding.regulationMappings.map((mapping) => mapping.principle)));
 }
 
 function formatLocation(finding: FindingDelta): string {

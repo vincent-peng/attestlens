@@ -16,7 +16,7 @@ export type Severity = z.infer<typeof Severity>;
 export const ControlStatus = z.enum(['pass', 'fail', 'unknown']);
 export type ControlStatus = z.infer<typeof ControlStatus>;
 
-export const Jurisdiction = z.enum(['au-privacy-act', 'us-ccpa', 'eu-gdpr']);
+export const Jurisdiction = z.enum(['au-privacy-act', 'us-ccpa', 'eu-gdpr', 'sg-pdpa']);
 export type Jurisdiction = z.infer<typeof Jurisdiction>;
 
 export const JurisdictionInfo: Record<Jurisdiction, { shortName: string; fullName: string; citation: string }> = {
@@ -34,6 +34,11 @@ export const JurisdictionInfo: Record<Jurisdiction, { shortName: string; fullNam
     shortName: 'EU GDPR',
     fullName: 'General Data Protection Regulation',
     citation: 'Regulation (EU) 2016/679',
+  },
+  'sg-pdpa': {
+    shortName: 'SG PDPA',
+    fullName: 'Singapore Personal Data Protection Act 2012',
+    citation: 'Personal Data Protection Act 2012 (Singapore)',
   },
 };
 
@@ -127,6 +132,13 @@ export const GDPRPrinciple = z.enum([
 ]);
 export type GDPRPrinciple = z.infer<typeof GDPRPrinciple>;
 
+export const SGPDPAPrinciple = z.enum([
+  'SGPDPA_11',
+  'SGPDPA_12',
+  'SGPDPA_24',
+]);
+export type SGPDPAPrinciple = z.infer<typeof SGPDPAPrinciple>;
+
 // ─── Core Schemas ────────────────────────────────────────────────────────────
 
 // Phase 7 will refine this into per-jurisdiction principle validation.
@@ -170,6 +182,9 @@ function inferJurisdictionFromRegulationPrinciple(principle: string): Jurisdicti
   }
   if (principle.startsWith('GDPR_')) {
     return 'eu-gdpr';
+  }
+  if (principle.startsWith('SGPDPA_')) {
+    return 'sg-pdpa';
   }
   return 'au-privacy-act';
 }

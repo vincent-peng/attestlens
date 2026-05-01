@@ -463,6 +463,12 @@ describe('CLI external enrichment option', () => {
     }));
   });
 
+  it('passes explicit SG PDPA jurisdiction into scanner options', () => {
+    expect(buildScannerOrchestratorOptions({ jurisdiction: 'sg-pdpa' })).toEqual(expect.objectContaining({
+      jurisdictions: ['sg-pdpa'],
+    }));
+  });
+
   it('rejects unsupported jurisdiction values in scanner options', () => {
     expect(() => buildScannerOrchestratorOptions({ jurisdiction: 'antarctica' }))
       .toThrow('Unsupported jurisdiction');
@@ -485,7 +491,7 @@ describe('CLI external enrichment option', () => {
     }
   });
 
-  it('runs scan and audit with CCPA and GDPR jurisdictions', async () => {
+  it('runs scan and audit with CCPA, GDPR, and SG PDPA jurisdictions', async () => {
     const projectDir = await fs.mkdtemp(path.join(os.tmpdir(), 'attestlens-cli-jurisdiction-'));
     const outputDir = await fs.mkdtemp(path.join(os.tmpdir(), 'attestlens-cli-jurisdiction-out-'));
 
@@ -496,6 +502,8 @@ describe('CLI external enrichment option', () => {
         ['audit', projectDir, '--jurisdiction', 'us-ccpa', '-f', 'json', '-o', outputDir, '--no-guardvibe', '--no-mcp-scan', '--no-supply-chain', '--no-behavioral', '--no-iac'],
         ['scan', projectDir, '--jurisdiction', 'eu-gdpr', '--no-guardvibe', '--no-mcp-scan', '--no-supply-chain', '--no-behavioral', '--no-iac'],
         ['audit', projectDir, '--jurisdiction', 'eu-gdpr', '-f', 'json', '-o', outputDir, '--no-guardvibe', '--no-mcp-scan', '--no-supply-chain', '--no-behavioral', '--no-iac'],
+        ['scan', projectDir, '--jurisdiction', 'sg-pdpa', '--no-guardvibe', '--no-mcp-scan', '--no-supply-chain', '--no-behavioral', '--no-iac'],
+        ['audit', projectDir, '--jurisdiction', 'sg-pdpa', '-f', 'json', '-o', outputDir, '--no-guardvibe', '--no-mcp-scan', '--no-supply-chain', '--no-behavioral', '--no-iac'],
       ];
 
       for (const command of commands) {

@@ -246,6 +246,18 @@ describe('rule pack loader', () => {
     expect(jurisdictionPack.rules[0]!.regulationMappings?.[0]?.jurisdiction).toBe('eu-gdpr');
   });
 
+  it('builds an SG PDPA jurisdiction pack from embedded SG PDPA metadata', () => {
+    const jurisdictionPack = buildEmbeddedJurisdictionPack('sg-pdpa');
+
+    expect(jurisdictionPack.schemaVersion).toBe('2.0');
+    expect(jurisdictionPack.version).toBe('2026.05.01');
+    expect(jurisdictionPack.jurisdiction).toBe('sg-pdpa');
+    expect(jurisdictionPack.principles).toHaveLength(3);
+    expect(jurisdictionPack.principles.some((principle) => principle.id === 'SGPDPA_24')).toBe(true);
+    expect(jurisdictionPack.rules.some((rule) => rule.id === 'SGPDPA-SEC-001')).toBe(true);
+    expect(jurisdictionPack.rules[0]!.regulationMappings?.[0]?.jurisdiction).toBe('sg-pdpa');
+  });
+
   it('loads AU jurisdiction packs', async () => {
     const cacheDir = await makeTempDir();
     const packs = await loadJurisdictionPacks(['au-privacy-act'], {
@@ -286,9 +298,22 @@ describe('rule pack loader', () => {
     expect(gdprPack!.warnings).toEqual([]);
   });
 
-  it('loads mixed AU, CCPA, and GDPR packs', async () => {
+  it('loads the embedded SG PDPA jurisdiction pack', async () => {
+    const packs = await loadJurisdictionPacks(['sg-pdpa'], {
+      now: new Date('2026-04-24T00:00:00.000Z'),
+    });
+    const sgPdpaPack = packs.get('sg-pdpa');
+
+    expect(sgPdpaPack).toBeDefined();
+    expect(sgPdpaPack!.manifest.jurisdiction).toBe('sg-pdpa');
+    expect(sgPdpaPack!.manifest.rules.some((rule) => rule.id === 'SGPDPA-CONSENT-001')).toBe(true);
+    expect(sgPdpaPack!.jurisdictionManifest?.principles.some((principle) => principle.id === 'SGPDPA_11')).toBe(true);
+    expect(sgPdpaPack!.warnings).toEqual([]);
+  });
+
+  it('loads mixed AU, CCPA, GDPR, and SG PDPA packs', async () => {
     const cacheDir = await makeTempDir();
-    const packs = await loadJurisdictionPacks(['au-privacy-act', 'us-ccpa', 'eu-gdpr'], {
+    const packs = await loadJurisdictionPacks(['au-privacy-act', 'us-ccpa', 'eu-gdpr', 'sg-pdpa'], {
       cacheDir,
       now: new Date('2026-04-24T00:00:00.000Z'),
     });
@@ -296,8 +321,10 @@ describe('rule pack loader', () => {
     expect(packs.get('au-privacy-act')!.manifest.rules.length).toBeGreaterThan(0);
     expect(packs.get('us-ccpa')!.manifest.rules.length).toBeGreaterThan(0);
     expect(packs.get('eu-gdpr')!.manifest.rules.length).toBeGreaterThan(0);
+    expect(packs.get('sg-pdpa')!.manifest.rules.length).toBeGreaterThan(0);
     expect(packs.get('us-ccpa')!.warnings).toEqual([]);
     expect(packs.get('eu-gdpr')!.warnings).toEqual([]);
+    expect(packs.get('sg-pdpa')!.warnings).toEqual([]);
   });
 
   it('loads mixed AU and GDPR packs without unavailable warnings', async () => {
@@ -313,9 +340,9 @@ describe('rule pack loader', () => {
   });
 
   it('treats all declared jurisdictions as available', () => {
-    expect(AVAILABLE_JURISDICTIONS).toEqual(['au-privacy-act', 'us-ccpa', 'eu-gdpr']);
+    expect(AVAILABLE_JURISDICTIONS).toEqual(['au-privacy-act', 'us-ccpa', 'eu-gdpr', 'sg-pdpa']);
     expect(getJurisdictionUnavailableMessage('eu-gdpr')).toBe(
-      "No embedded rule pack loaded for requested jurisdiction 'eu-gdpr'. Available jurisdictions: au-privacy-act, us-ccpa, eu-gdpr",
+      "No embedded rule pack loaded for requested jurisdiction 'eu-gdpr'. Available jurisdictions: au-privacy-act, us-ccpa, eu-gdpr, sg-pdpa",
     );
   });
 });

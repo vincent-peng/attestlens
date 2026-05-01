@@ -33,6 +33,10 @@ import {
   GDPR_QUESTION_BANK,
   GDPR_QUESTIONNAIRE_VERSION,
 } from './gdpr-questions.js';
+import {
+  SG_PDPA_QUESTION_BANK,
+  SG_PDPA_QUESTIONNAIRE_VERSION,
+} from './sg-pdpa-questions.js';
 import { aggregatePrincipleResults } from './evaluator.js';
 import { getNextQuestion } from './flow.js';
 
@@ -123,6 +127,10 @@ function getKnownQuestionBank(version: string): Question[] | null {
 
   if (version === GDPR_QUESTIONNAIRE_VERSION) {
     return GDPR_QUESTION_BANK;
+  }
+
+  if (version === SG_PDPA_QUESTIONNAIRE_VERSION) {
+    return SG_PDPA_QUESTION_BANK;
   }
 
   return null;

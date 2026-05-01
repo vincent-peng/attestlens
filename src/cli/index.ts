@@ -712,6 +712,9 @@ function getJurisdictionAssessmentLabel(jurisdiction: JurisdictionType): string 
   if (jurisdiction === 'eu-gdpr') {
     return 'GDPR';
   }
+  if (jurisdiction === 'sg-pdpa') {
+    return 'SG PDPA';
+  }
   return 'AU Privacy Act';
 }
 
@@ -738,6 +741,9 @@ function inferQuestionnaireJurisdiction(
   }
   if (principles?.some((principle) => principle.startsWith('GDPR_'))) {
     return 'eu-gdpr';
+  }
+  if (principles?.some((principle) => principle.startsWith('SGPDPA_'))) {
+    return 'sg-pdpa';
   }
   return fallback;
 }

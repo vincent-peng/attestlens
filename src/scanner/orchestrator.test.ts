@@ -73,6 +73,38 @@ describe('ScannerOrchestrator', { timeout: 20000 }, () => {
     expect(result.errors.some((error) => error.message.includes('not yet available'))).toBe(false);
   });
 
+  it('loads SG PDPA jurisdiction packs before scanning', async () => {
+    const orchestrator = new ScannerOrchestrator({ jurisdictions: ['sg-pdpa'] });
+    const result = await orchestrator.scan(fixtureDir, []);
+
+    expect(result.ruleFreshness.version).toBe('2026.05.01');
+    expect(result.errors.some((error) => error.message.includes('not yet available'))).toBe(false);
+  });
+
+  it('produces SG PDPA findings with regulation mappings end-to-end', async () => {
+    const projectDir = await fs.mkdtemp(path.join(os.tmpdir(), 'attestlens-sg-pdpa-'));
+    const orchestrator = new ScannerOrchestrator({ jurisdictions: ['sg-pdpa'] });
+
+    try {
+      await fs.writeFile(
+        path.join(projectDir, 'privacy.html'),
+        '<html><body><h1>Privacy Notice</h1><p>We collect personal data.</p></body></html>',
+      );
+      await fs.writeFile(
+        path.join(projectDir, 'customer.json'),
+        '{"nric":"S1234567D"}',
+      );
+
+      const result = await orchestrator.scan(projectDir, ['guardvibe']);
+
+      expect(result.findings.some((finding) => finding.regulationMappings.some((mapping) => (
+        mapping.jurisdiction === 'sg-pdpa' && mapping.principle === 'SGPDPA_24'
+      )))).toBe(true);
+    } finally {
+      await fs.rm(projectDir, { recursive: true, force: true });
+    }
+  });
+
   it('should return findings from scan', async () => {
     // Should have findings from static scan
     expect(scanResult.findings.length).toBeGreaterThan(0);

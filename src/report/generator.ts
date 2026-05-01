@@ -345,6 +345,9 @@ function getFrameworkLabel(report: ComplianceReport): string {
   if (jurisdiction === 'eu-gdpr') {
     return 'General Data Protection Regulation (GDPR)';
   }
+  if (jurisdiction === 'sg-pdpa') {
+    return 'Singapore Personal Data Protection Act (PDPA)';
+  }
   return 'APP / NDB (Privacy Act 1988)';
 }
 
@@ -356,6 +359,9 @@ function getReportTitle(report: ComplianceReport): string {
   if (jurisdiction === 'eu-gdpr') {
     return 'General Data Protection Regulation (GDPR) — Subset Compliance Report';
   }
+  if (jurisdiction === 'sg-pdpa') {
+    return 'Singapore Personal Data Protection Act (PDPA) Compliance Report';
+  }
   return 'Privacy Act Compliance Report';
 }
 
@@ -366,6 +372,9 @@ function getControlChecklistTitle(report: ComplianceReport): string {
   }
   if (jurisdiction === 'eu-gdpr') {
     return 'GDPR Subset Control Checklist';
+  }
+  if (jurisdiction === 'sg-pdpa') {
+    return 'SG PDPA Control Checklist';
   }
   return 'APP Control Checklist';
 }
@@ -1286,6 +1295,8 @@ function getRiskSummary(report: ComplianceReport): string {
     ? 'CCPA/CPRA'
     : jurisdiction === 'eu-gdpr'
       ? 'GDPR'
+      : jurisdiction === 'sg-pdpa'
+        ? 'PDPA'
       : 'APP';
 
   if (report.riskLevel === 'critical') {

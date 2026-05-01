@@ -4,6 +4,8 @@ import { CCPA_CHECKS } from './ccpa-checks.js';
 import { CCPAPrincipleInfo } from './ccpa-principles.js';
 import { GDPR_CHECKS } from './gdpr-checks.js';
 import { GDPRPrincipleInfo } from './gdpr-principles.js';
+import { SG_PDPA_CHECKS } from './sg-pdpa-checks.js';
+import { SGPDPAPrincipleInfo } from './sg-pdpa-principles.js';
 import { KEY_PATTERNS } from './exposed-keys.js';
 import { INFRA_CHECKS } from './infra-checks.js';
 import { JS_PATTERNS } from './js-analysis.js';
@@ -15,6 +17,8 @@ export const EMBEDDED_CCPA_PACK_VERSION = '2026.04.30';
 export const EMBEDDED_CCPA_PACK_GENERATED = '2026-04-30T00:00:00.000Z';
 export const EMBEDDED_GDPR_PACK_VERSION = '2026.04.30';
 export const EMBEDDED_GDPR_PACK_GENERATED = '2026-04-30T00:00:00.000Z';
+export const EMBEDDED_SG_PDPA_PACK_VERSION = '2026.05.01';
+export const EMBEDDED_SG_PDPA_PACK_GENERATED = '2026-05-01T00:00:00.000Z';
 
 const app11Mapping: APPMapping = {
   principle: 'APP_11',
@@ -499,12 +503,42 @@ export function buildEmbeddedGDPRPack(): JurisdictionPackManifestType {
   });
 }
 
+export function buildEmbeddedSGPDPARulePack(): RulePackManifestType {
+  return RulePackManifest.parse({
+    schemaVersion: '1.0',
+    version: EMBEDDED_SG_PDPA_PACK_VERSION,
+    generated: EMBEDDED_SG_PDPA_PACK_GENERATED,
+    jurisdiction: 'sg-pdpa',
+    rules: normalizeRuleDefinitions(SG_PDPA_CHECKS),
+  });
+}
+
+export function buildEmbeddedSGPDPAPack(): JurisdictionPackManifestType {
+  const rulePack = buildEmbeddedSGPDPARulePack();
+  return JurisdictionPackManifest.parse({
+    schemaVersion: '2.0',
+    version: EMBEDDED_SG_PDPA_PACK_VERSION,
+    jurisdiction: 'sg-pdpa',
+    generated: EMBEDDED_SG_PDPA_PACK_GENERATED,
+    principles: Object.entries(SGPDPAPrincipleInfo).map(([id, info]) => ({
+      id,
+      shortName: info.shortName,
+      obligation: info.obligation,
+      citation: info.citation,
+    })),
+    rules: rulePack.rules,
+  });
+}
+
 export function buildEmbeddedJurisdictionPack(jurisdiction: Jurisdiction = 'au-privacy-act'): JurisdictionPackManifestType {
   if (jurisdiction === 'us-ccpa') {
     return buildEmbeddedCCPAPack();
   }
   if (jurisdiction === 'eu-gdpr') {
     return buildEmbeddedGDPRPack();
+  }
+  if (jurisdiction === 'sg-pdpa') {
+    return buildEmbeddedSGPDPAPack();
   }
   if (jurisdiction !== 'au-privacy-act') {
     throw new Error(`No embedded jurisdiction pack for ${jurisdiction}`);
