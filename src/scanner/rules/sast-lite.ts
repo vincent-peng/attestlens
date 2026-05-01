@@ -270,6 +270,7 @@ function makeFinding(
     code,
     fix: rule.fix,
     fixPrompt: rule.fixPrompt,
+    regulationMappings: [],
     appMappings: [],
     evidence: {
       timestamp: new Date().toISOString(),

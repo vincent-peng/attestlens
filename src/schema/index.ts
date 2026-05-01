@@ -164,6 +164,16 @@ export function appMappingToRegulationMapping(mapping: APPMapping): RegulationMa
   };
 }
 
+function inferJurisdictionFromRegulationPrinciple(principle: string): Jurisdiction {
+  if (principle.startsWith('CCPA_')) {
+    return 'us-ccpa';
+  }
+  if (principle.startsWith('GDPR_')) {
+    return 'eu-gdpr';
+  }
+  return 'au-privacy-act';
+}
+
 export const FindingEvidence = z.object({
   timestamp: z.string().datetime(),
   scannerVersion: z.string(),
@@ -187,8 +197,8 @@ export const AttestLensFinding = z.object({
   fix: z.string().optional(),           // Suggested fix
   fixPrompt: z.string().optional(),     // AI-ready fix prompt for Cursor/Copilot
   corroboratedBy: z.array(ScanSource).optional(), // Other scanner sources merged into this finding
-  regulationMappings: z.array(RegulationMapping).optional(),
-  appMappings: z.array(APPMapping),
+  regulationMappings: z.array(RegulationMapping),
+  appMappings: z.array(APPMapping).optional().default([]),
   evidence: FindingEvidence,
 });
 export type AttestLensFinding = z.infer<typeof AttestLensFinding>;
@@ -215,7 +225,9 @@ export type AssessmentMode = z.infer<typeof AssessmentMode>;
 
 export const Question = z.object({
   id: z.string(),
-  appPrinciple: RegulationPrinciple,
+  appPrinciple: RegulationPrinciple.optional(),
+  regulationPrinciple: RegulationPrinciple.optional(),
+  jurisdiction: Jurisdiction.optional(),
   question: z.string(),
   type: QuestionType,
   options: z.array(z.string()).optional(),
@@ -229,6 +241,18 @@ export const Question = z.object({
   helpText: z.string().optional(),
   dependsOn: QuestionDependency.optional(),
   relatedFindings: z.array(z.string()).optional(), // Finding IDs
+}).transform((question) => {
+  const regulationPrinciple = question.regulationPrinciple ?? question.appPrinciple;
+
+  if (!regulationPrinciple) {
+    throw new Error(`Question ${question.id} is missing regulationPrinciple`);
+  }
+
+  return {
+    ...question,
+    regulationPrinciple,
+    jurisdiction: question.jurisdiction ?? inferJurisdictionFromRegulationPrinciple(regulationPrinciple),
+  };
 });
 export type Question = z.infer<typeof Question>;
 

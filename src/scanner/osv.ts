@@ -325,6 +325,7 @@ function makeOsvFinding(
     fix: fixedVersions.length > 0
       ? `Upgrade "${packageName}" to a fixed version: ${fixedVersions.join(', ')}.`
       : `Review OSV advisory ${seed.vulnerabilityId} and update "${packageName}" to a patched version.`,
+    regulationMappings: [],
     appMappings: [],
     evidence: {
       timestamp: new Date().toISOString(),

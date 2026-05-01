@@ -298,6 +298,7 @@ export class BehavioralAdapter implements ScannerAdapter {
       line,
       code: snippet,
       fix: rule.fix(packageName),
+      regulationMappings: [],
       appMappings: [],
       evidence: {
         timestamp: new Date().toISOString(),

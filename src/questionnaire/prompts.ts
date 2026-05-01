@@ -49,9 +49,9 @@ function normalizeEvidenceRefs(rawValue: string): string[] | undefined {
 }
 
 function printQuestionContext(question: Question, context: AttestationPromptContext): void {
-  const principleLabel = getPrincipleLabel(question.appPrinciple);
+  const principleLabel = getPrincipleLabel(question.regulationPrinciple);
   console.log('');
-  console.log(chalk.bold.cyan(`${question.appPrinciple} — ${principleLabel}`));
+  console.log(chalk.bold.cyan(`${question.regulationPrinciple} — ${principleLabel}`));
   console.log(chalk.gray(`Question ${context.progress.current} of ${context.progress.total}`));
   console.log(chalk.gray(`Session: ${context.sessionPath}`));
 

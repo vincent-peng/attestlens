@@ -865,7 +865,7 @@ function deriveSMBQuestionnairePrinciples(report: ComplianceReport): APPPrincipl
 
 function getSMBQuestionsForReport(report: ComplianceReport): Question[] {
   const principles = new Set<string>(deriveSMBQuestionnairePrinciples(report));
-  return SMB_QUESTIONS.filter((question) => principles.has(question.appPrinciple));
+  return SMB_QUESTIONS.filter((question) => principles.has(question.regulationPrinciple));
 }
 
 async function promptSMBQuestion(question: Question, index: number, total: number): Promise<QuestionnaireResponse> {
@@ -919,7 +919,7 @@ async function runSMBQuestionnaire(params: {
   }
 
   const assessmentMode: AssessmentMode = 'operator_attested';
-  const principles = Array.from(new Set(questions.map((question) => question.appPrinciple)));
+  const principles = Array.from(new Set(questions.map((question) => question.regulationPrinciple)));
   const initialPrincipleResults = aggregatePrincipleResults(principles, [], questions, assessmentMode);
   const principleResults = aggregatePrincipleResults(principles, responses, questions, assessmentMode);
   const session = createQuestionnaireSession({

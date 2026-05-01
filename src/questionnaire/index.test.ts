@@ -443,6 +443,8 @@ describe('questionnaire evaluator', () => {
     const textQuestion: Question = {
       id: 'Q-TEXT-001',
       appPrinciple: 'APP_1',
+      regulationPrinciple: 'APP_1',
+      jurisdiction: 'au-privacy-act',
       question: 'Provide your policy rationale',
       type: 'text',
       required: true,
@@ -457,6 +459,8 @@ describe('questionnaire evaluator', () => {
     const binaryQuestion: Question = {
       id: 'Q-YESNO-001',
       appPrinciple: 'APP_1',
+      regulationPrinciple: 'APP_1',
+      jurisdiction: 'au-privacy-act',
       question: 'Is the policy public?',
       type: 'yes_no',
       required: true,
@@ -716,6 +720,7 @@ describe('questionnaire session persistence', () => {
       category: 'Security',
       title: 'Hardcoded secret',
       description: 'Detected secret in source',
+      regulationMappings: [],
       appMappings: [],
       evidence: {
         timestamp: new Date().toISOString(),

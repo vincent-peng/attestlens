@@ -363,6 +363,7 @@ function makeFinding(
     line,
     code,
     fix,
+    regulationMappings: [],
     appMappings: [],
     evidence: {
       timestamp: new Date().toISOString(),

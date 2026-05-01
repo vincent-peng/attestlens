@@ -951,6 +951,17 @@ This addresses APP 11.1 (Security).`,
       code: params.code,
       fix: params.fixPrompt.split('\n')[0], // First line as quick fix
       fixPrompt: params.fixPrompt,
+      regulationMappings: [
+        {
+          jurisdiction: 'au-privacy-act',
+          principle: 'APP_11',
+          obligation: 'Take reasonable steps to protect personal information from misuse, interference, and loss',
+          status: 'fail',
+          confidence: 0.95,
+          rationale: `${params.title} represents a failure to take reasonable steps to protect personal information under APP 11.1`,
+          citation: 'Privacy Act 1988 (Cth) s 11.1',
+        },
+      ],
       appMappings: [
         {
           principle: 'APP_11',

@@ -4,7 +4,11 @@ export const QUESTIONNAIRE_VERSION = 'm2-remediation-v1';
 export const PRE_REMEDIATION_QUESTIONNAIRE_VERSION = 'm2-coverage-v1';
 export const LEGACY_QUESTIONNAIRE_VERSION = 'legacy-1.0';
 
-export const LEGACY_QUESTION_BANK_V1: Question[] = [
+type AUQuestionSeed = Omit<Question, 'regulationPrinciple' | 'jurisdiction'> & {
+  appPrinciple: RegulationPrinciple;
+};
+
+const LEGACY_QUESTION_BANK_V1_BASE: AUQuestionSeed[] = [
   {
     id: 'Q-APP1-001',
     appPrinciple: 'APP_1',
@@ -250,7 +254,17 @@ export const LEGACY_QUESTION_BANK_V1: Question[] = [
   },
 ];
 
-export const QUESTION_BANK: Question[] = [
+function withAUQuestionMetadata(questions: AUQuestionSeed[]): Question[] {
+  return questions.map((question) => ({
+    ...question,
+    regulationPrinciple: question.appPrinciple,
+    jurisdiction: 'au-privacy-act',
+  }));
+}
+
+export const LEGACY_QUESTION_BANK_V1: Question[] = withAUQuestionMetadata(LEGACY_QUESTION_BANK_V1_BASE);
+
+const QUESTION_BANK_BASE: AUQuestionSeed[] = [
   {
     id: 'Q-APP1-001',
     appPrinciple: 'APP_1',
@@ -816,12 +830,14 @@ export const QUESTION_BANK: Question[] = [
   },
 ];
 
+export const QUESTION_BANK: Question[] = withAUQuestionMetadata(QUESTION_BANK_BASE);
+
 export function getQuestionsForPrinciples(
   principles: RegulationPrinciple[],
   questions: Question[] = QUESTION_BANK,
 ): Question[] {
   const principleSet = new Set(principles);
-  return questions.filter((question) => principleSet.has(question.appPrinciple));
+  return questions.filter((question) => principleSet.has(question.regulationPrinciple));
 }
 
 export function getQuestionsForUnknownControls(

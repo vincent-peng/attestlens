@@ -1016,6 +1016,7 @@ export async function handleToolCall(name: string, args: Record<string, unknown>
         description: (finding.description as string) || '',
         file: finding.file as string | undefined,
         line: finding.line as number | undefined,
+        regulationMappings: [],
         appMappings: [],
         evidence: {
           timestamp: new Date().toISOString(),

@@ -124,6 +124,7 @@ export class McpScanAdapter implements ScannerAdapter {
       file: finding.file,
       line: finding.line,
       fix: finding.remediation,
+      regulationMappings: [],
       appMappings: [],
       evidence: {
         timestamp: new Date().toISOString(),

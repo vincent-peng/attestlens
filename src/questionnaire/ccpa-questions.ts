@@ -2,11 +2,13 @@ import type { CCPAPrinciple, Question } from '../schema/index.js';
 
 export const CCPA_QUESTIONNAIRE_VERSION = 'ccpa-cpra-v1';
 
-export type CCPAQuestion = Omit<Question, 'appPrinciple'> & {
+export type CCPAQuestion = Omit<Question, 'appPrinciple' | 'regulationPrinciple' | 'jurisdiction'> & {
   appPrinciple: CCPAPrinciple;
+  regulationPrinciple: CCPAPrinciple;
+  jurisdiction: 'us-ccpa';
 };
 
-export const CCPA_QUESTION_BANK: CCPAQuestion[] = [
+const CCPA_QUESTION_BANK_BASE: Array<Omit<CCPAQuestion, 'regulationPrinciple' | 'jurisdiction'>> = [
   {
     id: 'Q-CCPA100-001',
     appPrinciple: 'CCPA_100',
@@ -112,6 +114,12 @@ export const CCPA_QUESTION_BANK: CCPAQuestion[] = [
   },
 ];
 
+export const CCPA_QUESTION_BANK: CCPAQuestion[] = CCPA_QUESTION_BANK_BASE.map((question) => ({
+  ...question,
+  regulationPrinciple: question.appPrinciple,
+  jurisdiction: 'us-ccpa',
+}));
+
 export function getCCPAQuestionsForPrinciples(principles: CCPAPrinciple[]): CCPAQuestion[] {
-  return CCPA_QUESTION_BANK.filter((question) => principles.includes(question.appPrinciple));
+  return CCPA_QUESTION_BANK.filter((question) => principles.includes(question.regulationPrinciple));
 }

@@ -134,6 +134,7 @@ export class GuardVibeAdapter implements ScannerAdapter {
       line: finding.line,
       code: finding.code,
       fix: finding.fix,
+      regulationMappings: [],
       appMappings: [], // Will be filled by mapping engine
       evidence: {
         timestamp: new Date().toISOString(),
@@ -195,6 +196,7 @@ export class GuardVibeAdapter implements ScannerAdapter {
                   line: i + 1,
                   code: lines[i].trim(),
                   fix: pattern.fix,
+                  regulationMappings: [],
                   appMappings: [], // Filled by mapping engine
                   evidence: {
                     timestamp: new Date().toISOString(),

@@ -2,11 +2,13 @@ import type { GDPRPrinciple, Question } from '../schema/index.js';
 
 export const GDPR_QUESTIONNAIRE_VERSION = 'gdpr-subset-v1';
 
-export type GDPRQuestion = Omit<Question, 'appPrinciple'> & {
+export type GDPRQuestion = Omit<Question, 'appPrinciple' | 'regulationPrinciple' | 'jurisdiction'> & {
   appPrinciple: GDPRPrinciple;
+  regulationPrinciple: GDPRPrinciple;
+  jurisdiction: 'eu-gdpr';
 };
 
-export const GDPR_QUESTION_BANK: GDPRQuestion[] = [
+const GDPR_QUESTION_BANK_BASE: Array<Omit<GDPRQuestion, 'regulationPrinciple' | 'jurisdiction'>> = [
   {
     id: 'Q-GDPR-Art3-001',
     appPrinciple: 'GDPR_Art3',
@@ -170,6 +172,12 @@ export const GDPR_QUESTION_BANK: GDPRQuestion[] = [
   },
 ];
 
+export const GDPR_QUESTION_BANK: GDPRQuestion[] = GDPR_QUESTION_BANK_BASE.map((question) => ({
+  ...question,
+  regulationPrinciple: question.appPrinciple,
+  jurisdiction: 'eu-gdpr',
+}));
+
 export function getGDPRQuestionsForPrinciples(principles: GDPRPrinciple[]): GDPRQuestion[] {
-  return GDPR_QUESTION_BANK.filter((question) => principles.includes(question.appPrinciple));
+  return GDPR_QUESTION_BANK.filter((question) => principles.includes(question.regulationPrinciple));
 }

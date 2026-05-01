@@ -25,8 +25,8 @@ export function getQuestionBankForJurisdiction(jurisdiction: Jurisdiction = 'au-
         .map((principle, index) => [principle, index]),
     );
     return [...CCPA_QUESTION_BANK].sort((left, right) => (
-      (principleRank.get(left.appPrinciple) ?? Number.MAX_SAFE_INTEGER)
-      - (principleRank.get(right.appPrinciple) ?? Number.MAX_SAFE_INTEGER)
+      (principleRank.get(left.regulationPrinciple) ?? Number.MAX_SAFE_INTEGER)
+      - (principleRank.get(right.regulationPrinciple) ?? Number.MAX_SAFE_INTEGER)
     ));
   }
 
@@ -36,8 +36,8 @@ export function getQuestionBankForJurisdiction(jurisdiction: Jurisdiction = 'au-
         .map((principle, index) => [principle, index]),
     );
     return [...GDPR_QUESTION_BANK].sort((left, right) => (
-      (principleRank.get(left.appPrinciple) ?? Number.MAX_SAFE_INTEGER)
-      - (principleRank.get(right.appPrinciple) ?? Number.MAX_SAFE_INTEGER)
+      (principleRank.get(left.regulationPrinciple) ?? Number.MAX_SAFE_INTEGER)
+      - (principleRank.get(right.regulationPrinciple) ?? Number.MAX_SAFE_INTEGER)
     ));
   }
 
@@ -85,7 +85,7 @@ export function getApplicableQuestionsForPrinciple(
   assessmentMode: AssessmentMode = DEFAULT_ASSESSMENT_MODE,
 ): Question[] {
   return getApplicableQuestions(
-    questions.filter((question) => question.appPrinciple === principle),
+    questions.filter((question) => question.regulationPrinciple === principle),
     responses,
     assessmentMode,
   );
@@ -113,11 +113,11 @@ export function getNextQuestion(
 ): Question | undefined {
   const responsesByQuestionId = new Set(responses.map((response) => response.questionId));
   const principleOrder = getQuestionPrincipleOrder(principles, jurisdiction);
-  const scopedQuestions = questions.filter((question) => principles.includes(question.appPrinciple));
+  const scopedQuestions = questions.filter((question) => principles.includes(question.regulationPrinciple));
 
   for (const principle of principleOrder) {
     const principleQuestions = getApplicableQuestions(
-      scopedQuestions.filter((question) => question.appPrinciple === principle),
+      scopedQuestions.filter((question) => question.regulationPrinciple === principle),
       responses,
       assessmentMode,
     );

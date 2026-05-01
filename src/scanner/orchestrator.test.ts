@@ -312,6 +312,7 @@ function makeFakeAdapter(source: 'manual' | 'questionnaire', delayMs: number): S
             category: 'Test',
             title: 'Fake finding',
             description: 'Fake finding',
+            regulationMappings: [],
             appMappings: [],
             evidence: {
               timestamp: new Date().toISOString(),
@@ -362,6 +363,7 @@ function makeFinding(overrides: Partial<AttestLensFinding>): AttestLensFinding {
     file: overrides.file,
     line: overrides.line,
     code: overrides.code,
+    regulationMappings: [],
     appMappings: [],
     evidence: {
       timestamp: new Date().toISOString(),

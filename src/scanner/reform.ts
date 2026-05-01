@@ -486,6 +486,7 @@ export class ReformAdapter implements ScannerAdapter {
       code: match.snippet,
       fix: rule.fix,
       fixPrompt: `${rule.fix} Add a focused regression fixture or policy check for ${rule.id}.`,
+      regulationMappings: [],
       appMappings: makeAppMappings(rule.provision, rule.id),
       evidence: {
         timestamp: new Date().toISOString(),

@@ -241,7 +241,7 @@ function makeFinding(
     code: redactedCode,
     fix: rule.fixPrompt,
     appMappings: [],
-    regulationMappings: rule.regulationMappings,
+    regulationMappings: rule.regulationMappings ?? [],
     evidence: {
       timestamp: new Date().toISOString(),
       scannerVersion,

@@ -22,6 +22,7 @@ function makeFinding(overrides: Partial<AttestLensFinding> = {}): AttestLensFind
     description: overrides.description || 'A test finding',
     file: overrides.file || 'app.ts',
     line: overrides.line || 1,
+    regulationMappings: [],
     appMappings: [],
     evidence: {
       timestamp: new Date().toISOString(),

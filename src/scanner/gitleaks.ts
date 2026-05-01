@@ -206,6 +206,7 @@ export class GitleaksAdapter implements ScannerAdapter {
           line,
           code: '[redacted secret evidence]',
           fix: 'Rotate the exposed secret, remove it from git history where practical, and verify downstream services no longer accept the old value.',
+          regulationMappings: [],
           appMappings: [],
           evidence: {
             timestamp: new Date().toISOString(),

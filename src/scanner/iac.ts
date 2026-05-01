@@ -331,6 +331,7 @@ export class IacAdapter implements ScannerAdapter {
       code,
       fix: issue.rule.fix,
       fixPrompt: `${issue.rule.fix} Add a regression fixture or IaC policy check so this misconfiguration cannot be reintroduced.`,
+      regulationMappings: [],
       appMappings: [],
       evidence: {
         timestamp: new Date().toISOString(),

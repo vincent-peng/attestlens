@@ -70,6 +70,7 @@ function makeFinding(
     description: 'A test finding',
     file: 'app.ts',
     line: 1,
+    regulationMappings: [],
     appMappings: [],
     evidence: {
       timestamp: new Date().toISOString(),

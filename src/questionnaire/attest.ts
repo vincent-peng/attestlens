@@ -138,7 +138,7 @@ function buildProgress(
   sessionQuestions = buildFrozenSessionQuestions(principles),
 ): QuestionProgress {
   const applicableQuestions = getApplicableQuestions(
-    sessionQuestions.filter((question) => principles.includes(question.appPrinciple)),
+    sessionQuestions.filter((question) => principles.includes(question.regulationPrinciple)),
     responses,
     assessmentMode,
   );
@@ -265,7 +265,7 @@ export async function runAttestationSession(params: {
     const promptResult = await params.promptRunner.prompt(nextQuestion, {
       progress,
       sessionPath: params.sessionPath,
-      relevantFindings: buildRelevantFindings(params.snapshot.findings, nextQuestion.appPrinciple, jurisdiction),
+      relevantFindings: buildRelevantFindings(params.snapshot.findings, nextQuestion.regulationPrinciple, jurisdiction),
     });
 
     if (promptResult.kind === 'save_and_exit') {

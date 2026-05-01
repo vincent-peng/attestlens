@@ -42,6 +42,7 @@ function makeFinding(overrides: Record<string, unknown> = {}) {
     file: 'app.ts',
     line: 12,
     fix: 'Move the secret to a server-side environment variable.',
+    regulationMappings: [],
     appMappings: [],
     evidence: {
       timestamp: new Date().toISOString(),
@@ -778,6 +779,7 @@ describe('MCP Server', () => {
             title: 'Missing CSP header',
             description: 'Content-Security-Policy header is missing',
             url: 'https://example.com',
+            regulationMappings: [],
             appMappings: [],
             evidence: {
               timestamp: new Date().toISOString(),
@@ -801,6 +803,7 @@ describe('MCP Server', () => {
                 title: 'Missing CSP header',
                 description: 'Content-Security-Policy header is missing',
                 url: 'https://example.com',
+                regulationMappings: [],
                 appMappings: [],
                 evidence: {
                   timestamp: new Date().toISOString(),

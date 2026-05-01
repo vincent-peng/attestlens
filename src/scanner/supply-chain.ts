@@ -1332,6 +1332,7 @@ export class SupplyChainAdapter implements ScannerAdapter {
       line: undefined,
       code: undefined,
       fix,
+      regulationMappings: [],
       appMappings: [],
       evidence: {
         timestamp: new Date().toISOString(),

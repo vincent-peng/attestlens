@@ -96,6 +96,7 @@ function makeFinding(
     description: title,
     file: 'src/app.ts',
     line: 1,
+    regulationMappings: [],
     appMappings: [{
       principle: 'APP_11',
       obligation: 'Security',

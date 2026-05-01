@@ -69,6 +69,8 @@ function serializeQuestionForHash(question: Question): Record<string, unknown> {
   return {
     id: question.id,
     appPrinciple: question.appPrinciple,
+    regulationPrinciple: question.regulationPrinciple,
+    jurisdiction: question.jurisdiction,
     question: question.question,
     type: question.type,
     options: question.options,
@@ -149,8 +151,8 @@ function buildLegacySessionPrinciples(
 
   for (const answer of session.answers) {
     const question = LEGACY_QUESTION_BANK_V1.find((candidate) => candidate.id === answer.questionId);
-    if (question) {
-      principleSet.add(question.appPrinciple);
+    if (question?.regulationPrinciple) {
+      principleSet.add(question.regulationPrinciple);
     }
   }
 

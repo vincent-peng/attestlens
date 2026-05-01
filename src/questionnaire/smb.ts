@@ -2,7 +2,11 @@ import type { APPPrinciple, Question } from '../schema/index.js';
 
 export const SMB_QUESTIONNAIRE_VERSION = 'smb-v1';
 
-export const SMB_QUESTIONS: Question[] = [
+type SMBQuestionSeed = Omit<Question, 'regulationPrinciple' | 'jurisdiction'> & {
+  appPrinciple: APPPrinciple;
+};
+
+const SMB_QUESTIONS_BASE: SMBQuestionSeed[] = [
   {
     id: 'SMB-Q001',
     appPrinciple: 'APP_1',
@@ -170,6 +174,12 @@ export const SMB_QUESTIONS: Question[] = [
   },
 ];
 
+export const SMB_QUESTIONS: Question[] = SMB_QUESTIONS_BASE.map((question) => ({
+  ...question,
+  regulationPrinciple: question.appPrinciple,
+  jurisdiction: 'au-privacy-act',
+}));
+
 export function getSMBQuestionForPrinciple(principle: APPPrinciple): Question[] {
-  return SMB_QUESTIONS.filter((question) => question.appPrinciple === principle);
+  return SMB_QUESTIONS.filter((question) => question.regulationPrinciple === principle);
 }
