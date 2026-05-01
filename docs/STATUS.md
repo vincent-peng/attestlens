@@ -8,9 +8,9 @@
 
 ## Current Focus
 
-**Phase 10-lite: Schema Decoupling** — Prove jurisdiction pack portability with minimum changes. 3-5 day timebox.
+**Phase 10-lite: Schema Decoupling — DONE** — Jurisdiction pack portability proven. SG PDPA stub flows end-to-end without touching AU types.
 
-All phases 1-9 shipped. 504 tests, tsc clean. 3 jurisdiction packs live.
+All phases 1-10 shipped. 523 tests, tsc clean. 4 jurisdiction packs live.
 
 ---
 
@@ -26,14 +26,16 @@ All phases 1-9 shipped. 504 tests, tsc clean. 3 jurisdiction packs live.
 
 ## Baseline (main)
 
-- 504 tests passing, `tsc --noEmit` clean
+- 523 tests passing, `tsc --noEmit` clean
 - CLI: scan, audit, report, attest, monitor, compliance-check, reform + agent format + opinion
 - MCP server: 8 tools (scan, scan_url, audit, map, opinion, check, compliance_check, reform)
-- 3 jurisdiction packs: au-privacy-act, us-ccpa, eu-gdpr
-- Multi-jurisdiction report generator (AU + US + EU sections)
+- 4 jurisdiction packs: au-privacy-act, us-ccpa, eu-gdpr, sg-pdpa (stub)
+- PrincipleRegistry: jurisdiction-aware principle lookup (replaces switch statements)
+- regulationMappings required on findings, regulationPrinciple on questions
+- Multi-jurisdiction report generator (AU + US + EU + SG sections)
 - Continuous monitoring: webhook receiver, baselines, regression detection, job queue, reporter
 - MCP hardening: McpServer, Zod schemas, structuredContent, fail-closed filesystem, DNS pinning, TOCTOU revalidation, opaque resource URIs, error sanitization, AbortSignal cancellation
-- Version: v0.3.0 (dynamic read from package.json)
+- Version: v0.4.0 (dynamic read from package.json)
 
 ---
 
@@ -51,6 +53,7 @@ All phases 1-9 shipped. 504 tests, tsc clean. 3 jurisdiction packs live.
 | 7 | US CCPA/CPRA Pack | ✅ Merged | 458 |
 | 8 | EU GDPR Subset Pack | ✅ Merged | 502 |
 | 9 | YC App Prep (demo, essay, design partner strategy) | ✅ Done | 504 |
+| 10-lite | Schema Decoupling + SG PDPA stub | ✅ Done | 523 |
 
 ---
 
@@ -58,8 +61,8 @@ All phases 1-9 shipped. 504 tests, tsc clean. 3 jurisdiction packs live.
 
 | Phase | What | Timebox | Status |
 |-------|------|---------|--------|
-| 10-lite | Schema Decoupling | 3-5 days | ⏳ Next |
-| 10.5 | GitHub Action + MCP Recipes | 1-2 days | ⏳ After 10-lite |
+| 10-lite | Schema Decoupling | 3-5 days | ✅ Done |
+| 10.5 | GitHub Action + MCP Recipes | 1-2 days | ⏳ Next |
 | 11 | Rule Authoring Pipeline (demo) | 1-2 weeks | ⏳ After 10.5 |
 | 12 | Post-MVP (PII tracking, IDE plugins, Docker) | Post-pilot | 🔮 Deferred |
 
@@ -72,6 +75,7 @@ All phases 1-9 shipped. 504 tests, tsc clean. 3 jurisdiction packs live.
 | 🇦🇺 au-privacy-act | ✅ Live | 13 APP + NDB | 68 rules | 25 AU rules | 64 questions |
 | 🇺🇸 us-ccpa | ✅ Live | 12 CCPA principles | 6 rules | 9 mapping rules | 14 questions |
 | 🇪🇺 eu-gdpr | ✅ Live | 14 GDPR principles | 6 rules | 9 mapping rules | 20 questions |
+| 🇸🇬 sg-pdpa | 🧪 Stub | 3 PDPA principles | 3 rules | 3 mapping rules | 6 questions |
 
 ---
 
