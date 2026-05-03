@@ -75,6 +75,7 @@ export interface ReportOptions {
   outputDir: string;
   strictMode?: boolean; // Treat UNKNOWN as FAIL
   includeOpinion?: boolean; // Include compliance opinion in report
+  includeDeployDecision?: boolean; // Include deploy gate decision without requiring compliance opinion
   includeReform?: boolean; // Include Privacy Act 2026 reform impact assessment
   includeSMB?: boolean; // Include plain-English SMB compliance result
   ruleFreshness?: RuleFreshness;
@@ -198,6 +199,9 @@ export function buildComplianceReport(
   if (options.includeOpinion) {
     report.complianceOpinion = buildComplianceOpinion(report, { strictMode: options.strictMode });
     applyPackTrustToOpinion(report, packMetadata.validationTrusted);
+  }
+
+  if (options.includeOpinion || options.includeDeployDecision) {
     report.deployDecision = buildDeployDecision(report, {
       packValidationTrusted: packMetadata.validationTrusted,
     });
@@ -294,8 +298,9 @@ export function buildDeployDecision(
   const validation = report.metadata.packValidation;
   const coverage = report.metadata.packCoverage;
   const packValidationStatus = validation?.status;
-  const includedPrinciples = new Set(coverage?.includedPrinciples ?? []);
-  const excludedPrinciples = new Set(coverage?.excludedPrinciples ?? []);
+  const coverageTrusted = options.packValidationTrusted === true;
+  const includedPrinciples = new Set(coverageTrusted ? coverage?.includedPrinciples ?? [] : []);
+  const excludedPrinciples = new Set(coverageTrusted ? coverage?.excludedPrinciples ?? [] : []);
   const packAllowsBlocking = Boolean(
     options.packValidationTrusted
     && packValidationStatus
@@ -328,7 +333,7 @@ export function buildDeployDecision(
         reasons: ['Finding(s) map to obligations outside the selected jurisdiction pack coverage.'],
         evidenceRefs: buildEvidenceRefs(outOfScope),
         remediations: buildDeployRemediations(outOfScope.map(({ finding }) => finding)),
-        scopeNote: coverage?.summary,
+        scopeNote: coverageTrusted ? coverage?.summary : undefined,
       };
     }
 
@@ -341,7 +346,7 @@ export function buildDeployDecision(
       reasons: ['No in-scope blocking privacy findings were detected. This is not a legal compliance conclusion.'],
       evidenceRefs: [],
       remediations: [],
-      scopeNote: coverage?.summary,
+      scopeNote: coverageTrusted ? coverage?.summary : undefined,
     };
   }
 
@@ -364,7 +369,7 @@ export function buildDeployDecision(
       ]),
       evidenceRefs: buildEvidenceRefs(blockable),
       remediations: buildDeployRemediations(blockable.map(({ finding }) => finding)),
-      scopeNote: coverage?.summary,
+      scopeNote: coverageTrusted ? coverage?.summary : undefined,
     };
   }
 
@@ -385,7 +390,7 @@ export function buildDeployDecision(
       ]),
       evidenceRefs: buildEvidenceRefs(reviewCandidates),
       remediations: buildDeployRemediations(reviewCandidates.map(({ finding }) => finding)),
-      scopeNote: coverage?.summary,
+      scopeNote: coverageTrusted ? coverage?.summary : undefined,
     };
   }
 
@@ -405,7 +410,7 @@ export function buildDeployDecision(
       reasons: buildDeployReasons(candidates, [validationReason]),
       evidenceRefs: buildEvidenceRefs(candidates),
       remediations: buildDeployRemediations(candidates.map(({ finding }) => finding)),
-      scopeNote: coverage?.summary,
+      scopeNote: coverageTrusted ? coverage?.summary : undefined,
     };
   }
 
@@ -418,7 +423,7 @@ export function buildDeployDecision(
     reasons: ['No in-scope blocking privacy findings were detected. This is not a legal compliance conclusion.'],
     evidenceRefs: [],
     remediations: [],
-    scopeNote: coverage?.summary,
+    scopeNote: coverageTrusted ? coverage?.summary : undefined,
   };
 }
 

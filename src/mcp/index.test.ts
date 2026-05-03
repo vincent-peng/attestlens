@@ -1052,6 +1052,34 @@ describe('MCP Server', () => {
       }));
     });
 
+    it('returns deploy decisions for agent audits without forcing opinion output', async () => {
+      vi.spyOn(ScannerOrchestrator.prototype, 'scan').mockResolvedValue({
+        findings: [],
+        results: [],
+        errors: [],
+        totalDurationMs: 10,
+        ruleFreshness: makeRuleFreshness(),
+      });
+
+      const response = await handleToolCall('attestlens_audit', {
+        path: tempDir,
+        format: 'agent',
+      });
+      expectAuditStructuredEnvelope(response, 'agent');
+      const payload = JSON.parse(response.content[0].text);
+
+      expect(payload.verdict).toBe('UNKNOWN');
+      expect(payload.deployDecision).toEqual(expect.objectContaining({
+        verdict: 'PASS',
+        blocking: false,
+      }));
+      expect(response.structuredContent?.metadata).toEqual(expect.objectContaining({
+        deployDecision: expect.objectContaining({
+          verdict: 'PASS',
+        }),
+      }));
+    });
+
     it('keeps MCP scan external enrichment disabled by default', async () => {
       await writeMcpPackageProject(tempDir, 'external-only');
       const fetchMock = vi.fn(async () => {

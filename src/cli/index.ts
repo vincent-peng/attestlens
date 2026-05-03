@@ -17,9 +17,11 @@ import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 import { formatSarif, mapFindingSeverityToSarifLevel } from '../formatters/sarif.js';
+import type { SarifOutput } from '../formatters/sarif.js';
 import { ScannerOrchestrator, type ScannerOrchestratorOptions } from '../scanner/orchestrator.js';
 import { mapAllFindings } from '../mapping/engine.js';
 import {
+  buildDeployDecision,
   buildComplianceReport,
   generateAgentReport,
   generateHTMLReport,
@@ -164,7 +166,7 @@ program
           formats: ['json'],
           outputDir: path.resolve(options.output),
           strictMode: options.strict,
-          includeOpinion: true,
+          includeDeployDecision: true,
           ruleFreshness: result.ruleFreshness,
           jurisdiction,
           jurisdictionPack: result.jurisdictionManifests?.[jurisdiction],
@@ -178,7 +180,7 @@ program
           deployDecision: sarifReport.deployDecision,
         });
         await emitSarifOutput(sarif, options.sarifOutput, path.resolve(options.output));
-        process.exit(determineExitCode(findings, failConfig));
+        process.exit(determineSarifExitCode(sarif, failConfig));
       }
 
       if (findings.length === 0) {
@@ -271,7 +273,7 @@ program
           formats: ['json'],
           outputDir: path.resolve(options.output),
           strictMode: options.strict,
-          includeOpinion: true,
+          includeDeployDecision: true,
           ruleFreshness: scanResult.ruleFreshness,
           jurisdiction,
           jurisdictionPack: scanResult.jurisdictionManifests?.[jurisdiction],
@@ -288,7 +290,7 @@ program
         displayRuleFreshness(scanResult.ruleFreshness);
         displayScannerWarnings(scanResult.errors);
         await emitSarifOutput(sarif, options.sarifOutput, path.resolve(options.output));
-        process.exit(determineExitCode(scanResult.findings, failConfig));
+        process.exit(determineSarifExitCode(sarif, failConfig));
       }
 
       const reportOptions: ReportOptions = {
@@ -298,7 +300,8 @@ program
         formats: reportFormats.filter((format) => format !== 'sarif'),
         outputDir: path.resolve(options.output),
         strictMode: options.strict,
-        includeOpinion: options.opinion || agentOutput,
+        includeOpinion: options.opinion,
+        includeDeployDecision: agentOutput,
         includeReform: options.reform,
         ruleFreshness: scanResult.ruleFreshness,
         jurisdiction,
@@ -347,23 +350,14 @@ program
       console.log('');
 
       // Write output files
+      let sarifExitCode: number | undefined;
       for (const output of await writeReportFiles(report, reportOptions)) {
         console.log(chalk.green(`  📄 ${output.label}: ${output.path}`));
       }
       if (includesSarif) {
-        const sarifDeployDecision = report.deployDecision ?? buildComplianceReport(scanResult.findings, {
-          targetName: projectName,
-          targetPath: target.kind === 'path' ? target.value : undefined,
-          targetUrl: target.kind === 'url' ? target.value : undefined,
-          formats: ['json'],
-          outputDir: path.resolve(options.output),
-          strictMode: options.strict,
-          includeOpinion: true,
-          ruleFreshness: scanResult.ruleFreshness,
-          jurisdiction,
-          jurisdictionPack: scanResult.jurisdictionManifests?.[jurisdiction],
+        const sarifDeployDecision = report.deployDecision ?? buildDeployDecision(report, {
           packValidationTrusted: scanResult.ruleFreshness.source === 'embedded',
-        }, duration).deployDecision;
+        });
         const sarif = await formatSarif({
           findings: scanResult.findings,
           jurisdiction,
@@ -373,13 +367,14 @@ program
         });
         const sarifPath = options.sarifOutput || path.join(path.resolve(options.output), `${buildReportFilename(projectName, report.timestamp)}.sarif`);
         await emitSarifOutput(sarif, sarifPath, path.resolve(options.output));
+        sarifExitCode = determineSarifExitCode(sarif, failConfig);
         console.log(chalk.green(`  📄 SARIF report: ${sarifPath}`));
       }
 
       displayScannerWarnings(scanResult.errors);
 
       console.log(chalk.gray(`\n  ${report.disclaimer}`));
-      process.exit(determineExitCode(scanResult.findings, failConfig));
+      process.exit(sarifExitCode ?? determineExitCode(scanResult.findings, failConfig));
 
     } catch (error: any) {
       console.error(chalk.red(`\nError: ${error.message}`));
@@ -661,7 +656,7 @@ program
         formats: reportFormats,
         outputDir: path.resolve(options.output),
         strictMode: options.strict,
-        includeOpinion: isAgentReportFormat(reportFormats),
+        includeDeployDecision: isAgentReportFormat(reportFormats),
         ruleFreshness: extractRuleFreshness(scanData),
         packCoverage: extractPackCoverage(scanData),
         packValidation: extractPackValidation(scanData),
@@ -1761,6 +1756,18 @@ function determineExitCode(findings: AttestLensFinding[], options: FailureContro
   }
 
   return hasFindingsAtOrAboveThreshold(findings, options.threshold) ? 1 : 0;
+}
+
+function determineSarifExitCode(sarif: SarifOutput, options: FailureControlOptions): number {
+  if (options.noFail) {
+    return 0;
+  }
+
+  const thresholdRank = getSarifLevelRank(options.threshold);
+  const failsThreshold = sarif.runs.some((run) => (
+    run.results.some((result) => getSarifLevelRank(result.level) <= thresholdRank)
+  ));
+  return failsThreshold ? 1 : 0;
 }
 
 export function hasFindingsAtOrAboveThreshold(

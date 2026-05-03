@@ -560,6 +560,46 @@ describe('buildComplianceReport', () => {
     expect(report.deployDecision?.reasons.join(' ')).toContain('does not allow automated blocking');
   });
 
+  it('does not let untrusted coverage metadata suppress mapped findings as out of scope', () => {
+    const report = buildComplianceReport([
+      makeFinding({
+        id: 'F-UNTRUSTED-COVERAGE',
+        severity: 'critical',
+        title: 'Public database endpoint',
+        regulationMappings: [{
+          jurisdiction: 'au-privacy-act',
+          principle: 'APP_11',
+          obligation: 'Take reasonable steps to protect personal information',
+          status: 'fail',
+          confidence: 0.95,
+        }],
+      }),
+    ], {
+      ...defaultOptions,
+      includeDeployDecision: true,
+      packCoverage: {
+        summary: 'Untrusted custom pack excludes APP 11.',
+        includedPrinciples: ['APP_1'],
+        excludedPrinciples: ['APP_11'],
+        knownGaps: [],
+        evidenceTypes: ['source code'],
+      },
+      packValidation: {
+        status: 'external_reviewed',
+        reviewedBy: 'custom pack metadata',
+        reviewedAt: '2026-05-03T00:00:00.000Z',
+        notes: [],
+      },
+    }, 1000);
+
+    expect(report.deployDecision).toEqual(expect.objectContaining({
+      verdict: 'WARN',
+      blocking: false,
+    }));
+    expect(report.deployDecision?.evidenceRefs).toContain('F-UNTRUSTED-COVERAGE');
+    expect(report.deployDecision?.scopeNote).toBeUndefined();
+  });
+
   it('produces PASS for no in-scope findings without claiming compliance', () => {
     const report = buildComplianceReport([], {
       ...defaultOptions,
@@ -750,6 +790,22 @@ describe('generateAgentReport', () => {
     expect(parsed.verdict).toBe('UNKNOWN');
     expect(parsed.confidence).toBe('LOW');
     expect(parsed.summary).toBe('No opinion available');
+  });
+
+  it('can include deployDecision in agent output without changing the legacy verdict', () => {
+    const report = buildComplianceReport([], {
+      ...defaultOptions,
+      includeDeployDecision: true,
+    }, 1000);
+    const parsed = JSON.parse(generateAgentReport(report));
+
+    expect(parsed.verdict).toBe('UNKNOWN');
+    expect(parsed.confidence).toBe('LOW');
+    expect(parsed.deployDecision).toEqual(expect.objectContaining({
+      verdict: 'PASS',
+      blocking: false,
+    }));
+    expect(parsed.summary).toContain('PASS');
   });
 
   it('includes jurisdiction pack validation and coverage in agent output', () => {

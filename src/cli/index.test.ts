@@ -289,6 +289,39 @@ describe('CLI agent report format', () => {
       await fs.rm(projectDir, { recursive: true, force: true });
     }
   });
+
+  it('prints deployDecision for agent JSON without forcing an opinion verdict', async () => {
+    const projectDir = await fs.mkdtemp(path.join(os.tmpdir(), 'attestlens-cli-agent-deploy-'));
+
+    try {
+      await fs.writeFile(
+        path.join(projectDir, 'Dockerfile'),
+        'FROM node:latest\nUSER root\n',
+      );
+
+      const result = await runCli([
+        'audit',
+        projectDir,
+        '-f',
+        'agent',
+        '--no-guardvibe',
+        '--no-mcp-scan',
+        '--no-supply-chain',
+        '--no-behavioral',
+      ]);
+      const payload = JSON.parse(result.stdout);
+
+      expect(result.code).toBe(1);
+      expect(payload.schema).toBe('attestlens-agent-v1');
+      expect(payload.verdict).toBe('UNKNOWN');
+      expect(payload.deployDecision).toEqual(expect.objectContaining({
+        verdict: 'WARN',
+        blocking: false,
+      }));
+    } finally {
+      await fs.rm(projectDir, { recursive: true, force: true });
+    }
+  });
 });
 
 describe('CLI SARIF and exit thresholds', () => {
@@ -330,7 +363,7 @@ describe('CLI SARIF and exit thresholds', () => {
     }
   });
 
-  it('writes SARIF to a file for audit and exits 1 when findings exceed the default threshold', async () => {
+  it('writes SARIF to a file for audit and exits from emitted SARIF levels', async () => {
     const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'attestlens-cli-audit-sarif-'));
     const projectDir = path.join(tempDir, 'project');
     const outputDir = path.join(tempDir, 'reports');
@@ -356,8 +389,28 @@ describe('CLI SARIF and exit thresholds', () => {
       ]);
 
       const payload = JSON.parse(await fs.readFile(sarifPath, 'utf-8'));
-      expect(result.code).toBe(1);
+      expect(result.code).toBe(0);
       expect(payload.runs[0].results.length).toBeGreaterThan(0);
+      expect(payload.runs[0].results.every((entry: { level: string }) => entry.level !== 'error')).toBe(true);
+
+      const blockingThresholdResult = await runCli([
+        'audit',
+        projectDir,
+        '--format',
+        'sarif',
+        '--output',
+        outputDir,
+        '--sarif-output',
+        sarifPath,
+        '--fail-on-severity',
+        'warning',
+        '--no-guardvibe',
+        '--no-mcp-scan',
+        '--no-supply-chain',
+        '--no-behavioral',
+      ]);
+
+      expect(blockingThresholdResult.code).toBe(1);
     } finally {
       await fs.rm(tempDir, { recursive: true, force: true });
     }
