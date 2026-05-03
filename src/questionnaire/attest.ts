@@ -9,6 +9,8 @@ import type {
   QuestionnaireResponse,
   QuestionnaireSession,
   RegulationPrinciple,
+  JurisdictionCoverage,
+  PackValidation,
   RuleFreshness,
 } from '../schema/index.js';
 import type { ScannerError, ScannerResult } from '../scanner/types.js';
@@ -48,6 +50,9 @@ export interface AttestationScanSnapshot {
   totalDurationMs: number;
   ruleFreshness?: RuleFreshness;
   jurisdiction?: Jurisdiction;
+  packCoverage?: JurisdictionCoverage;
+  packValidation?: PackValidation;
+  packValidationTrusted?: boolean;
 }
 
 export interface InitializedAttestationSession {
@@ -83,6 +88,9 @@ export function buildAttestationScanSnapshot(params: {
   totalDurationMs?: number;
   ruleFreshness?: RuleFreshness;
   jurisdiction?: Jurisdiction;
+  packCoverage?: JurisdictionCoverage;
+  packValidation?: PackValidation;
+  packValidationTrusted?: boolean;
 }): AttestationScanSnapshot {
   return {
     targetType: params.target.kind,
@@ -99,6 +107,9 @@ export function buildAttestationScanSnapshot(params: {
     totalDurationMs: params.totalDurationMs ?? 0,
     ruleFreshness: params.ruleFreshness ? RuleFreshnessSchema.parse(params.ruleFreshness) : undefined,
     jurisdiction: params.jurisdiction,
+    packCoverage: params.packCoverage,
+    packValidation: params.packValidation,
+    packValidationTrusted: params.packValidationTrusted,
   };
 }
 

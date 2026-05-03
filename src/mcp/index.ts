@@ -40,6 +40,8 @@ import {
   ComplianceOpinion as ComplianceOpinionSchema,
   ControlStatus,
   Jurisdiction,
+  JurisdictionCoverage as JurisdictionCoverageSchema,
+  PackValidation as PackValidationSchema,
   RegulationPrinciple,
   RuleFreshness as RuleFreshnessSchema,
   ScanSource,
@@ -319,6 +321,8 @@ const auditOutputSchema = {
       version: z.string(),
       stale: z.boolean(),
     }).optional(),
+    packValidation: PackValidationSchema.optional(),
+    packCoverage: JurisdictionCoverageSchema.optional(),
   }).optional(),
 };
 
@@ -951,6 +955,8 @@ export async function handleToolCall(name: string, args: Record<string, unknown>
         includeOpinion: args?.opinion === true,
         ruleFreshness: scanResult.ruleFreshness,
         jurisdiction,
+        jurisdictionPack: scanResult.jurisdictionManifests?.[jurisdiction],
+        packValidationTrusted: scanResult.ruleFreshness.source === 'embedded',
       };
       const report = buildComplianceReport(scanResult.findings, reportOptions, duration);
       report.metadata.scannerVersions = Object.fromEntries(
@@ -972,6 +978,8 @@ export async function handleToolCall(name: string, args: Record<string, unknown>
               stale: report.metadata.ruleFreshness.stale,
             }
             : undefined,
+          packValidation: report.metadata.packValidation,
+          packCoverage: report.metadata.packCoverage,
         },
       };
       return {
@@ -1082,6 +1090,8 @@ export async function handleToolCall(name: string, args: Record<string, unknown>
         includeOpinion: true,
         ruleFreshness: scanResult.ruleFreshness,
         jurisdiction,
+        jurisdictionPack: scanResult.jurisdictionManifests?.[jurisdiction],
+        packValidationTrusted: scanResult.ruleFreshness.source === 'embedded',
       };
       const report = buildComplianceReport(scanResult.findings, reportOptions, duration);
       report.metadata.scannerVersions = Object.fromEntries(
@@ -1130,6 +1140,8 @@ export async function handleToolCall(name: string, args: Record<string, unknown>
         includeOpinion: true,
         ruleFreshness: scanResult.ruleFreshness,
         jurisdiction,
+        jurisdictionPack: scanResult.jurisdictionManifests?.[jurisdiction],
+        packValidationTrusted: scanResult.ruleFreshness.source === 'embedded',
       };
       const report = buildComplianceReport(scanResult.findings, reportOptions, duration);
       report.metadata.scannerVersions = Object.fromEntries(
@@ -1220,6 +1232,8 @@ export async function handleToolCall(name: string, args: Record<string, unknown>
         includeSMB: true,
         ruleFreshness: scanResult.ruleFreshness,
         jurisdiction,
+        jurisdictionPack: scanResult.jurisdictionManifests?.[jurisdiction],
+        packValidationTrusted: scanResult.ruleFreshness.source === 'embedded',
       };
 
       const report = buildComplianceReport(scanResult.findings, reportOptions, duration) as ComplianceReportWithSMB;
@@ -1299,6 +1313,9 @@ export async function handleToolCall(name: string, args: Record<string, unknown>
         strictMode: strict,
         includeReform: true,
         ruleFreshness: scanResult.ruleFreshness,
+        jurisdiction: 'au-privacy-act',
+        jurisdictionPack: scanResult.jurisdictionManifests?.['au-privacy-act'],
+        packValidationTrusted: scanResult.ruleFreshness.source === 'embedded',
       };
       const report = buildComplianceReport(scanResult.findings, reportOptions, duration);
       report.metadata.scannerVersions = Object.fromEntries(

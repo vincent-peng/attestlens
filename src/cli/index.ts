@@ -55,13 +55,20 @@ import {
   runAttestationSession,
   saveQuestionnaireSession,
 } from '../questionnaire/index.js';
-import { Jurisdiction, RuleFreshness } from '../schema/index.js';
+import {
+  Jurisdiction,
+  JurisdictionCoverage as JurisdictionCoverageSchema,
+  PackValidation as PackValidationSchema,
+  RuleFreshness,
+} from '../schema/index.js';
 import type {
   APPPrinciple,
   AssessmentMode,
   AttestLensFinding,
   ComplianceReport,
+  JurisdictionCoverage,
   Jurisdiction as JurisdictionType,
+  PackValidation,
   Question,
   QuestionnaireResponse,
   QuestionnaireSession,
@@ -267,6 +274,8 @@ program
         includeReform: options.reform,
         ruleFreshness: scanResult.ruleFreshness,
         jurisdiction,
+        jurisdictionPack: scanResult.jurisdictionManifests?.[jurisdiction],
+        packValidationTrusted: scanResult.ruleFreshness.source === 'embedded',
       };
 
       const report = buildComplianceReport(scanResult.findings, reportOptions, duration);
@@ -461,6 +470,8 @@ program
         includeReform: options.reform,
         ruleFreshness: scanResult.ruleFreshness,
         jurisdiction,
+        jurisdictionPack: scanResult.jurisdictionManifests?.[jurisdiction],
+        packValidationTrusted: scanResult.ruleFreshness.source === 'embedded',
       };
       const preliminaryReport = buildComplianceReport(
         scanResult.findings,
@@ -488,6 +499,8 @@ program
         includeSMB: true,
         ruleFreshness: scanResult.ruleFreshness,
         jurisdiction,
+        jurisdictionPack: scanResult.jurisdictionManifests?.[jurisdiction],
+        packValidationTrusted: scanResult.ruleFreshness.source === 'embedded',
       };
 
       const report = buildComplianceReport(
@@ -549,6 +562,8 @@ program
         includeReform: true,
         ruleFreshness: scanResult.ruleFreshness,
         jurisdiction,
+        jurisdictionPack: scanResult.jurisdictionManifests?.[jurisdiction],
+        packValidationTrusted: scanResult.ruleFreshness.source === 'embedded',
       };
 
       const report = buildComplianceReport(scanResult.findings, reportOptions, duration);
@@ -605,6 +620,9 @@ program
         outputDir: path.resolve(options.output),
         strictMode: options.strict,
         ruleFreshness: extractRuleFreshness(scanData),
+        packCoverage: extractPackCoverage(scanData),
+        packValidation: extractPackValidation(scanData),
+        packValidationTrusted: extractPackValidationTrusted(scanData),
       };
 
       const report = buildComplianceReport(scanData.findings || scanData, reportOptions, 0);
@@ -808,6 +826,22 @@ function extractRuleFreshness(scanData: Record<string, any>): RuleFreshnessMetad
   }
 
   return RuleFreshness.parse(raw);
+}
+
+function extractPackCoverage(scanData: Record<string, any>): JurisdictionCoverage | undefined {
+  const raw = scanData.packCoverage || scanData.metadata?.packCoverage;
+  const parsed = JurisdictionCoverageSchema.safeParse(raw);
+  return parsed.success ? parsed.data : undefined;
+}
+
+function extractPackValidation(scanData: Record<string, any>): PackValidation | undefined {
+  const raw = scanData.packValidation || scanData.metadata?.packValidation;
+  const parsed = PackValidationSchema.safeParse(raw);
+  return parsed.success ? parsed.data : undefined;
+}
+
+function extractPackValidationTrusted(scanData: Record<string, any>): boolean {
+  return scanData.packValidationTrusted === true || scanData.metadata?.packValidationTrusted === true;
 }
 
 function displayRuleFreshness(ruleFreshness: RuleFreshnessMetadata): void {
@@ -1269,6 +1303,9 @@ function normalizeScanSnapshot(
           : 0,
       ruleFreshness: extractRuleFreshness(normalizedScanData),
       jurisdiction: parsedJurisdiction.success ? parsedJurisdiction.data : undefined,
+      packCoverage: extractPackCoverage(normalizedScanData),
+      packValidation: extractPackValidation(normalizedScanData),
+      packValidationTrusted: extractPackValidationTrusted(normalizedScanData),
     },
   };
 }
@@ -1280,6 +1317,9 @@ function getReportOptionsForSession(
   strictMode: boolean,
   ruleFreshness?: RuleFreshnessMetadata,
   jurisdiction: JurisdictionType = 'au-privacy-act',
+  packCoverage?: JurisdictionCoverage,
+  packValidation?: PackValidation,
+  packValidationTrusted?: boolean,
 ): ReportOptions {
   return {
     targetName: sessionTarget.name,
@@ -1290,6 +1330,9 @@ function getReportOptionsForSession(
     strictMode,
     ruleFreshness,
     jurisdiction,
+    packCoverage,
+    packValidation,
+    packValidationTrusted,
   };
 }
 
@@ -1433,6 +1476,9 @@ export async function executeAttestCommand(
       totalDurationMs: Date.now() - startTime,
       ruleFreshness: scanResult.ruleFreshness,
       jurisdiction,
+      packCoverage: scanResult.jurisdictionManifests?.[jurisdiction]?.coverage,
+      packValidation: scanResult.jurisdictionManifests?.[jurisdiction]?.validation,
+      packValidationTrusted: scanResult.ruleFreshness.source === 'embedded',
     });
     const assessmentMode = await resolveAssessmentModeSelection(
       requestedAssessmentMode,
@@ -1485,6 +1531,9 @@ export async function executeAttestCommand(
     runResult.session.strictMode,
     snapshot.ruleFreshness,
     jurisdiction,
+    snapshot.packCoverage,
+    snapshot.packValidation,
+    snapshot.packValidationTrusted,
   );
   const report = buildComplianceReport(
     snapshot.findings,

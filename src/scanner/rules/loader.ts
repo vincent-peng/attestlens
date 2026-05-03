@@ -19,7 +19,13 @@ import {
 } from '../../schema/index.js';
 import { CCPAPrincipleInfo } from './ccpa-principles.js';
 import { GDPRPrincipleInfo } from './gdpr-principles.js';
-import { buildEmbeddedCCPARulePack, buildEmbeddedGDPRRulePack, buildEmbeddedJurisdictionPack, buildEmbeddedRulePack, buildEmbeddedSGPDPARulePack } from './embedded.js';
+import {
+  buildEmbeddedCCPARulePack,
+  buildEmbeddedGDPRRulePack,
+  buildEmbeddedJurisdictionPack,
+  buildEmbeddedRulePack,
+  buildEmbeddedSGPDPARulePack,
+} from './embedded.js';
 
 export const RULE_PACK_CACHE_FILENAME = 'latest.json';
 export const JURISDICTION_PACK_CACHE_DIRNAME = 'jurisdictions';
@@ -113,7 +119,7 @@ export async function loadRulePack(options: RulePackLoadOptions = {}): Promise<L
 
   if (options.allowCache !== false) {
     try {
-      const cached = await readRulePackFromFile(cachePath);
+    const cached = await readRulePackFromFile(cachePath);
       return {
         manifest: cached,
         jurisdictionManifest: buildJurisdictionManifestFromRulePack(cached),
@@ -150,7 +156,7 @@ export async function loadJurisdictionPacks(
       const loaded = await loadRulePack(options);
       packs.set(jurisdiction, {
         ...loaded,
-        jurisdictionManifest: buildJurisdictionManifestFromRulePack(loaded.manifest),
+        jurisdictionManifest: loaded.jurisdictionManifest ?? buildJurisdictionManifestFromRulePack(loaded.manifest),
       });
       continue;
     }

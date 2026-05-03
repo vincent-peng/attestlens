@@ -482,6 +482,14 @@ export type ConsultantNarrative = z.infer<typeof ConsultantNarrative>;
 export const ComplianceVerdict = z.enum(['COMPLIANT', 'PARTIALLY_COMPLIANT', 'NON_COMPLIANT']);
 export type ComplianceVerdict = z.infer<typeof ComplianceVerdict>;
 
+export const ScopeQualifiedVerdict = z.enum([
+  'PASS_NO_IN_SCOPE_BLOCKERS',
+  'NEEDS_REVIEW',
+  'NO_FINDINGS_IN_SCOPE',
+  'OUT_OF_SCOPE',
+]);
+export type ScopeQualifiedVerdict = z.infer<typeof ScopeQualifiedVerdict>;
+
 export const OpinionConfidence = z.enum(['HIGH', 'MODERATE', 'LOW']);
 export type OpinionConfidence = z.infer<typeof OpinionConfidence>;
 
@@ -499,6 +507,8 @@ export type PrincipleOpinion = z.infer<typeof PrincipleOpinion>;
 
 export const ComplianceOpinion = z.object({
   overallVerdict: ComplianceVerdict,
+  scopedVerdict: ScopeQualifiedVerdict.optional(),
+  scopeReason: z.string().optional(),
   overallConfidence: OpinionConfidence,
   signedBy: z.string(),
   signedAt: z.string().datetime(),
@@ -513,6 +523,32 @@ export type ComplianceOpinion = z.infer<typeof ComplianceOpinion>;
 
 export const RulePackSource = z.enum(['embedded', 'cache', 'remote']);
 export type RulePackSource = z.infer<typeof RulePackSource>;
+
+export const PackValidationStatus = z.enum([
+  'draft',
+  'internal_validated',
+  'external_reviewed',
+  'customer_validated',
+  'legal_partner_validated',
+]);
+export type PackValidationStatus = z.infer<typeof PackValidationStatus>;
+
+export const JurisdictionCoverage = z.object({
+  summary: z.string(),
+  includedPrinciples: z.array(RegulationPrinciple),
+  excludedPrinciples: z.array(RegulationPrinciple).default([]),
+  knownGaps: z.array(z.string()).default([]),
+  evidenceTypes: z.array(z.string()).default([]),
+});
+export type JurisdictionCoverage = z.infer<typeof JurisdictionCoverage>;
+
+export const PackValidation = z.object({
+  status: PackValidationStatus,
+  reviewedBy: z.string().optional(),
+  reviewedAt: z.string().datetime().optional(),
+  notes: z.array(z.string()).default([]),
+});
+export type PackValidation = z.infer<typeof PackValidation>;
 
 export const RuleDefinition = z.object({
   id: z.string(),
@@ -648,6 +684,8 @@ const JurisdictionPackManifestBase = z.object({
     citation: z.string().optional(),
   })),
   rules: z.array(RuleDefinition),
+  coverage: JurisdictionCoverage.optional(),
+  validation: PackValidation.optional(),
 });
 
 export const JurisdictionPackManifest = JurisdictionPackManifestBase.extend({
@@ -759,6 +797,8 @@ export const ComplianceReport = z.object({
     scanDurationMs: z.number(),
     configHash: z.string(),
     ruleFreshness: RuleFreshness.optional(),
+    packCoverage: JurisdictionCoverage.optional(),
+    packValidation: PackValidation.optional(),
   }),
   disclaimer: z.string(),
 });

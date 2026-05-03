@@ -5,7 +5,15 @@
  * Each scanner adapter normalizes its output into AttestLensFinding format.
  */
 
-import type { AttestLensFinding, Severity, ScanSource, RuleFreshness, RulePackManifest } from '../schema/index.js';
+import type {
+  AnyJurisdictionPackManifest,
+  AttestLensFinding,
+  Jurisdiction,
+  Severity,
+  ScanSource,
+  RuleFreshness,
+  RulePackManifest,
+} from '../schema/index.js';
 
 // ─── Scanner Result ──────────────────────────────────────────────────────────
 
@@ -31,6 +39,7 @@ export interface OrchestratedScanResult {
   errors: ScannerError[];
   totalDurationMs: number;
   ruleFreshness: RuleFreshness;
+  jurisdictionManifests?: Partial<Record<Jurisdiction, AnyJurisdictionPackManifest>>;
 }
 
 export type ScannerProgressPhase = 'start' | 'complete' | 'skip' | 'warning' | 'timeout';

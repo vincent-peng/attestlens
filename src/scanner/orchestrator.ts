@@ -4,7 +4,16 @@
  * Coordinates all scanner adapters, merges findings, and deduplicates results.
  */
 
-import type { AttestLensFinding, AuthoredRule, Jurisdiction, RuleDefinition, RulePackManifest, ScanSource, Severity } from '../schema/index.js';
+import type {
+  AnyJurisdictionPackManifest,
+  AttestLensFinding,
+  AuthoredRule,
+  Jurisdiction,
+  RuleDefinition,
+  RulePackManifest,
+  ScanSource,
+  Severity,
+} from '../schema/index.js';
 import type {
   ScannerResult,
   ScannerAdapter,
@@ -276,6 +285,7 @@ export class ScannerOrchestrator {
       errors: allErrors,
       totalDurationMs: Date.now() - startTime,
       ruleFreshness: primaryRulePack.freshness,
+      jurisdictionManifests: getJurisdictionManifests(jurisdictionPacks),
     };
   }
 
@@ -611,6 +621,18 @@ function mergeRulePackManifests(
     ...primary,
     rules: Array.from(rulesById.values()),
   };
+}
+
+function getJurisdictionManifests(
+  packs: Map<Jurisdiction, LoadedRulePack>,
+): Partial<Record<Jurisdiction, AnyJurisdictionPackManifest>> {
+  const manifests: Partial<Record<Jurisdiction, AnyJurisdictionPackManifest>> = {};
+  for (const [jurisdiction, loaded] of packs) {
+    if (loaded.jurisdictionManifest) {
+      manifests[jurisdiction] = loaded.jurisdictionManifest;
+    }
+  }
+  return manifests;
 }
 
 export function resolveEffectiveSeverity(rule: AuthoredRule): Severity {

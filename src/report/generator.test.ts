@@ -421,6 +421,74 @@ describe('buildComplianceReport', () => {
 
     expect(artifactOnlyReport.metadata.deterministicHash).not.toBe(codebaseOnlyReport.metadata.deterministicHash);
   });
+
+  it('does not emit broad compliant opinions for draft jurisdiction packs', () => {
+    const sgPrinciples = ['SGPDPA_11', 'SGPDPA_12', 'SGPDPA_24'];
+    const report = buildComplianceReport([], {
+      ...defaultOptions,
+      jurisdiction: 'sg-pdpa',
+      includeOpinion: true,
+    }, 1000, makeQuestionnaireSession({
+      principles: sgPrinciples,
+      sessionQuestions: [],
+      principleResults: sgPrinciples.map((principle) => ({
+        principle,
+        status: 'pass',
+        confidence: 0.8,
+        rationale: 'Operator attested for scoped demo coverage.',
+        answeredQuestionIds: [],
+      })),
+    }));
+    const parsed = JSON.parse(generateAgentReport(report));
+
+    expect(report.metadata.packValidation?.status).toBe('draft');
+    expect(report.complianceOpinion?.overallVerdict).toBe('PARTIALLY_COMPLIANT');
+    expect(report.complianceOpinion?.scopedVerdict).toBe('NO_FINDINGS_IN_SCOPE');
+    expect(parsed.verdict).toBe('PARTIALLY_COMPLIANT');
+    expect(parsed.scopedVerdict).toBe('NO_FINDINGS_IN_SCOPE');
+    expect(parsed.displayVerdict).toBe('NO FINDINGS IN SCOPE');
+    expect(parsed.summary).toContain('NO FINDINGS IN SCOPE');
+    expect(JSON.stringify(parsed)).not.toContain('"COMPLIANT"');
+  });
+
+  it('does not trust external validation status from untrusted pack metadata', () => {
+    const sgPrinciples = ['SGPDPA_11', 'SGPDPA_12', 'SGPDPA_24'];
+    const report = buildComplianceReport([], {
+      ...defaultOptions,
+      jurisdiction: 'sg-pdpa',
+      includeOpinion: true,
+      packCoverage: {
+        summary: 'Untrusted custom pack coverage.',
+        includedPrinciples: sgPrinciples,
+        excludedPrinciples: [],
+        knownGaps: [],
+        evidenceTypes: ['source code'],
+      },
+      packValidation: {
+        status: 'external_reviewed',
+        reviewedBy: 'custom pack metadata',
+        reviewedAt: '2026-05-03T00:00:00.000Z',
+        notes: [],
+      },
+    }, 1000, makeQuestionnaireSession({
+      principles: sgPrinciples,
+      sessionQuestions: [],
+      principleResults: sgPrinciples.map((principle) => ({
+        principle,
+        status: 'pass',
+        confidence: 0.8,
+        rationale: 'Operator attested for scoped demo coverage.',
+        answeredQuestionIds: [],
+      })),
+    }));
+    const parsed = JSON.parse(generateAgentReport(report));
+
+    expect(report.complianceOpinion?.overallVerdict).toBe('PARTIALLY_COMPLIANT');
+    expect(report.complianceOpinion?.scopedVerdict).toBe('NO_FINDINGS_IN_SCOPE');
+    expect(report.complianceOpinion?.scopeReason).toContain('untrusted pack metadata');
+    expect(parsed.verdict).toBe('PARTIALLY_COMPLIANT');
+    expect(parsed.scopedVerdict).toBe('NO_FINDINGS_IN_SCOPE');
+  });
 });
 
 describe('generateJSONReport', () => {
@@ -451,6 +519,23 @@ describe('generateJSONReport', () => {
     expect(parsed.assessment).toEqual(expect.objectContaining({
       mode: 'artifact_only',
       incomplete: true,
+    }));
+  });
+
+  it('includes jurisdiction pack validation and coverage metadata', () => {
+    const report = buildComplianceReport([], {
+      ...defaultOptions,
+      jurisdiction: 'eu-gdpr',
+    }, 1000);
+    const parsed = JSON.parse(generateJSONReport(report));
+
+    expect(parsed.metadata.packValidation).toEqual(expect.objectContaining({
+      status: 'internal_validated',
+    }));
+    expect(parsed.metadata.packCoverage).toEqual(expect.objectContaining({
+      summary: expect.stringContaining('GDPR subset'),
+      knownGaps: expect.arrayContaining([expect.stringContaining('full GDPR')]),
+      evidenceTypes: expect.arrayContaining([expect.any(String)]),
     }));
   });
 });
@@ -544,6 +629,28 @@ describe('generateAgentReport', () => {
     expect(parsed.verdict).toBe('UNKNOWN');
     expect(parsed.confidence).toBe('LOW');
     expect(parsed.summary).toBe('No opinion available');
+  });
+
+  it('includes jurisdiction pack validation and coverage in agent output', () => {
+    const report = buildComplianceReport([], {
+      ...defaultOptions,
+      jurisdiction: 'us-ccpa',
+      includeOpinion: true,
+    }, 1000);
+    const parsed = JSON.parse(generateAgentReport(report));
+
+    expect(parsed.packValidationStatus).toBe('internal_validated');
+    expect(parsed.packValidation).toEqual(expect.objectContaining({
+      status: 'internal_validated',
+    }));
+    expect(parsed.packCoverage).toEqual(expect.objectContaining({
+      summary: expect.stringContaining('CCPA/CPRA subset'),
+      includedPrinciples: expect.arrayContaining(['CCPA_100', 'CCPA_150']),
+      excludedPrinciples: expect.arrayContaining([expect.stringContaining('California regulations')]),
+      knownGaps: expect.arrayContaining([expect.stringContaining('all notice')]),
+      evidenceTypes: expect.arrayContaining([expect.any(String)]),
+    }));
+    expect(parsed.packCoverage.summary).toContain('not a full CCPA/CPRA legal compliance assessment');
   });
 });
 

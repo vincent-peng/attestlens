@@ -172,6 +172,8 @@ describe('rule pack loader', () => {
     expect(updated.cachePath).toBe(getRulePackCachePath(cacheDir));
     expect(loaded.freshness.source).toBe('cache');
     expect(loaded.freshness.version).toBe('2026.04.25');
+    expect(loaded.jurisdictionManifest?.coverage).toBeUndefined();
+    expect(loaded.jurisdictionManifest?.validation).toBeUndefined();
   });
 
   it('preserves an existing cache when update-rules has no source', async () => {
@@ -354,6 +356,30 @@ describe('rule pack loader', () => {
     expect(jurisdictionPack.rules[0]!.regulationMappings?.[0]?.jurisdiction).toBe('sg-pdpa');
   });
 
+  it('includes coverage and validation metadata for every embedded jurisdiction pack', () => {
+    const expectedStatuses = {
+      'au-privacy-act': 'internal_validated',
+      'us-ccpa': 'internal_validated',
+      'eu-gdpr': 'internal_validated',
+      'sg-pdpa': 'draft',
+    } as const;
+
+    for (const jurisdiction of AVAILABLE_JURISDICTIONS) {
+      const jurisdictionPack = buildEmbeddedJurisdictionPack(jurisdiction);
+
+      expect(jurisdictionPack.coverage?.summary.length).toBeGreaterThan(0);
+      expect(jurisdictionPack.coverage?.includedPrinciples.length).toBeGreaterThan(0);
+      expect(jurisdictionPack.coverage?.knownGaps.length).toBeGreaterThan(0);
+      expect(jurisdictionPack.coverage?.evidenceTypes.length).toBeGreaterThan(0);
+      expect(jurisdictionPack.validation?.status).toBe(expectedStatuses[jurisdiction]);
+      expect(jurisdictionPack.validation?.notes.length).toBeGreaterThan(0);
+    }
+
+    expect(buildEmbeddedJurisdictionPack('us-ccpa').coverage?.summary).toContain('subset');
+    expect(buildEmbeddedJurisdictionPack('eu-gdpr').coverage?.summary).toContain('subset');
+    expect(buildEmbeddedJurisdictionPack('sg-pdpa').coverage?.summary).toContain('beta');
+  });
+
   it('loads AU jurisdiction packs', async () => {
     const cacheDir = await makeTempDir();
     const packs = await loadJurisdictionPacks(['au-privacy-act'], {
@@ -365,6 +391,7 @@ describe('rule pack loader', () => {
     expect(auPack).toBeDefined();
     expect(auPack!.manifest.jurisdiction).toBe('au-privacy-act');
     expect(auPack!.jurisdictionManifest?.schemaVersion).toBe('2.0');
+    expect(auPack!.jurisdictionManifest?.validation?.status).toBe('internal_validated');
     expect(auPack!.warnings).toEqual([]);
   });
 

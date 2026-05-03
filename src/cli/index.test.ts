@@ -972,6 +972,13 @@ describe('CLI attest command', { timeout: 20000 }, () => {
       expect(session.assessmentMode).toBe('operator_attested');
       expect(session.questionSetHash).toBeTruthy();
       expect(snapshot.target.path).toBe(projectDir);
+      expect(snapshot.packValidation).toEqual(expect.objectContaining({
+        status: 'internal_validated',
+      }));
+      expect(snapshot.packValidationTrusted).toBe(true);
+      expect(snapshot.packCoverage).toEqual(expect.objectContaining({
+        includedPrinciples: expect.arrayContaining(['APP_1', 'APP_11']),
+      }));
       await expect(fs.stat(result.sessionPath)).resolves.toBeTruthy();
       await expect(fs.stat(result.scanSnapshotPath)).resolves.toBeTruthy();
     } finally {
@@ -1093,6 +1100,19 @@ describe('CLI attest command', { timeout: 20000 }, () => {
         results: [],
         errors: [],
         totalDurationMs: 250,
+        metadata: {
+          packCoverage: {
+            summary: 'Frozen scan metadata coverage.',
+            includedPrinciples: ['APP_1'],
+            excludedPrinciples: ['APP_2'],
+            knownGaps: ['Frozen metadata gap.'],
+            evidenceTypes: ['saved scan'],
+          },
+          packValidation: {
+            status: 'draft',
+            notes: ['Frozen metadata validation.'],
+          },
+        },
       }, null, 2));
 
       const saved = await executeAttestCommand(undefined, {
@@ -1108,6 +1128,8 @@ describe('CLI attest command', { timeout: 20000 }, () => {
       const frozenSnapshot = await loadScanSnapshot<any>(saved.scanSnapshotPath);
       expect(savedSession.answers).toHaveLength(1);
       expect(frozenSnapshot.target.url).toBe('https://example.com/');
+      expect(frozenSnapshot.packValidation.status).toBe('draft');
+      expect(frozenSnapshot.packCoverage.summary).toBe('Frozen scan metadata coverage.');
 
       const completed = await executeAttestCommand(undefined, {
         resume: saved.sessionPath,
@@ -1126,6 +1148,8 @@ describe('CLI attest command', { timeout: 20000 }, () => {
       expect(jsonReportPath).toBeTruthy();
       const report = JSON.parse(await fs.readFile(jsonReportPath!, 'utf-8'));
       expect(report.appControls.filter((control: any) => control.status === 'unknown')).toHaveLength(0);
+      expect(report.metadata.packValidation.status).toBe('draft');
+      expect(report.metadata.packCoverage.summary).toBe('Frozen scan metadata coverage.');
 
       const completedSession = await loadQuestionnaireSession(saved.sessionPath);
       expect(completedSession.status).toBe('completed');

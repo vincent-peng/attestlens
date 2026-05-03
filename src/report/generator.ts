@@ -9,10 +9,14 @@ import crypto from 'node:crypto';
 import { PassThrough } from 'node:stream';
 import type PDFDocument from 'pdfkit';
 import type {
+  AnyJurisdictionPackManifest,
   AttestLensFinding,
   APPControl,
   APPPrinciple,
   Jurisdiction,
+  JurisdictionCoverage,
+  PackValidation,
+  PackValidationStatus,
   ReportAssessment,
   ComplianceReport,
   AssessmentMode,
@@ -24,6 +28,7 @@ import type {
   RegulationControl,
   ReformImpactAssessment,
   ReformProvision as ReformProvisionName,
+  ScopeQualifiedVerdict,
 } from '../schema/index.js';
 import {
   APPInfo,
@@ -38,6 +43,7 @@ import { mapAllFindings } from '../mapping/engine.js';
 import { getRegistry } from '../jurisdiction/registry.js';
 import { getQuestionById } from '../questionnaire/index.js';
 import { buildComplianceOpinion } from '../opinion/engine.js';
+import { buildEmbeddedJurisdictionPack } from '../scanner/rules/embedded.js';
 import { sanitizeTargetPathForOutput, sanitizeTargetUrlForOutput } from '../utils/target.js';
 import { buildSMBComplianceResult } from './smb-generator.js';
 import type { SMBComplianceResult } from './smb-generator.js';
@@ -71,6 +77,10 @@ export interface ReportOptions {
   includeSMB?: boolean; // Include plain-English SMB compliance result
   ruleFreshness?: RuleFreshness;
   jurisdiction?: Jurisdiction;
+  jurisdictionPack?: AnyJurisdictionPackManifest;
+  packCoverage?: JurisdictionCoverage;
+  packValidation?: PackValidation;
+  packValidationTrusted?: boolean;
   branding?: {
     logo?: string;
     primaryColor?: string;
@@ -87,6 +97,7 @@ export function buildComplianceReport(
   questionnaireSession?: QuestionnaireSession,
 ): ComplianceReport {
   const jurisdiction = options.jurisdiction ?? 'au-privacy-act';
+  const packMetadata = resolvePackMetadata(jurisdiction, options);
 
   // Step 1: Map findings to regulation obligations.
   // When questionnaire results are present, keep UNKNOWN controls as-is
@@ -175,6 +186,8 @@ export function buildComplianceReport(
       scanDurationMs: durationMs,
       configHash: '',
       ruleFreshness: options.ruleFreshness ? RuleFreshnessSchema.parse(options.ruleFreshness) : undefined,
+      packCoverage: packMetadata.coverage,
+      packValidation: packMetadata.validation,
     },
     disclaimer,
   };
@@ -182,6 +195,7 @@ export function buildComplianceReport(
   // Attach compliance opinion if requested
   if (options.includeOpinion) {
     report.complianceOpinion = buildComplianceOpinion(report, { strictMode: options.strictMode });
+    applyPackTrustToOpinion(report, packMetadata.validationTrusted);
   }
 
   if (options.formats.includes('smb') || options.includeSMB) {
@@ -189,6 +203,82 @@ export function buildComplianceReport(
   }
 
   return report;
+}
+
+function resolvePackMetadata(
+  jurisdiction: Jurisdiction,
+  options: ReportOptions,
+): { coverage?: JurisdictionCoverage; validation?: PackValidation; validationTrusted: boolean } {
+  if (options.packCoverage || options.packValidation) {
+    return {
+      coverage: options.packCoverage ?? buildUnknownCoverage(jurisdiction),
+      validation: options.packValidation ?? buildUnvalidatedPackMetadata(),
+      validationTrusted: options.packValidationTrusted === true,
+    };
+  }
+
+  if (options.jurisdictionPack) {
+    return {
+      coverage: options.jurisdictionPack.coverage ?? buildUnknownCoverage(jurisdiction, options.jurisdictionPack),
+      validation: options.jurisdictionPack.validation ?? buildUnvalidatedPackMetadata(),
+      validationTrusted: options.packValidationTrusted === true,
+    };
+  }
+
+  const embedded = buildEmbeddedJurisdictionPack(jurisdiction);
+  return {
+    coverage: embedded.coverage,
+    validation: embedded.validation,
+    validationTrusted: true,
+  };
+}
+
+function buildUnknownCoverage(
+  jurisdiction: Jurisdiction,
+  jurisdictionPack?: AnyJurisdictionPackManifest,
+): JurisdictionCoverage {
+  return {
+    summary: `No explicit coverage metadata was supplied for the ${jurisdiction} jurisdiction pack. Treat results as limited to the configured deterministic rule set.`,
+    includedPrinciples: jurisdictionPack?.principles.map((principle) => principle.id) ?? [],
+    excludedPrinciples: [],
+    knownGaps: ['Coverage boundary metadata was not supplied by this pack.'],
+    evidenceTypes: [],
+  };
+}
+
+function buildUnvalidatedPackMetadata(): PackValidation {
+  return {
+    status: 'draft',
+    notes: ['No explicit validation metadata was supplied by this pack.'],
+  };
+}
+
+function applyPackTrustToOpinion(report: ComplianceReport, validationTrusted: boolean): void {
+  const opinion = report.complianceOpinion;
+  const validation = report.metadata.packValidation;
+  if (!opinion || !validation) {
+    return;
+  }
+  if (validationTrusted && isExternallyValidated(validation.status)) {
+    return;
+  }
+
+  if (opinion.overallVerdict === 'COMPLIANT') {
+    opinion.scopedVerdict = report.findings.length === 0
+      ? 'NO_FINDINGS_IN_SCOPE'
+      : 'PASS_NO_IN_SCOPE_BLOCKERS';
+    opinion.scopeReason = `Pack validation status is ${validation.status}${validationTrusted ? '' : ' from untrusted pack metadata'}; this is a scoped technical result, not a broad compliance conclusion.`;
+    opinion.overallVerdict = 'PARTIALLY_COMPLIANT';
+  } else if (validation.status === 'draft') {
+    opinion.scopedVerdict = 'NEEDS_REVIEW';
+    opinion.scopeReason = 'Draft jurisdiction pack results are advisory and require human review before production gating.';
+  }
+}
+
+function isExternallyValidated(status: PackValidationStatus): boolean {
+  return status === 'external_reviewed'
+    || status === 'customer_validated'
+    || status === 'legal_partner_validated';
 }
 
 function buildDeterministicHash(
@@ -379,7 +469,30 @@ function getControlChecklistTitle(report: ComplianceReport): string {
 }
 
 function getReportScopeNote(report: ComplianceReport): string | null {
-  return getReportJurisdiction(report) === 'eu-gdpr' ? GDPR_SCOPE_NOTE : null;
+  return report.metadata.packCoverage?.summary
+    ?? (getReportJurisdiction(report) === 'eu-gdpr' ? GDPR_SCOPE_NOTE : null);
+}
+
+function getPackValidationLine(validation?: PackValidation): string | null {
+  if (!validation) {
+    return null;
+  }
+  return `${formatPackValidationStatus(validation.status)}${validation.reviewedBy ? ` (${validation.reviewedBy})` : ''}`;
+}
+
+function formatPackValidationStatus(status: PackValidationStatus): string {
+  return status
+    .split('_')
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(' ');
+}
+
+function formatScopedVerdict(verdict: ScopeQualifiedVerdict): string {
+  return verdict.replace(/_/g, ' ');
+}
+
+function getOpinionDisplayVerdict(opinion: NonNullable<ComplianceReport['complianceOpinion']>): string {
+  return opinion.scopedVerdict ? formatScopedVerdict(opinion.scopedVerdict) : opinion.overallVerdict.replace(/_/g, ' ');
 }
 
 function applyIncompleteAssessmentScoreCap(
@@ -1091,10 +1204,11 @@ export function generateHTMLReport(
         <tr><th>Date</th><td>${new Date(report.timestamp).toLocaleDateString('en-AU', { year: 'numeric', month: 'long', day: 'numeric' })}</td></tr>
         <tr><th>Target</th><td>${escapedTargetName}${escapedTargetVersion ? ` v${escapedTargetVersion}` : ''}</td></tr>
         <tr><th>Framework</th><td>${escapeHtml(frameworkLabel)}</td></tr>
-        <tr><th>Scanner</th><td>AttestLens v${ATTESTLENS_VERSION}</td></tr>
-        ${report.metadata.ruleFreshness ? `<tr><th>Rule Pack</th><td>${escapeHtml(formatRuleFreshnessLine(report.metadata.ruleFreshness))}</td></tr>` : ''}
-        ${questionnaireSession ? `<tr><th>Assessment Basis</th><td>${escapeHtml(getAssessmentModeLabel(questionnaireSession.assessmentMode))}</td></tr>` : ''}
-        ${report.target.url ? `<tr><th>URL</th><td>${escapeHtml(report.target.url)}</td></tr>` : ''}
+	        <tr><th>Scanner</th><td>AttestLens v${ATTESTLENS_VERSION}</td></tr>
+	        ${report.metadata.ruleFreshness ? `<tr><th>Rule Pack</th><td>${escapeHtml(formatRuleFreshnessLine(report.metadata.ruleFreshness))}</td></tr>` : ''}
+	        ${report.metadata.packValidation ? `<tr><th>Pack Validation</th><td>${escapeHtml(getPackValidationLine(report.metadata.packValidation) || '')}</td></tr>` : ''}
+	        ${questionnaireSession ? `<tr><th>Assessment Basis</th><td>${escapeHtml(getAssessmentModeLabel(questionnaireSession.assessmentMode))}</td></tr>` : ''}
+	        ${report.target.url ? `<tr><th>URL</th><td>${escapeHtml(report.target.url)}</td></tr>` : ''}
         ${report.target.path ? `<tr><th>Path</th><td>${escapeHtml(report.target.path)}</td></tr>` : ''}
       </table>
       <div class="confidential-badge">CONFIDENTIAL</div>
@@ -1111,10 +1225,11 @@ export function generateHTMLReport(
         <div class="grade-label">Overall Compliance</div>
       </div>
       <div>
-        <p><strong>Risk Level:</strong> <span class="risk-badge risk-${report.riskLevel}">${report.riskLevel.toUpperCase()}</span></p>
-        <p style="margin-top: 12px;">${getRiskSummary(report)}</p>
-        ${scopeNote ? `<p style="margin-top: 12px;"><strong>Scope:</strong> ${escapeHtml(scopeNote)}</p>` : ''}
-        ${incompleteSummary ? `<p style="margin-top: 12px; color: #a16207;"><strong>Assessment incomplete:</strong> ${escapeHtml(incompleteSummary)}</p>` : ''}
+	        <p><strong>Risk Level:</strong> <span class="risk-badge risk-${report.riskLevel}">${report.riskLevel.toUpperCase()}</span></p>
+	        <p style="margin-top: 12px;">${getRiskSummary(report)}</p>
+	        ${scopeNote ? `<p style="margin-top: 12px;"><strong>Scope:</strong> ${escapeHtml(scopeNote)}</p>` : ''}
+	        ${report.metadata.packCoverage?.knownGaps.length ? `<p style="margin-top: 12px;"><strong>Known pack gaps:</strong> ${escapeHtml(report.metadata.packCoverage.knownGaps.join(' '))}</p>` : ''}
+	        ${incompleteSummary ? `<p style="margin-top: 12px; color: #a16207;"><strong>Assessment incomplete:</strong> ${escapeHtml(incompleteSummary)}</p>` : ''}
         <div class="stats-grid" style="margin-top: 16px;">
           <div class="stat-card">
             <div class="stat-number" style="color: var(--fail-red);">${report.findings.filter(f => f.severity === 'critical').length}</div>
@@ -1356,6 +1471,7 @@ function generateHTMLOpinionSection(report: ComplianceReport): string {
   if (!opinion) {
     return '';
   }
+  const displayVerdict = getOpinionDisplayVerdict(opinion);
 
   const verdictColor: Record<string, string> = {
     COMPLIANT: '#16a34a',
@@ -1373,11 +1489,12 @@ function generateHTMLOpinionSection(report: ComplianceReport): string {
     <h2>Compliance Opinion</h2>
     <div style="margin-bottom: 24px;">
       <div style="display: inline-block; background: ${verdictColor[opinion.overallVerdict] || '#6b7280'}; color: white; padding: 8px 20px; border-radius: 6px; font-size: 18px; font-weight: 700; letter-spacing: 0.5px;">
-        ${escapeHtml(opinion.overallVerdict.replace(/_/g, ' '))}
+        ${escapeHtml(displayVerdict)}
       </div>
       <span style="margin-left: 12px; color: #64748b;">Confidence: ${escapeHtml(confidenceLabel[opinion.overallConfidence])}</span>
       <span style="margin-left: 12px; color: #64748b;">Score: ${opinion.score}/100</span>
     </div>
+    ${opinion.scopeReason ? `<p style="margin-bottom: 16px; color: #64748b;"><strong>Scope note:</strong> ${escapeHtml(opinion.scopeReason)}</p>` : ''}
     <table class="checklist">
       <thead>
         <tr>
@@ -1649,6 +1766,7 @@ export function generateAgentReport(
   const opinion = report.complianceOpinion;
   const severityOrder: Severity[] = ['critical', 'high', 'medium', 'low', 'info'];
   const reportControls = controls;
+  const scopedOutput = Boolean(opinion?.scopedVerdict);
   const actions: Array<{
     principle: string;
     verdict: string;
@@ -1674,7 +1792,9 @@ export function generateAgentReport(
       verdict: control.status === 'fail' ? 'NON_COMPLIANT' : 'UNKNOWN',
       score: control.score,
       action: control.status === 'fail'
-        ? `Fix ${control.findings.length} finding(s) to achieve compliance`
+        ? scopedOutput
+          ? `Fix ${control.findings.length} in-scope finding(s)`
+          : `Fix ${control.findings.length} finding(s) to achieve compliance`
         : `Provide evidence for ${control.shortName}`,
       remediation: topFinding?.fix ?? null,
     });
@@ -1683,12 +1803,26 @@ export function generateAgentReport(
   const result = {
     schema: 'attestlens-agent-v1',
     verdict: opinion?.overallVerdict ?? 'UNKNOWN',
+    scopedVerdict: opinion?.scopedVerdict,
+    scopeReason: opinion?.scopeReason,
+    displayVerdict: opinion ? getOpinionDisplayVerdict(opinion) : 'UNKNOWN',
     confidence: opinion?.overallConfidence ?? 'LOW',
     score: report.overallScore,
     riskLevel: report.riskLevel,
+    packValidationStatus: report.metadata.packValidation?.status,
+    packValidation: report.metadata.packValidation,
+    packCoverage: report.metadata.packCoverage
+      ? {
+        summary: report.metadata.packCoverage.summary,
+        includedPrinciples: report.metadata.packCoverage.includedPrinciples,
+        excludedPrinciples: report.metadata.packCoverage.excludedPrinciples,
+        knownGaps: report.metadata.packCoverage.knownGaps,
+        evidenceTypes: report.metadata.packCoverage.evidenceTypes,
+      }
+      : undefined,
     actions,
     summary: opinion
-      ? `${opinion.overallVerdict.replace(/_/g, ' ')} - ${opinion.principles.filter((principle) => principle.verdict === 'NON_COMPLIANT').length} of ${opinion.principles.length} principles non-compliant`
+      ? `${getOpinionDisplayVerdict(opinion)} - ${opinion.principles.filter((principle) => principle.verdict === 'NON_COMPLIANT').length} of ${opinion.principles.length} principles non-compliant`
       : 'No opinion available',
   };
 
@@ -1712,6 +1846,11 @@ export function generateMarkdownReport(
   const scopeNote = getReportScopeNote(report);
   if (scopeNote) lines.push(`**Scope:** ${scopeNote}`);
   if (report.metadata.ruleFreshness) lines.push(`**Rule Pack:** ${formatRuleFreshnessLine(report.metadata.ruleFreshness)}`);
+  const packValidationLine = getPackValidationLine(report.metadata.packValidation);
+  if (packValidationLine) lines.push(`**Pack Validation:** ${packValidationLine}`);
+  if (report.metadata.packCoverage?.knownGaps.length) {
+    lines.push(`**Known Pack Gaps:** ${report.metadata.packCoverage.knownGaps.join(' ')}`);
+  }
   if (report.target.url) lines.push(`**Target URL:** ${report.target.url}`);
   if (report.target.path) lines.push(`**Target Path:** ${report.target.path}`);
   if (questionnaireSession) lines.push(`**Assessment Basis:** ${getAssessmentModeLabel(questionnaireSession.assessmentMode)}`);
@@ -1746,7 +1885,10 @@ export function generateMarkdownReport(
     const opinion = report.complianceOpinion;
     lines.push(`### Compliance Opinion`);
     lines.push('');
-    lines.push(`**Verdict:** ${opinion.overallVerdict.replace(/_/g, ' ')} | **Confidence:** ${opinion.overallConfidence} | **Score:** ${opinion.score}/100`);
+    lines.push(`**Verdict:** ${getOpinionDisplayVerdict(opinion)} | **Confidence:** ${opinion.overallConfidence} | **Score:** ${opinion.score}/100`);
+    if (opinion.scopeReason) {
+      lines.push(`**Scope Note:** ${opinion.scopeReason}`);
+    }
     lines.push('');
     lines.push(`| Principle | Verdict | Confidence | Score | Evidence |`);
     lines.push(`|-----------|--------|------------|-------|----------|`);
@@ -2013,6 +2155,7 @@ function renderPDFCover(
     'Rule Pack',
     report.metadata.ruleFreshness ? formatRuleFreshnessLine(report.metadata.ruleFreshness) : undefined,
   );
+  writePDFLabelValue(doc, 'Pack Validation', getPackValidationLine(report.metadata.packValidation) || undefined);
   writePDFLabelValue(doc, 'Target URL', report.target.url);
   writePDFLabelValue(doc, 'Target Path', report.target.path);
   writePDFLabelValue(doc, 'Assessment Basis', questionnaireSession ? getAssessmentModeLabel(questionnaireSession.assessmentMode) : undefined);
@@ -2250,6 +2393,9 @@ function renderPDFRemediation(doc: PDFDocument, report: ComplianceReport): void 
     .text(`Generated by AttestLens v${ATTESTLENS_VERSION} — ${new Date(report.timestamp).toLocaleString('en-AU')}`);
   if (report.metadata.ruleFreshness) {
     doc.text(`Rule pack: ${formatRuleFreshnessLine(report.metadata.ruleFreshness)}`);
+  }
+  if (report.metadata.packValidation) {
+    doc.text(`Pack validation: ${getPackValidationLine(report.metadata.packValidation)}`);
   }
   doc.text(`Deterministic hash: ${report.metadata.deterministicHash}`);
 }

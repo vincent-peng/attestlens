@@ -1,5 +1,13 @@
 import { APPInfo, JurisdictionPackManifest, RulePackManifest, appMappingToRegulationMapping } from '../../schema/index.js';
-import type { APPMapping, Jurisdiction, RuleDefinition, JurisdictionPackManifest as JurisdictionPackManifestType, RulePackManifest as RulePackManifestType } from '../../schema/index.js';
+import type {
+  APPMapping,
+  Jurisdiction,
+  JurisdictionCoverage,
+  PackValidation,
+  RuleDefinition,
+  JurisdictionPackManifest as JurisdictionPackManifestType,
+  RulePackManifest as RulePackManifestType,
+} from '../../schema/index.js';
 import { CCPA_CHECKS } from './ccpa-checks.js';
 import { CCPAPrincipleInfo } from './ccpa-principles.js';
 import { GDPR_CHECKS } from './gdpr-checks.js';
@@ -19,6 +27,130 @@ export const EMBEDDED_GDPR_PACK_VERSION = '2026.04.30';
 export const EMBEDDED_GDPR_PACK_GENERATED = '2026-04-30T00:00:00.000Z';
 export const EMBEDDED_SG_PDPA_PACK_VERSION = '2026.05.01';
 export const EMBEDDED_SG_PDPA_PACK_GENERATED = '2026-05-01T00:00:00.000Z';
+
+const AU_COVERAGE: JurisdictionCoverage = {
+  summary: 'Coverage-bounded AU Privacy Act pack covering APP technical controls and NDB-adjacent breach-readiness signals that can be inferred from code, dependencies, URLs, and infrastructure evidence.',
+  includedPrinciples: Object.keys(APPInfo),
+  excludedPrinciples: [],
+  knownGaps: [
+    'Business-process obligations that require operator attestation remain outside scanner-only evidence.',
+    'This pack does not replace legal advice, regulator guidance review, or full privacy-program governance.',
+    'Privacy Act reform analysis is reported separately and is not a full future-law compliance assessment.',
+  ],
+  evidenceTypes: ['source code', 'dependency manifests', 'URL security headers', 'infrastructure-as-code', 'operator attestation'],
+};
+
+const AU_VALIDATION: PackValidation = {
+  status: 'internal_validated',
+  reviewedBy: 'AttestLens internal review',
+  reviewedAt: EMBEDDED_RULE_PACK_GENERATED,
+  notes: [
+    'Seed pack with the deepest current test coverage and APP/NDB mapping depth.',
+    'Not externally legal-reviewed or customer-validated.',
+  ],
+};
+
+const CCPA_COVERAGE: JurisdictionCoverage = {
+  summary: 'Coverage-bounded CCPA/CPRA subset focused on technical evidence for notices, sensitive personal information handling, opt-out signals, security safeguards, and data-retention signals. It is not a full CCPA/CPRA legal compliance assessment.',
+  includedPrinciples: Object.keys(CCPAPrincipleInfo),
+  excludedPrinciples: [
+    'California regulations and implementation details not represented by the current principle set',
+    'Contract, consumer-request operations, and business-process evidence not visible in code',
+  ],
+  knownGaps: [
+    'Does not determine whether an organization is legally subject to CCPA/CPRA.',
+    'Does not validate all notice, contract, sale/share, or consumer-request workflows.',
+    'Contextual obligations should default to review unless explicit evidence is present.',
+  ],
+  evidenceTypes: ['source code', 'repository fixtures', 'dependency manifests', 'privacy-notice signals'],
+};
+
+const CCPA_VALIDATION: PackValidation = {
+  status: 'internal_validated',
+  reviewedBy: 'AttestLens internal review',
+  reviewedAt: EMBEDDED_CCPA_PACK_GENERATED,
+  notes: [
+    'Coverage-bounded subset with automated tests and internal rule review.',
+    'No external legal or customer validation recorded.',
+  ],
+};
+
+const GDPR_COVERAGE: JurisdictionCoverage = {
+  summary: 'Coverage-bounded GDPR subset focused on software evidence for lawful-basis indicators, transparency, special-category data exposure, security, breach notification signals, DPIA indicators, and transfer review signals. It is not full GDPR compliance coverage.',
+  includedPrinciples: Object.keys(GDPRPrincipleInfo),
+  excludedPrinciples: [
+    'GDPR chapters and articles outside the current subset',
+    'Controller/processor contract obligations not visible in code',
+    'Full DPIA, transfer-impact, and lawful-basis legal analysis',
+  ],
+  knownGaps: [
+    'Does not determine full GDPR applicability or all controller/processor obligations.',
+    'Contextual legal conclusions require human review unless explicit technical evidence is present.',
+    'The pack should be described as a GDPR subset, not full GDPR compliance.',
+  ],
+  evidenceTypes: ['source code', 'repository fixtures', 'dependency manifests', 'privacy-notice signals', 'security-control signals'],
+};
+
+const GDPR_VALIDATION: PackValidation = {
+  status: 'internal_validated',
+  reviewedBy: 'AttestLens internal review',
+  reviewedAt: EMBEDDED_GDPR_PACK_GENERATED,
+  notes: [
+    'Coverage-bounded subset with automated tests and internal rule review.',
+    'No external legal or customer validation recorded.',
+  ],
+};
+
+const SG_PDPA_COVERAGE: JurisdictionCoverage = {
+  summary: 'Draft SG PDPA beta pack used as a portability proof for the jurisdiction-pack runtime. It covers only a small consent/notification/security subset and should not be used as production compliance coverage.',
+  includedPrinciples: Object.keys(SGPDPAPrincipleInfo),
+  excludedPrinciples: [
+    'PDPA obligations outside the current beta principle set',
+    'Business-process, consent-record, and access/correction workflows not visible in code',
+  ],
+  knownGaps: [
+    'Beta/stub pack with limited rule depth.',
+    'No external legal review, customer validation, or production gating validation recorded.',
+    'Draft status means results should be treated as advisory and review-oriented.',
+  ],
+  evidenceTypes: ['source code', 'repository fixtures'],
+};
+
+const SG_PDPA_VALIDATION: PackValidation = {
+  status: 'draft',
+  reviewedBy: 'AttestLens internal review',
+  reviewedAt: EMBEDDED_SG_PDPA_PACK_GENERATED,
+  notes: [
+    'Beta/stub portability proof.',
+    'Not validated for production blocking or legal completeness.',
+  ],
+};
+
+export function getEmbeddedJurisdictionCoverage(jurisdiction: Jurisdiction): JurisdictionCoverage {
+  switch (jurisdiction) {
+    case 'us-ccpa':
+      return CCPA_COVERAGE;
+    case 'eu-gdpr':
+      return GDPR_COVERAGE;
+    case 'sg-pdpa':
+      return SG_PDPA_COVERAGE;
+    case 'au-privacy-act':
+      return AU_COVERAGE;
+  }
+}
+
+export function getEmbeddedPackValidation(jurisdiction: Jurisdiction): PackValidation {
+  switch (jurisdiction) {
+    case 'us-ccpa':
+      return CCPA_VALIDATION;
+    case 'eu-gdpr':
+      return GDPR_VALIDATION;
+    case 'sg-pdpa':
+      return SG_PDPA_VALIDATION;
+    case 'au-privacy-act':
+      return AU_VALIDATION;
+  }
+}
 
 const app11Mapping: APPMapping = {
   principle: 'APP_11',
@@ -473,6 +605,8 @@ export function buildEmbeddedCCPAPack(): JurisdictionPackManifestType {
       citation: info.citation,
     })),
     rules: rulePack.rules,
+    coverage: getEmbeddedJurisdictionCoverage('us-ccpa'),
+    validation: getEmbeddedPackValidation('us-ccpa'),
   });
 }
 
@@ -500,6 +634,8 @@ export function buildEmbeddedGDPRPack(): JurisdictionPackManifestType {
       citation: info.citation,
     })),
     rules: rulePack.rules,
+    coverage: getEmbeddedJurisdictionCoverage('eu-gdpr'),
+    validation: getEmbeddedPackValidation('eu-gdpr'),
   });
 }
 
@@ -527,6 +663,8 @@ export function buildEmbeddedSGPDPAPack(): JurisdictionPackManifestType {
       citation: info.citation,
     })),
     rules: rulePack.rules,
+    coverage: getEmbeddedJurisdictionCoverage('sg-pdpa'),
+    validation: getEmbeddedPackValidation('sg-pdpa'),
   });
 }
 
@@ -556,6 +694,8 @@ export function buildEmbeddedJurisdictionPack(jurisdiction: Jurisdiction = 'au-p
       obligation: info.obligation,
     })),
     rules: rulePack.rules,
+    coverage: getEmbeddedJurisdictionCoverage('au-privacy-act'),
+    validation: getEmbeddedPackValidation('au-privacy-act'),
   });
 }
 
