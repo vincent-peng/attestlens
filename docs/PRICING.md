@@ -1,104 +1,143 @@
-# Clearway — Pricing
+# Pricing — Protected Repo/Pipeline Model
 
-**Last Updated:** 2026-05-01
-**Status:** Internal planning. Not public. Subject to change before launch.
-**Source:** GTM Debate consensus (3 agents, 3 rounds, unanimous)
-
----
-
-## Pricing Philosophy
-
-1. **Price by protected software surface** (repos/pipelines), not per-scan or per-seat
-2. **Unlimited scans** within a subscription — frequent agent preflights should feel free
-3. **Jurisdiction packs included** in paid plans — don't gate the core value
-4. **MCP is the free adoption wedge** — don't meter agent calls
-5. **CI enforcement + evidence retention is the monetized layer**
+**Status:** Use this as the current pricing source of truth.  
+**Decision:** Do not price as a low-cost indie tool. Price as an infrastructure gate.
 
 ---
 
-## Tiers
+## Pricing principle
 
-### Free — $0/mo
+Charge by protected software surface, not by human seat and not by scan count.
 
-- Local CLI scanning (code + URL)
-- MCP server (all 8 tools, local)
-- 1 private repo
-- Core jurisdiction packs (AU, US, EU)
-- Basic HTML/JSON reports
-- No retained evidence
-- Community support
+Why:
 
-### Pro — $99-199/mo per 5 protected repos/pipelines
-
-- Everything in Free
-- **Unlimited scans** per protected repo
-- CI deploy gating (GitHub Action, GitLab CI)
-- Opinion-grade verdicts with regulatory citations
-- Reform module + remediation suggestions
-- Agent-native report format
-- SMB compliance-check workflow
-- Full evidence retention (HTML, MD, JSON, PDF)
-- Severity-based blocking (configurable thresholds)
-- Slack/email alerts for new findings
-- Standard support
-
-### Enterprise — $15-50K+/yr
-
-- Everything in Pro
-- **Unlimited protected repos/pipelines**
-- SSO / SAML
-- Self-hosted option (air-gapped)
-- Custom jurisdiction packs (private/sector-specific)
-- Custom rule authoring pipeline
-- Team + org workflows
-- OneTrust / Jira / Slack integrations
-- Dedicated customer success manager
-- Custom compliance reporting
-- Named support + SLA
+- AI agents do not map cleanly to human seats.
+- Frequent scans are the desired behavior.
+- The value is protecting repos/pipelines from risky changes.
+- Customers should not hesitate before running another preflight check.
 
 ---
 
-## Feature Comparison
+## Recommended tiers
 
-| Feature | Free | Pro | Enterprise |
-|---|---|---|---|
-| Local CLI scan | ✅ | ✅ | ✅ |
-| URL scan | ✅ | ✅ | ✅ |
-| MCP server (8 tools) | ✅ | ✅ | ✅ |
-| Jurisdiction packs | AU, US, EU | AU, US, EU | All + custom |
-| Private repos | 1 | 5 per unit | Unlimited |
-| Scans per repo | Unlimited | Unlimited | Unlimited |
-| CI deploy gating | ❌ | ✅ | ✅ |
-| Opinion-grade verdicts | ❌ | ✅ | ✅ |
-| Reform module | ❌ | ✅ | ✅ |
-| Agent-native format | ❌ | ✅ | ✅ |
-| Evidence retention | ❌ | ✅ | ✅ |
-| Severity-based blocking | ❌ | ✅ | ✅ |
-| Alerts (Slack/email) | ❌ | ✅ | ✅ |
-| SSO | ❌ | ❌ | ✅ |
-| Self-hosted | ❌ | ❌ | ✅ |
-| Custom packs | ❌ | ❌ | ✅ |
-| Governance integrations | ❌ | ❌ | ✅ |
-| Support | Community | Standard | Named + SLA |
+### Free — $0
+
+For adoption and local experimentation.
+
+Includes:
+
+- Local CLI scan.
+- MCP server.
+- One protected private repo.
+- Basic AU/CCPA/GDPR pack access.
+- JSON/HTML/agent output.
+- No hosted evidence retention.
+- Community support.
+
+### Pro — $199/month per 5 protected repos or pipelines
+
+For startups and small teams.
+
+Includes:
+
+- Unlimited scans per protected repo/pipeline.
+- CI deploy gating.
+- SARIF output.
+- Agent-native output.
+- Opinion/deploy decision output.
+- Evidence retention in local artifacts.
+- Suppression config.
+- Basic support.
+- AU + CCPA + GDPR coverage-bounded packs.
+
+### Team — $499/month per 15 protected repos or pipelines
+
+For growing SaaS teams.
+
+Includes Pro plus:
+
+- Team policy config.
+- Multi-jurisdiction matrix scans.
+- PR-diff mode.
+- Slack/email webhook alerts.
+- Evidence trend exports.
+- Priority support.
+
+### Enterprise — $15k-$50k+/year
+
+For regulated or larger companies.
+
+Includes Team plus:
+
+- Self-hosted or air-gapped deployment.
+- SSO/SAML.
+- Custom/private jurisdiction packs.
+- Private rule validation workflow.
+- Legal/privacy partner review workflow.
+- Governance integrations such as Vanta/Drata/OneTrust/Jira/Slack.
+- Dedicated support and SLA.
 
 ---
 
-## Why NOT Per-Scan or Per-Seat
+## Design partner pricing
 
-**Per-scan** penalizes the exact behavior we want (frequent CI checks, agent preflights before every merge). If scanning costs money, teams scan less. Less scanning = more violations shipped.
+Do not run unlimited free pilots.
 
-**Per-seat** breaks in the agent era. AI coding agents don't have headcounts. Autonomous PRs from agents should trigger compliance checks without counting as a "seat."
+Suggested options:
 
-**Protected surface** aligns price to value: we're protecting your repos/pipelines from privacy-law violations. More repos = more value = more revenue. Scans are just how you realize that value.
+1. **Paid pilot:** $500-$2,000 for a two- to four-week founder-led pilot.
+2. **Free pilot with conversion path:** free two-week shadow scan, then $199/month if they keep it in CI.
+3. **Enterprise discovery pilot:** $5k for custom rules or private pack validation.
+
+Every pilot should have a conversion conversation upfront.
 
 ---
 
-## HoundDog / Privado Pricing Context
+## What not to do
 
-| | Free | Paid | Enterprise |
-|---|---|---|---|
-| **HoundDog** | $0 (limited) | $100/yr per dev | Custom |
-| **Privado** | OSS scanner | $4,200/mo (200 devs) | Custom |
-| **Clearway** | $0 (full CLI+MCP) | $99-199/mo per 5 repos | $15-50K+/yr |
+Do not price per scan.
 
-See `docs/COMPETITIVE-LANDSCAPE.md` for detailed competitive analysis.
+Do not price per agent call.
+
+Do not start at $29/month for the primary Pro tier. That signals “side-project devtool,” not “critical policy gate.” A lower introductory price is fine for early design partners, but the list price should reflect infrastructure value.
+
+---
+
+## Packaging by customer stage
+
+### Solo developer / open source
+
+Free local CLI + MCP.
+
+Goal: adoption and public examples.
+
+### Seed-stage SaaS
+
+$199/month.
+
+Goal: get into CI before they have a full security/privacy team.
+
+### Series A/B SaaS
+
+$499/month or $5k/year.
+
+Goal: multiple repos, agent workflows, international packs.
+
+### Enterprise
+
+$15k-$50k/year.
+
+Goal: self-hosting, custom packs, validation workflows, governance integrations.
+
+---
+
+## Pricing test in pilots
+
+Ask directly:
+
+- Would you pay $199/month to keep this in CI?
+- Would you pay $499/month if it covered all repos with evidence retention?
+- Would you pay for custom rules or private pack validation?
+- Would this budget come from engineering, security, privacy, or compliance?
+
+The answer matters more than the list price.

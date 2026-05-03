@@ -1,60 +1,105 @@
-# Clearway — Documentation Index
+# Clearway Documentation Index
 
-**Last Updated:** 2026-05-01
+**Product:** Clearway by AttestLens  
+**Current positioning:** Deterministic privacy deploy gate for AI-generated software  
+**Status:** International YC reset
 
-## Quick Links
+---
 
-| Doc | What | Status |
-|---|---|---|
-| [STATUS.md](STATUS.md) | Current baseline, phase history, risks | ✅ Current (2026-05-01) |
-| [ROADMAP.md](ROADMAP.md) | Upcoming phases, launch sequence, revenue model | ✅ Current (2026-05-01) |
-| [PRICING.md](PRICING.md) | Tier structure, feature comparison, pricing philosophy | ✅ Current (2026-05-01) |
-| [COMPETITIVE-LANDSCAPE.md](COMPETITIVE-LANDSCAPE.md) | HoundDog + Privado deep-dive, Clearway differentiation | ✅ Current (2026-05-01) |
-| [YC-APPLICATION.md](YC-APPLICATION.md) | YC S26 draft (deploy gate positioning) | ✅ Current (2026-05-01) |
-| [DESIGN-PARTNER-STRATEGY.md](DESIGN-PARTNER-STRATEGY.md) | Target list, pilot structure, success plan | ✅ Current (2026-05-01) |
-| [WEB-PRESENCE.md](WEB-PRESENCE.md) | Landing page (yes), web portal (no, post-1.0) | ✅ Current (2026-05-01) |
-| [GTM-DEBATE-RESULTS.md](GTM-DEBATE-RESULTS.md) | Pricing, design partners, competition, launch, buyer, MCP | ✅ Current (2026-05-01) |
-| [GAP-ANALYSIS.md](GAP-ANALYSIS.md) | 17 gaps across codebase, strategy, product, docs | ✅ Current (2026-05-01) |
+## Start here
 
-## Design Docs
+| Doc | Purpose |
+| --- | --- |
+| [README.md](../README.md) | Public product story and quickstart |
+| [YC-APPLICATION.md](YC-APPLICATION.md) | YC-facing narrative and application draft |
+| [INTERNATIONAL-STRATEGY.md](INTERNATIONAL-STRATEGY.md) | Multi-jurisdiction strategy without overclaiming |
+| [ROADMAP.md](ROADMAP.md) | Validation-first roadmap |
+| [IMPLEMENTATION-PHASES-CODEX.md](IMPLEMENTATION-PHASES-CODEX.md) | Phase-by-phase implementation prompts for Codex |
 
-| Doc | What | Status |
-|---|---|---|
-| [PHASE-10-GLOBAL-SCHEMA-DECOUPLING.md](PHASE-10-GLOBAL-SCHEMA-DECOUPLING.md) | Phase 10-lite: minimum schema decoupling for jurisdiction portability | ✅ Ready to implement |
-| [RULE-AUTHORING-PIPELINE.md](RULE-AUTHORING-PIPELINE.md) | Phase 11: AI-assisted rule creation from legislation (offline only) | ✅ Design proposal |
-| [RULE-UPDATE-PIPELINE.md](RULE-UPDATE-PIPELINE.md) | Rule update pipeline & rapid response architecture | ⚠️ Foundation shipped; future features deferred |
-| [SUPPLY-CHAIN-DETECTION.md](SUPPLY-CHAIN-DETECTION.md) | Supply chain / dependency detection architecture | ⚠️ Shipped — see STATUS.md for current status |
-| [CI-INTEGRATION.md](CI-INTEGRATION.md) | CI/CD integration guide | ⚠️ Exists, needs GitHub Action template |
-| [RESEARCH-PHASE-10.5-11.md](RESEARCH-PHASE-10.5-11.md) | Phase 10.5 + 11 best practices research (merged) | ✅ Research complete |
-| [RESEARCH-PHASE-10.5-11-SUPPLEMENT.md](RESEARCH-PHASE-10.5-11-SUPPLEMENT.md) | Codex cross-examination findings (archived) | ✅ Archived (merged into main) |
+---
 
-## Strategy & Research
+## Go-to-market and validation
 
-| Doc | What | Status |
-|---|---|---|
-| [YC-RFS-EVOLUTION.md](YC-RFS-EVOLUTION.md) | Three-layer product thesis, RFS category mapping | ✅ Current |
-| [INTERNATIONAL-STRATEGY.md](INTERNATIONAL-STRATEGY.md) | Multi-jurisdiction expansion strategy | ✅ Current |
-| [JURISDICTION-RESEARCH.md](JURISDICTION-RESEARCH.md) | CCPA/CPRA & GDPR research base for packs 7-8 | ✅ Reference (implemented) |
-| [DEBATE-RESULTS.md](DEBATE-RESULTS.md) | Debate #1: positioning, architecture, phases 10-11 | ✅ Reference |
-| [INTERNATIONAL-DEBATE.md](INTERNATIONAL-DEBATE.md) | Debate #1 full transcript | ✅ Archive |
+| Doc | Purpose |
+| --- | --- |
+| [DESIGN-PARTNER-VALIDATION.md](DESIGN-PARTNER-VALIDATION.md) | 30-day design partner sprint |
+| [PRICING.md](PRICING.md) | Protected repo/pipeline pricing model |
+| [COMPETITIVE-POSITIONING-INTERNATIONAL.md](COMPETITIVE-POSITIONING-INTERNATIONAL.md) | How to position against scanners, GRC, and frontier models |
+| [COMPETITIVE-LANDSCAPE.md](COMPETITIVE-LANDSCAPE.md) | Existing deep dive on HoundDog and Privado |
 
-## Archived
+---
 
-| Doc | What | Why Archived |
-|---|---|---|
-| [COMPETITIVE-GAP-ANALYSIS.md](COMPETITIVE-GAP-ANALYSIS.md) | Pre-internationalization vibe-scanner competitive data | Superseded by COMPETITIVE-LANDSCAPE.md for direct competitors. Retained for vibe-scanner market data. |
+## Technical docs
 
-## Doc Update Checklist
+| Doc | Purpose | Status |
+| --- | --- | --- |
+| [CI-INTEGRATION.md](CI-INTEGRATION.md) | CI/CD setup and SARIF workflows | Needs update after workflow PR |
+| [RULE-AUTHORING-PIPELINE.md](RULE-AUTHORING-PIPELINE.md) | AI-assisted, human-validated rule drafting | Needs update to reflect shipped implementation |
+| [RESEARCH-PHASE-10.5-11.md](RESEARCH-PHASE-10.5-11.md) | SARIF/MCP/rule-authoring research | Keep as reference |
+| [SUPPLY-CHAIN-DETECTION.md](SUPPLY-CHAIN-DETECTION.md) | Supply-chain detection architecture | Keep as reference |
+| [RULE-UPDATE-PIPELINE.md](RULE-UPDATE-PIPELINE.md) | Rule update architecture | Keep as reference |
 
-All docs updated to reflect:
-- [x] New positioning: "The deploy gate for AI privacy risk"
-- [x] GTM debate consensus (pricing, design partners, competition, launch, buyer, MCP)
-- [x] Competitive landscape deep-dive (HoundDog + Privado)
-- [x] Updated pricing (protected surface model, not per-seat)
-- [x] Web presence decision (landing page yes, portal no)
-- [x] Updated test count (504)
-- [x] Phase 10-lite as next focus
-- [x] Phase 10.5 (GitHub Action + MCP recipes) added to roadmap
-- [x] Design partner target list with ranked companies
-- [x] YC app draft updated with deploy gate positioning + competitors section
-- [x] Phase 10.5/11 research: SARIF, GitHub Actions, MCP distribution, rule authoring
+---
+
+## Operational docs
+
+| Doc | Purpose |
+| --- | --- |
+| [STATUS.md](STATUS.md) | Current implementation status |
+| [GAP-ANALYSIS.md](GAP-ANALYSIS.md) | Known gaps and risks |
+| [DOCS-CONSOLIDATION-PLAN.md](DOCS-CONSOLIDATION-PLAN.md) | What to keep, replace, and archive |
+
+---
+
+## Archive candidates
+
+Move to `docs/archive/` after the reset lands:
+
+| Doc | Reason |
+| --- | --- |
+| `YC-RFS-EVOLUTION.md` | Superseded by YC application + roadmap |
+| `INTERNATIONAL-DEBATE.md` | Debate transcript, not canonical |
+| `DEBATE-RESULTS.md` | Debate output, not canonical |
+| `GTM-DEBATE-RESULTS.md` | Internal planning archive |
+| `RESEARCH-PHASE-10.5-11-SUPPLEMENT.md` | Merged/supplemental archive |
+| `PHASE-10-GLOBAL-SCHEMA-DECOUPLING.md` | Historical phase doc; appears implemented |
+| `COMPETITIVE-GAP-ANALYSIS.md` | Already superseded by competitive landscape |
+
+---
+
+## Canonical product language
+
+Use this:
+
+> Clearway is the deterministic privacy deploy gate for AI-generated software.
+
+Avoid this:
+
+- global compliance engine,
+- AI auditor,
+- generic privacy scanner,
+- legal advice,
+- company brain as primary product,
+- AU-only compliance tool.
+
+---
+
+## Canonical command pattern
+
+Use:
+
+```bash
+npx -y --package @attestlens/cli@beta attestlens audit . --jurisdiction eu-gdpr --opinion --format agent
+```
+
+For MCP:
+
+```bash
+npx -y --package @attestlens/cli@beta attestlens-mcp
+```
+
+---
+
+## Canonical YC demo
+
+> Agent creates privacy-risky PR → Clearway runs in CI/MCP → gate returns BLOCK/WARN/NEEDS_REVIEW with evidence → agent fixes → gate passes.
