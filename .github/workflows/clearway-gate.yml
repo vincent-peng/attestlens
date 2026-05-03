@@ -1,0 +1,120 @@
+name: Clearway Privacy Gate
+
+on:
+  pull_request:
+
+permissions:
+  actions: read
+  contents: read
+  security-events: write
+
+jobs:
+  clearway:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - run: npm ci
+
+      - run: npm run build
+
+      # Advisory mode for the repository: SARIF visibility without blocking the PR.
+      # Switch to blocking only after false positives are measured:
+      #   node dist/cli/index.js audit . --format sarif --sarif-output clearway.sarif --fail-on-severity error
+      - name: Run Clearway advisory scan
+        run: |
+          node dist/cli/index.js audit . \
+            --jurisdiction au-privacy-act \
+            --opinion \
+            --format sarif \
+            --sarif-output clearway.sarif \
+            --no-guardvibe \
+            --no-mcp-scan \
+            --no-fail
+
+      - name: Remove intentional demo fixture from advisory SARIF
+        run: |
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+
+          const sarifPath = 'clearway.sarif';
+          const sarif = JSON.parse(fs.readFileSync(sarifPath, 'utf8'));
+          for (const run of sarif.runs ?? []) {
+            run.results = (run.results ?? []).filter((result) => {
+              return !(result.locations ?? []).some((location) => {
+                const uri = location.physicalLocation?.artifactLocation?.uri ?? '';
+                return uri.startsWith('demo/agent-pr-privacy-risk/fail/');
+              });
+            });
+          }
+          fs.writeFileSync(sarifPath, `${JSON.stringify(sarif, null, 2)}\n`);
+          NODE
+
+      - name: Upload Clearway SARIF
+        if: ${{ always() && hashFiles('clearway.sarif') != '' }}
+        uses: github/codeql-action/upload-sarif@v4
+        with:
+          sarif_file: clearway.sarif
+          category: clearway-privacy
+
+      # Blocking demo fixture. This proves the deploy gate can fail on a
+      # deterministic high-confidence issue without making main permanently fail.
+      - name: Verify blocking gate fixture fails
+        run: |
+          set +e
+          node dist/cli/index.js audit demo/agent-pr-privacy-risk/fail \
+            --jurisdiction au-privacy-act \
+            --format sarif \
+            --sarif-output clearway-demo-fail.sarif \
+            --no-guardvibe \
+            --no-mcp-scan \
+            --no-supply-chain \
+            --no-behavioral \
+            --fail-on-severity error
+          gate_status=$?
+          set -e
+          if [ "$gate_status" -ne 1 ]; then
+            echo "Expected the failing fixture to exit 1 for a blocking finding, but Clearway exited $gate_status."
+            exit 1
+          fi
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+
+          const sarifPath = 'clearway-demo-fail.sarif';
+          if (!fs.existsSync(sarifPath)) {
+            throw new Error('Expected clearway-demo-fail.sarif to be written.');
+          }
+          const sarif = JSON.parse(fs.readFileSync(sarifPath, 'utf8'));
+          const results = (sarif.runs ?? []).flatMap((run) => run.results ?? []);
+          const expectedRuleId = 'AU.APP.11.1.dockerfile-explicitly-runs-as-root';
+          if (!results.some((result) => result.ruleId === expectedRuleId)) {
+            throw new Error(`Expected SARIF to contain ${expectedRuleId}.`);
+          }
+          NODE
+
+      - name: Verify remediated fixture passes
+        run: |
+          node dist/cli/index.js audit demo/agent-pr-privacy-risk/pass \
+            --jurisdiction au-privacy-act \
+            --format sarif \
+            --sarif-output clearway-demo-pass.sarif \
+            --no-guardvibe \
+            --no-mcp-scan \
+            --no-supply-chain \
+            --no-behavioral \
+            --fail-on-severity error
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+
+          const sarif = JSON.parse(fs.readFileSync('clearway-demo-pass.sarif', 'utf8'));
+          const results = (sarif.runs ?? []).flatMap((run) => run.results ?? []);
+          if (results.length !== 0) {
+            throw new Error(`Expected remediated fixture SARIF to have no results, found ${results.length}.`);
+          }
+          NODE

@@ -33,7 +33,7 @@
 
 | Doc | Purpose | Status |
 | --- | --- | --- |
-| [CI-INTEGRATION.md](CI-INTEGRATION.md) | CI/CD setup and SARIF workflows | Updated command pattern; still needs real workflow PR |
+| [CI-INTEGRATION.md](CI-INTEGRATION.md) | CI/CD setup and SARIF workflows | Real workflow artifact added; tune thresholds after pilot feedback |
 | [RESEARCH-PHASE-10.5-11.md](RESEARCH-PHASE-10.5-11.md) | SARIF/MCP/rule-authoring research | Keep as reference |
 | [SUPPLY-CHAIN-DETECTION.md](SUPPLY-CHAIN-DETECTION.md) | Supply-chain detection architecture | Keep as reference; external incident claims should be re-verified before public use |
 | [ADAPTER-STRATEGY-DEBATE.md](ADAPTER-STRATEGY-DEBATE.md) | LLM scanner adapter strategy | Reference only; market claims need re-verification |

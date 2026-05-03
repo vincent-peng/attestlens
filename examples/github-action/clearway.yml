@@ -1,0 +1,51 @@
+name: Clearway Privacy Gate
+
+on:
+  pull_request:
+
+permissions:
+  actions: read
+  contents: read
+  security-events: write
+
+jobs:
+  clearway:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      # Advisory mode: creates SARIF visibility but does not block the PR.
+      - name: Run Clearway advisory scan
+        run: |
+          npx -y --package @attestlens/cli@beta attestlens audit . \
+            --jurisdiction au-privacy-act \
+            --opinion \
+            --format sarif \
+            --sarif-output clearway.sarif \
+            --no-fail
+
+      # SARIF upload is separate from CI blocking. Keep if: always() so GitHub
+      # receives annotations even when you later enable a non-zero gate exit.
+      - name: Upload Clearway SARIF
+        if: ${{ always() && hashFiles('clearway.sarif') != '' }}
+        uses: github/codeql-action/upload-sarif@v4
+        with:
+          sarif_file: clearway.sarif
+          category: clearway-privacy
+
+      # Blocking mode after tuning:
+      # - remove --no-fail above
+      # - add --fail-on-severity error
+      #
+      # Example:
+      # npx -y --package @attestlens/cli@beta attestlens audit . \
+      #   --jurisdiction au-privacy-act \
+      #   --opinion \
+      #   --format sarif \
+      #   --sarif-output clearway.sarif \
+      #   --fail-on-severity error

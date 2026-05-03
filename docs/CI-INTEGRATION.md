@@ -6,6 +6,43 @@ Clearway is a technical deploy gate, not legal advice. Start in advisory mode, m
 
 ---
 
+## In this repository
+
+This repo includes two GitHub Actions workflows:
+
+- `.github/workflows/ci.yml` runs TypeScript validation, tests, and build.
+- `.github/workflows/clearway-gate.yml` builds the local package, generates SARIF for the repo in advisory mode, filters intentional demo-fixture findings from the uploaded advisory SARIF, and verifies a deterministic failing/passing demo fixture.
+
+The internal Clearway workflow does not make `main` permanently fail. It runs the repository scan in advisory mode, then proves blocking behavior against `demo/agent-pr-privacy-risk/fail` and proves the remediated version passes against `demo/agent-pr-privacy-risk/pass`.
+
+Run the same fixture locally:
+
+```bash
+npx -y --package @attestlens/cli@beta attestlens audit demo/agent-pr-privacy-risk/fail \
+  --jurisdiction au-privacy-act \
+  --format sarif \
+  --sarif-output clearway.sarif \
+  --no-guardvibe \
+  --no-mcp-scan \
+  --no-supply-chain \
+  --no-behavioral \
+  --fail-on-severity error
+
+npx -y --package @attestlens/cli@beta attestlens audit demo/agent-pr-privacy-risk/pass \
+  --jurisdiction au-privacy-act \
+  --format sarif \
+  --sarif-output clearway-pass.sarif \
+  --no-guardvibe \
+  --no-mcp-scan \
+  --no-supply-chain \
+  --no-behavioral \
+  --fail-on-severity error
+```
+
+The first command should exit non-zero. The second should pass. Both generate SARIF.
+
+---
+
 ## Copy-paste advisory workflow
 
 Add this to `.github/workflows/clearway-advisory.yml`:
@@ -17,6 +54,7 @@ on:
   pull_request:
 
 permissions:
+  actions: read
   contents: read
   security-events: write
 
@@ -40,7 +78,7 @@ jobs:
             --no-fail
 
       - name: Upload SARIF
-        if: always()
+        if: ${{ always() && hashFiles('clearway.sarif') != '' }}
         uses: github/codeql-action/upload-sarif@v4
         with:
           sarif_file: clearway.sarif
@@ -62,6 +100,7 @@ on:
   pull_request:
 
 permissions:
+  actions: read
   contents: read
   security-events: write
 
@@ -85,7 +124,7 @@ jobs:
             --fail-on-severity error
 
       - name: Upload SARIF
-        if: always()
+        if: ${{ always() && hashFiles('clearway.sarif') != '' }}
         uses: github/codeql-action/upload-sarif@v4
         with:
           sarif_file: clearway.sarif
@@ -93,6 +132,8 @@ jobs:
 ```
 
 The build fails through the CLI exit code, not because SARIF itself blocks the PR. SARIF is for annotations and visibility.
+
+For a complete copy-paste workflow, see `examples/github-action/clearway.yml`.
 
 ---
 
