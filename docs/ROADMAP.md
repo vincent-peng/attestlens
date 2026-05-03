@@ -1,132 +1,302 @@
-# Clearway by AttestLens — Roadmap
+# Roadmap — International Agent Privacy Gate
 
-**Last Updated:** 2026-05-01
-**Positioning:** The deploy gate for AI privacy risk. Multi-jurisdiction. Opinion-grade. Agent-native.
-**North Star:** `docs/YC-RFS-EVOLUTION.md`
-
----
-
-## Current Focus
-
-**Phase 10-lite: Schema Decoupling** — Minimum changes to prove a new jurisdiction pack flows end-to-end without touching AU schema types.
-
-All phases 1-9 shipped. Baseline: 504 tests passing, tsc clean, 8 MCP tools, 3 jurisdiction packs.
+**Status:** Replace older roadmap with this reset.  
+**Core decision:** Continue, but stop building broad features until validation proves the gate.  
+**North star:** Clearway becomes the default policy gate for AI agents that touch customer data.
 
 ---
 
-## Three Layers
+## Current product baseline
 
+Already shipped or mostly shipped:
+
+- CLI and npm package.
+- MCP server with 8 tools.
+- SARIF output and exit-threshold controls.
+- Deterministic opinion engine.
+- AU, CCPA, GDPR, SG PDPA jurisdiction packs in varying maturity.
+- AI-assisted rule-authoring pipeline with human review.
+- Local/offline-first runtime.
+
+Main gap:
+
+> Customer validation is weaker than implementation progress.
+
+Therefore, the next roadmap must prioritize validation and deploy-gate proof over new feature breadth.
+
+---
+
+## Roadmap principles
+
+1. **No more broad jurisdictions before pilots.** Add depth and validation, not breadth.
+2. **No unvalidated compliance claims.** Coverage and validation status must be visible in every report.
+3. **Gate before dashboard.** CI/MCP/PR workflow matters more than web UI.
+4. **PR-diff before full-repo perfection.** Agents ship changes, so assess changes.
+5. **High-confidence blocking only.** Everything else is advisory or needs review.
+6. **Design partners create the moat.** Real false-positive data matters more than more static rules.
+
+---
+
+## Phase 0 — Immediate stop/go validation sprint
+
+**Timebox:** 7 days  
+**Goal:** Decide whether customers want a privacy deploy gate.
+
+### Work
+
+- Fix public commands in README and docs.
+- Add a simple CI workflow in this repo showing Clearway as a gate.
+- Build one demo PR that fails then passes.
+- Contact 50 targeted companies/founders/security leads.
+- Offer local shadow-mode scans.
+- Log every call and objection.
+
+### Acceptance criteria
+
+- 10 calls booked or completed.
+- 3 companies agree to run a scan or see a live repo demo.
+- At least 1 agrees to a two-week pilot or gives a strong “we need this” signal.
+
+### Kill/pivot signal
+
+- Fewer than 5 calls from 50 targeted messages.
+- Nobody wants this in CI or MCP.
+- All interest is “send me a report,” not “gate my agent PRs.”
+
+---
+
+## Phase 1 — Product narrative and docs reset
+
+**Timebox:** 1–2 days  
+**Goal:** Make the repo tell one clear international story.
+
+### Work
+
+- Replace README with agent privacy deploy gate framing.
+- Replace YC application doc with international agent-gate narrative.
+- Replace International Strategy with jurisdiction-pack runtime strategy.
+- Replace Roadmap with this validation-first plan.
+- Update Pricing to protected repo/pipeline model.
+- Update INDEX and archive old debate/RFS docs.
+
+### Acceptance criteria
+
+- A new reader understands in 60 seconds:
+  - who Clearway is for,
+  - what action it gates,
+  - why agents make this urgent,
+  - what jurisdictions are supported,
+  - what is validated vs early.
+
+---
+
+## Phase 2 — Real deploy-gate artifact
+
+**Timebox:** 2–3 days  
+**Goal:** Make “deploy gate” undeniable.
+
+### Work
+
+- Add `.github/workflows/clearway-gate.yml` to this repo.
+- Add `examples/github-action/` with a copy-paste workflow.
+- Add demo fixture repo or `demo/agent-pr-privacy-risk/`.
+- Add `docs/DEMO-SCRIPT.md` for YC/demo calls.
+- Ensure SARIF output works even when the scan fails.
+- Ensure failure threshold is independent from SARIF severity.
+
+### Acceptance criteria
+
+- Demo PR fails on a known high-confidence privacy/security issue.
+- After remediation, the same PR passes.
+- SARIF is uploaded or generated.
+- Agent-format JSON is compact and suitable for MCP clients.
+
+---
+
+## Phase 3 — Pack trust and coverage boundaries
+
+**Timebox:** 3–5 days  
+**Goal:** International without overclaiming.
+
+### Work
+
+Add metadata to each jurisdiction pack:
+
+```ts
+coverage: {
+  summary: string;
+  includedPrinciples: string[];
+  excludedPrinciples: string[];
+  knownGaps: string[];
+  evidenceTypes: string[];
+}
+validation: {
+  status: 'draft' | 'internal_validated' | 'external_reviewed' | 'customer_validated' | 'legal_partner_validated';
+  reviewedBy?: string;
+  reviewedAt?: string;
+  notes?: string[];
+}
 ```
-Layer 3: Compliance Brain        🔮 Defer — emerges from monitoring data
-Layer 2: Compliance Service      ✅ Shipped — opinion-grade + agent-native + reform + SMB + multi-jurisdiction
-Layer 1: Agent Infrastructure    ✅ Shipped — MCP, CLI, structured output, monitoring
+
+Update report/opinion behavior:
+
+- Unvalidated packs cannot emit broad `COMPLIANT` conclusions.
+- Reports must show pack validation status and coverage boundaries.
+- `BLOCK` should be allowed only for high-confidence deterministic checks.
+- `NEEDS_REVIEW` should be the default for legal/contextual obligations.
+
+### Acceptance criteria
+
+- Each pack has visible coverage boundaries.
+- Reports show validation status.
+- CCPA/GDPR subset packs do not imply full compliance.
+- Tests prove unvalidated packs cannot emit overbroad compliant verdicts.
+
+---
+
+## Phase 4 — PR-diff and agent metadata mode
+
+**Timebox:** 1 week  
+**Goal:** Make the product agent-native rather than scanner-native.
+
+### Work
+
+Add a PR/diff mode:
+
+```bash
+attestlens audit --diff-base origin/main --diff-head HEAD --jurisdiction eu-gdpr --format agent
 ```
 
----
+Capture metadata:
 
-## Shipped Milestones
+- commit SHA,
+- PR number if available,
+- changed files,
+- added routes/endpoints,
+- added dependencies,
+- added environment variables,
+- agent/coding-tool hints if available,
+- author/committer type.
 
-| Milestone | What | Date |
-|-----------|------|------|
-| M1 | Core schema, scanner adapters, orchestrator, APP/NDB mapping, CLI, MCP server | Apr 2026 |
-| M1.5 | URL scanner, SSRF hardening, stack-specific checks, PDF reports, validation corpus | Apr 2026 |
-| M2 | Questionnaire engine, assessment-basis modes, merged reports, breach readiness, consultant narratives | Apr 2026 |
-| M2.5 | Rule freshness: typed manifests, embedded rules, cache fallback, update command | Apr 2026 |
-| M3 | OSV integration, provenance, dynamic confidence, timeouts, behavioral analysis, gitleaks, SAST-lite, IaC, dedup, maturity | Apr 2026 |
-| Continuous Monitoring | Webhook receiver, baselines, regression detection, job queue, reporter | Apr 2026 |
-| Phase 1 | Opinion-grade assessments and deterministic compliance opinions | Apr 2026 |
-| Phase 2 | Agent-native output mode, single-principle checks, CI integration | Apr 2026 |
-| Phase 3 | Privacy Act reform module and remediation suggestions | Apr 2026 |
-| Phase 4 | SMB compliance tier and compliance-check workflow | Apr 2026 |
-| Phase 5A | MCP protocol hardening and security audit fixes | Apr 2026 |
-| Phase 5 | Sellable gate: README, v0.3.0 positioning, changelog, pricing | Apr 2026 |
-| Phase 6 | Jurisdiction abstraction and pack manifest v2 | Apr 2026 |
-| Phase 7 | US CCPA/CPRA jurisdiction pack | Apr 2026 |
-| Phase 8 | EU GDPR subset jurisdiction pack and multi-jurisdiction report generator | Apr 2026 |
-| Phase 9 | YC App Prep — demo, design partner strategy, application essay | Apr 2026 |
+Output should answer:
 
----
+> “What privacy-relevant thing changed in this PR?”
 
-## Upcoming Phases
+Not just:
 
-### Phase 10-lite: Schema Decoupling (3-5 days)
-**Goal:** Prove a new jurisdiction pack flows end-to-end without touching AU schema types.
+> “What issues exist in this repo?”
 
-- Add `RegulationMapping` as primary path alongside `APPMapping` (backward compat)
-- Add `RegulationPrinciple` + `PrincipleRegistry` for jurisdiction-aware lookups
-- Add `regulationMappings` on findings, `regulationPrinciple` on questions (parallel fields)
-- Flip `appMappings` required → optional; `regulationMappings` optional → required
-- Fix `validatePrinciple()` to be jurisdiction-aware via `PrincipleRegistry`
-- **Design doc:** `docs/PHASE-10-GLOBAL-SCHEMA-DECOUPLING.md`
+### Acceptance criteria
 
-### Phase 10.5: GitHub Action + MCP Recipes (1-2 days)
-**Goal:** Ship the "deploy gate" story with actual artifacts.
-
-- Copy-paste GitHub Action YAML for CI integration
-- MCP setup recipes for Cursor, Claude Code, Codex
-- Agent policy examples ("run clearway check before merge")
-- Local preflight command docs for agent workflows
-
-### Phase 11: Rule Authoring Pipeline (1-2 weeks)
-**Goal:** Ship "law-to-blocked-build" demo — legal text → cited rules + tests + mappings → human approves → blocks a build.
-
-- AI-assisted rule creation from legislation text (offline only)
-- Human validation step before rules enter packs
-- Runtime stays deterministic (zero LLM)
-- **Design doc:** `docs/RULE-AUTHORING-PIPELINE.md`
-
-### Phase 12: Post-MVP Enhancements (after design partner feedback)
-- PII taint tracking (biggest technical gap vs. HoundDog)
-- Shadow AI detection
-- IDE plugins (VS Code, Cursor, IntelliJ)
-- Confidence/false-positive classification on findings
-- Docker image
-- Standalone binary distribution
+- Reports include changed-files summary.
+- Findings can be marked `introducedInDiff: true`.
+- Agent output prioritizes newly introduced issues.
+- CI can run diff mode on pull requests.
 
 ---
 
-## Launch Sequence
+## Phase 5 — Evidence graph lite
 
-1. **Phase 10-lite** → npm v0.4.0-beta publish (proves distribution)
-2. **Design partner pilots** → 6-8 weeks, AU mid-market
-3. **Phase 10.5** → CI deploy gate artifacts for pilots
-4. **Phase 11** → Rule authoring demo (differentiation)
-5. **v0.5/0.6** → Iterate on pilot feedback
-6. **v1.0** → Only after stable schemas + live CI deployments + 3 design partners
+**Timebox:** 1–2 weeks  
+**Goal:** Build moat without pretending to be a full GRC tool.
 
----
+### Work
 
-## Jurisdiction Packs
+Create a lightweight evidence model:
 
-| Jurisdiction | Status | Principles | Scanner Rules | Questionnaire |
-|---|---|---|---|---|
-| 🇦🇺 au-privacy-act | ✅ Live | 13 APP + NDB | 68 rules | 64 questions |
-| 🇺🇸 us-ccpa | ✅ Live | 12 CCPA principles | 6 rules | 14 questions |
-| 🇪🇺 eu-gdpr | ✅ Live | 14 GDPR principles | 6 rules | 20 questions |
-| Next | ⏳ After validation | Pick from design-partner demand | | |
+```ts
+Claim -> Evidence -> Control -> Jurisdiction -> Verdict
+```
 
-Expansion rule: add jurisdictions only when a buyer, design partner, or launch narrative needs them.
+Examples:
 
----
+- Claim: “This PR introduces a new data collection route.”
+- Evidence: changed route file + request body schema + log statement.
+- Control: GDPR Art. 13 transparency, Art. 6 lawful basis, APP 5 notification.
+- Verdict: needs review.
 
-## The July 2026 Window
+Store evidence locally in reports first. Do not build a hosted brain yet.
 
-| Date | What |
-|------|------|
-| 1 Jul 2026 | 100K+ SMBs fall under Privacy Act (AML/CTF reforms) — **VERIFY THIS CLAIM** |
-| 10 Dec 2026 | Automated decision-making transparency requirements |
-| 10 Dec 2026 | Children's Online Privacy Code obligations |
+### Acceptance criteria
 
-⚠️ The "100K businesses" claim needs verification before using in YC pitch. Research in progress.
+- Each opinion can show evidence chain.
+- Human reviewer can see exactly why the gate warned/blocked.
+- Repeated scans can compare previous evidence to new evidence.
 
 ---
 
-## Revenue Model
+## Phase 6 — Taint-lite / data-flow minimum viable depth
 
-Matches `docs/PRICING.md`. Updated per GTM debate consensus.
+**Timebox:** 2–4 weeks, only after pilots  
+**Goal:** Close the biggest technical gap without trying to rebuild HoundDog.
 
-| Tier | Price | What | Layer |
-|-------|-------|------|-------|
-| Free | $0 | CLI + MCP, 1 private repo, core packs, basic reports | Layer 1 |
-| Pro | $99-199/mo per 5 repos | Unlimited scans, CI gating, opinions, evidence retention, alerts | Layer 2 |
-| Enterprise | $15-50K+/yr | SSO, self-hosted, custom packs, integrations, named support | Layer 2+ |
+### Work
+
+Do not build full taint tracking immediately. Start with “taint-lite”:
+
+- detect PII-like fields in schemas/forms/routes,
+- detect sinks: logs, analytics SDKs, external HTTP calls, DB writes, LLM prompts,
+- connect source file to sink file when obvious,
+- produce route-level data-flow summaries.
+
+### Acceptance criteria
+
+- Detect PII source to log sink in common Node/Next/Express code.
+- Detect PII source to analytics/tracker sink.
+- Detect PII source to LLM prompt sink.
+- Keep confidence explicit; uncertain flows are `NEEDS_REVIEW`.
+
+---
+
+## Phase 7 — Hosted/private evidence retention
+
+**Timebox:** after paid pilots  
+**Goal:** Monetize Pro/Enterprise.
+
+### Work
+
+- Local reports first.
+- Optional hosted evidence retention later.
+- Team policy settings.
+- Suppression workflow.
+- Approval records.
+- Trend dashboard.
+
+Do not build this before customer pull.
+
+---
+
+## Phase 8 — Jurisdiction-pack factory
+
+**Timebox:** after customer validation  
+**Goal:** Turn international expansion into moat.
+
+### Work
+
+- Improve AI-assisted rule drafting.
+- Require human validation for blocking rules.
+- Add pack tests and fixtures.
+- Publish pack manifest format.
+- Add pack changelog and validation status.
+- Consider community or partner-contributed packs.
+
+### Acceptance criteria
+
+- A new jurisdiction pack can be drafted, tested, reviewed, and loaded without touching runtime code.
+- Pack quality is measurable by tests, validation state, and customer false-positive data.
+
+---
+
+## 90-day outcome target
+
+By 90 days, Clearway should have:
+
+- 3–5 design partners.
+- 1–2 paid pilots.
+- A working CI gate in real repos.
+- Measured false-positive rate.
+- A demo-quality PR-diff workflow.
+- Pack coverage/validation metadata.
+- One customer quote about agent PR risk.
+
+Without this, more features are likely waste.

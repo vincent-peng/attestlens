@@ -1,60 +1,113 @@
-# Clearway
+# Clearway by AttestLens
 
-**Privacy compliance deploy gate for AI agents.**
+**The privacy deploy gate for AI-generated software.**
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](#license)
-[![MCP compatible](https://img.shields.io/badge/MCP-compatible-0f766e.svg)](#mcp-integration)
+Clearway runs before AI coding agents merge code or release changes. It scans code, live URLs, dependencies, and infrastructure signals; maps evidence to privacy-law obligations; and returns deterministic deploy verdicts that CI systems and MCP-compatible agents can act on.
 
-> AI agents can now execute multi-step cyber operations autonomously. When agents act at machine speed, you need compliance gates that match. Clearway is that gate — deterministic, offline, MCP-native.
+Clearway is **not** a generic GRC platform, not a legal-advice engine, and not a chatbot over compliance docs. It is a runtime gate for agent-created software changes.
 
-## Why This Exists
+## Why this exists
 
-Frontier models are automating cyber tasks. Agents are making deploy decisions. The internet is being rebuilt for agents as first-class citizens (Altman), and every agent action is a potential privacy violation.
+AI agents are now writing code, changing dependencies, creating routes, wiring analytics, and modifying data flows faster than privacy and security teams can manually review every change.
 
-**$50M+ fines. 100K+ businesses newly liable. Agents shipping violations at machine speed.**
+That creates a new failure mode:
 
-You need a compliance checkpoint that's as fast as the agents themselves. Not a PDF report for the CISO — a deploy gate that blocks before violations ship.
+> An agent can accidentally ship a privacy violation before a human realizes what changed.
 
-Clearway scans codebases and URLs, maps findings to jurisdiction obligations, and produces structured compliance verdicts that agents use directly in CI pipelines, MCP clients, and remediation workflows.
-
-**Zero LLM at runtime.** Fully deterministic. Fully offline.
-
-## Quick Start
+Clearway turns privacy review into a deterministic pre-merge check.
 
 ```bash
-npx @attestlens/cli@beta scan ./my-project
-npx @attestlens/cli@beta scan https://example.com
+npx -y --package @attestlens/cli@beta attestlens audit . \
+  --jurisdiction eu-gdpr \
+  --opinion \
+  --format agent
 ```
 
-Get a compliance opinion — the agent-native verdict:
+Example verdict:
+
+```json
+{
+  "verdict": "NEEDS_REVIEW",
+  "jurisdiction": "eu-gdpr",
+  "principle": "GDPR_Art6",
+  "reason": "New processing path touches personal data without detected lawful-basis evidence.",
+  "confidence": "MODERATE",
+  "blocking": false,
+  "nextAction": "Attach lawful-basis evidence or mark this route as out of scope."
+}
+```
+
+## Product thesis
+
+Clearway has two layers:
+
+1. **Runtime gate** — deterministic CLI, CI, SARIF, and MCP tools for agents and developers.
+2. **Jurisdiction-pack system** — versioned privacy-law rule packs with explicit coverage boundaries, citations, provenance, validation status, and tests.
+
+The runtime stays deterministic. AI may help draft rules, but only human-validated rules can become blocking.
+
+## Current jurisdiction packs
+
+| Jurisdiction | Role | Status | Pitch language |
+| --- | --- | --- | --- |
+| `au-privacy-act` | Deep seed pack and proof of legal mapping | Live | Strongest current pack |
+| `us-ccpa` | US commercial wedge | Early live pack | Coverage-bounded |
+| `eu-gdpr` | International credibility pack | Early live pack | Coverage-bounded GDPR subset |
+| `sg-pdpa` | Portability proof | Beta/stub | Do not lead with this |
+
+Clearway is **multi-jurisdiction**, not “global compliance.” Every pack must state what it covers and what it does not cover.
+
+## Install and run
+
+Use `--package` to ensure the correct npm binary is invoked.
 
 ```bash
-npx @attestlens/cli@beta audit ./my-project --opinion --format agent
+npx -y --package @attestlens/cli@beta attestlens scan ./my-project
+npx -y --package @attestlens/cli@beta attestlens audit ./my-project --opinion
 ```
 
-Multi-jurisdiction checks:
+Run against a specific jurisdiction:
 
 ```bash
-npx @attestlens/cli@beta audit ./my-project --jurisdiction au-privacy-act --opinion --format agent
-npx @attestlens/cli@beta audit ./my-project --jurisdiction us-ccpa --opinion --format agent
-npx @attestlens/cli@beta audit ./my-project --jurisdiction eu-gdpr --opinion --format agent
-npx @attestlens/cli@beta audit ./my-project --jurisdiction sg-pdpa --opinion --format agent
+npx -y --package @attestlens/cli@beta attestlens audit ./my-project \
+  --jurisdiction au-privacy-act \
+  --opinion \
+  --format html,json,sarif
+
+npx -y --package @attestlens/cli@beta attestlens audit ./my-project \
+  --jurisdiction us-ccpa \
+  --opinion \
+  --format agent
+
+npx -y --package @attestlens/cli@beta attestlens audit ./my-project \
+  --jurisdiction eu-gdpr \
+  --opinion \
+  --format agent
 ```
 
-## What Clearway Does
+## CI deploy gate
 
-- **Deploy gate, not advisory** — Blocks risky releases before they ship. Exit codes and SARIF for CI integration.
-- **Multi-jurisdiction** — AU Privacy Act (68+ rules), US CCPA/CPRA, EU GDPR subset, SG PDPA beta. Same scan, different citations.
-- **Compliance opinions** — Structured verdicts with evidence tied to jurisdiction obligations. Agents can act on them directly.
-- **MCP-native** — 8 MCP tools for Claude, Cursor, any MCP client. First-class agent integration.
-- **Deterministic runtime** — Zero LLM, zero network at scan time. Fully offline, fully reproducible.
-- **Agent-native output** — `--format agent` produces compact JSON for agent consumption in CI and task workflows.
-- **SMB compliance** — Plain-English questions and reports for Australian small and medium businesses.
-- **Rule authoring** — AI-assisted rule drafting with human approval gates. Rules scale without hardcoding.
+Clearway can fail a build when high-confidence findings exceed a threshold.
 
-## MCP Integration
+```bash
+npx -y --package @attestlens/cli@beta attestlens audit . \
+  --jurisdiction eu-gdpr \
+  --opinion \
+  --format sarif \
+  --sarif-output clearway.sarif \
+  --fail-on-severity error
+```
 
-Add to your MCP client config:
+Recommended rollout:
+
+1. Run in advisory mode.
+2. Tune suppressions and rule confidence.
+3. Block only high-confidence rules.
+4. Expand blocking after false positives are measured.
+
+## MCP integration
+
+Add Clearway to an MCP-compatible client:
 
 ```json
 {
@@ -72,69 +125,38 @@ Add to your MCP client config:
 }
 ```
 
-**8 MCP tools:**
+MCP tools:
 
 | Tool | Purpose |
 | --- | --- |
-| `attestlens_scan` | Scan a local project for the selected jurisdiction |
-| `attestlens_scan_url` | Scan a public URL for live-site findings |
-| `attestlens_audit` | Full audit with jurisdiction-specific compliance report |
-| `attestlens_map` | Map findings to jurisdiction obligations |
-| `attestlens_opinion` | Generate a structured compliance opinion |
-| `attestlens_check` | Check one regulation principle |
-| `attestlens_compliance_check` | AU SMB compliance-check workflow |
-| `attestlens_reform` | AU Privacy Act reform exposure assessment |
+| `attestlens_scan` | Scan a local project |
+| `attestlens_scan_url` | Scan a public URL |
+| `attestlens_audit` | Full audit and report |
+| `attestlens_map` | Map findings to regulation controls |
+| `attestlens_opinion` | Generate deterministic compliance opinion |
+| `attestlens_check` | Check one principle/control |
+| `attestlens_compliance_check` | AU SMB compliance workflow |
+| `attestlens_reform` | AU reform impact workflow |
 
-Pass `jurisdiction` to any scan tool:
+## What Clearway is not
 
-```json
-{
-  "path": "./my-project",
-  "jurisdiction": "us-ccpa",
-  "opinion": true,
-  "format": "agent"
-}
-```
+Clearway is not legal advice. It is not a substitute for counsel, audit, or privacy-program governance. It is a deterministic technical gate that helps teams detect and block privacy-risky software changes before they ship.
 
-## CLI Reference
+## What makes it different
 
-| Command | Example | Purpose |
-| --- | --- | --- |
-| `scan` | `npx @attestlens/cli@beta scan ./my-project --jurisdiction eu-gdpr` | Fast project or URL assessment |
-| `audit` | `npx @attestlens/cli@beta audit ./my-project -n "My Business" --jurisdiction us-ccpa` | Full jurisdiction-specific compliance report |
-| `attest` | `npx @attestlens/cli@beta attest ./my-project --jurisdiction eu-gdpr` | Questionnaire-backed attestation session |
-| `install` | `npx @attestlens/cli@beta install --client claude-code` | Configure MCP clients |
-| `mcp` | `npx @attestlens/cli@beta mcp` | Launch MCP server over stdio |
-| `propose-rules` | `npx @attestlens/cli@beta propose-rules --help` | Draft new rule candidates |
-| `review-pack` | `npx @attestlens/cli@beta review-pack --help` | Review and approve rule packs |
+- **Agent-native:** CLI + MCP + compact agent JSON.
+- **Deterministic:** no LLM calls at scan runtime.
+- **Pack-based:** jurisdictions are versioned rule packs, not vague prompts.
+- **Evidence-backed:** findings map to specific controls, citations, and remediation.
+- **Deploy-gate first:** built to block or warn in CI, not just generate PDFs.
 
-Report formats:
+## YC focus
 
-```bash
-npx @attestlens/cli@beta audit ./my-project --format html,json,markdown,pdf,sarif
-npx @attestlens/cli@beta audit ./my-project --format agent --opinion
-```
+For YC, the product should be described as:
 
-Supported jurisdictions: `au-privacy-act` · `us-ccpa` · `eu-gdpr` · `sg-pdpa`
+> We make AI coding agents comply with privacy law before they merge code.
 
-## Architecture
-
-1. **Scanner adapters** collect project, URL, supply-chain, behavioral, and infrastructure evidence
-2. **Jurisdiction packs** define principles, rules, citations, and scanner checks per jurisdiction
-3. **Mapping engine** links findings to AU APP/NDB, US CCPA/CPRA, EU GDPR, or SG PDPA obligations
-4. **Opinion engine** produces structured compliance verdicts from findings + questionnaire evidence
-5. **Report writers** produce HTML, JSON, PDF, SARIF, and agent-native formats
-6. **MCP server** exposes everything through structured Zod schemas
-
-Deterministic at runtime. No LLM calls. No network dependency. Same input → same output, every time.
-
-## Beta Notice
-
-This is an early public beta. Interfaces may evolve as design partners validate report shape, workflow fit, and pack coverage. Install explicitly:
-
-```bash
-npm install -g @attestlens/cli@beta
-```
+The long-term company is the policy runtime for agents: any agent action that touches customer data should pass through a deterministic, evidence-backed policy gate before it reaches production.
 
 ## License
 
