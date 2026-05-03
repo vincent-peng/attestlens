@@ -2,7 +2,7 @@
 
 **Product:** Clearway by AttestLens  
 **Current positioning:** Deterministic privacy deploy gate for AI-generated software  
-**Status:** International YC reset
+**Status:** International YC reset, follow-up cleanup
 
 ---
 
@@ -25,7 +25,7 @@
 | [DESIGN-PARTNER-VALIDATION.md](DESIGN-PARTNER-VALIDATION.md) | 30-day design partner sprint |
 | [PRICING.md](PRICING.md) | Protected repo/pipeline pricing model |
 | [COMPETITIVE-POSITIONING-INTERNATIONAL.md](COMPETITIVE-POSITIONING-INTERNATIONAL.md) | How to position against scanners, GRC, and frontier models |
-| [COMPETITIVE-LANDSCAPE.md](COMPETITIVE-LANDSCAPE.md) | Existing deep dive on HoundDog and Privado |
+| [COMPETITIVE-LANDSCAPE.md](COMPETITIVE-LANDSCAPE.md) | Deeper HoundDog/Privado notes; should be treated as reference and periodically re-verified |
 
 ---
 
@@ -33,11 +33,12 @@
 
 | Doc | Purpose | Status |
 | --- | --- | --- |
-| [CI-INTEGRATION.md](CI-INTEGRATION.md) | CI/CD setup and SARIF workflows | Needs update after workflow PR |
-| [RULE-AUTHORING-PIPELINE.md](RULE-AUTHORING-PIPELINE.md) | AI-assisted, human-validated rule drafting | Needs update to reflect shipped implementation |
+| [CI-INTEGRATION.md](CI-INTEGRATION.md) | CI/CD setup and SARIF workflows | Updated command pattern; still needs real workflow PR |
 | [RESEARCH-PHASE-10.5-11.md](RESEARCH-PHASE-10.5-11.md) | SARIF/MCP/rule-authoring research | Keep as reference |
-| [SUPPLY-CHAIN-DETECTION.md](SUPPLY-CHAIN-DETECTION.md) | Supply-chain detection architecture | Keep as reference |
-| [RULE-UPDATE-PIPELINE.md](RULE-UPDATE-PIPELINE.md) | Rule update architecture | Keep as reference |
+| [SUPPLY-CHAIN-DETECTION.md](SUPPLY-CHAIN-DETECTION.md) | Supply-chain detection architecture | Keep as reference; external incident claims should be re-verified before public use |
+| [ADAPTER-STRATEGY-DEBATE.md](ADAPTER-STRATEGY-DEBATE.md) | LLM scanner adapter strategy | Reference only; market claims need re-verification |
+| [archive/RULE-AUTHORING-PIPELINE.md](archive/RULE-AUTHORING-PIPELINE.md) | Historical rule-authoring design | Archived; current execution plan is in IMPLEMENTATION-PHASES-CODEX.md |
+| [archive/RULE-UPDATE-PIPELINE.md](archive/RULE-UPDATE-PIPELINE.md) | Historical rule update architecture | Archived reference |
 
 ---
 
@@ -46,24 +47,27 @@
 | Doc | Purpose |
 | --- | --- |
 | [STATUS.md](STATUS.md) | Current implementation status |
-| [GAP-ANALYSIS.md](GAP-ANALYSIS.md) | Known gaps and risks |
-| [DOCS-CONSOLIDATION-PLAN.md](DOCS-CONSOLIDATION-PLAN.md) | What to keep, replace, and archive |
+| [GAP-ANALYSIS.md](GAP-ANALYSIS.md) | Older gap analysis; useful but should be reconciled with the reset roadmap |
+| [DOCS-CONSOLIDATION-PLAN.md](DOCS-CONSOLIDATION-PLAN.md) | What was kept, replaced, and archived |
+| [WEB-PRESENCE.md](WEB-PRESENCE.md) | Landing-page/web-portal decision |
 
 ---
 
-## Archive candidates
+## Already archived
 
-Move to `docs/archive/` after the reset lands:
+The reset moved older planning docs into `docs/archive/`:
 
-| Doc | Reason |
+| Archived doc | Reason |
 | --- | --- |
-| `YC-RFS-EVOLUTION.md` | Superseded by YC application + roadmap |
-| `INTERNATIONAL-DEBATE.md` | Debate transcript, not canonical |
-| `DEBATE-RESULTS.md` | Debate output, not canonical |
-| `GTM-DEBATE-RESULTS.md` | Internal planning archive |
-| `RESEARCH-PHASE-10.5-11-SUPPLEMENT.md` | Merged/supplemental archive |
-| `PHASE-10-GLOBAL-SCHEMA-DECOUPLING.md` | Historical phase doc; appears implemented |
-| `COMPETITIVE-GAP-ANALYSIS.md` | Already superseded by competitive landscape |
+| `archive/YC-RFS-EVOLUTION.md` | Superseded by YC application + roadmap |
+| `archive/INTERNATIONAL-DEBATE.md` | Debate transcript, not canonical |
+| `archive/DEBATE-RESULTS.md` | Debate output, not canonical |
+| `archive/GTM-DEBATE-RESULTS.md` | Internal planning archive |
+| `archive/RESEARCH-PHASE-10.5-11-SUPPLEMENT.md` | Merged/supplemental archive |
+| `archive/PHASE-10-GLOBAL-SCHEMA-DECOUPLING.md` | Historical phase doc; appears implemented |
+| `archive/COMPETITIVE-GAP-ANALYSIS.md` | Superseded by competitive landscape |
+| `archive/RULE-AUTHORING-PIPELINE.md` | Historical design; current plan lives in IMPLEMENTATION-PHASES-CODEX.md |
+| `archive/RULE-UPDATE-PIPELINE.md` | Historical design; current plan lives in IMPLEMENTATION-PHASES-CODEX.md |
 
 ---
 

@@ -14,7 +14,7 @@
 | **Core thesis** | PII leak prevention via data-flow tracing | Privacy governance platform + AI agent ("Wren") | Jurisdiction-cited deploy gating for AI agents |
 | **What they detect** | Sensitive data flows in code (where PII goes) | Data flows + consent + governance + assessments | Regulatory violations mapped to specific law citations |
 | **Jurisdiction mapping** | GDPR, CCPA, HIPAA, ISO 29100, NIST (as compliance *frameworks*) | CCPA, GDPR (as compliance checks) | AU Privacy Act, US CCPA, EU GDPR — with per-article **citations** |
-| **AU Privacy Act** | ❌ Not supported | ❌ Not supported | ✅ **Only product that maps APP/NDB** |
+| **AU Privacy Act** | ❌ Not supported | ❌ Not supported | ✅ **Uncommon AU APP/NDB focus** |
 | **Output** | Data flow maps, PII leak alerts, RoPA/PIA/DPIA reports | Data maps, consent audits, agentic assessments | **Opinion-grade** compliance verdicts (PASS/FAIL/UNKNOWN) with regulatory citations |
 | **Blocking** | Advisory (detect, don't block) | Advisory (detect, don't block) | **CI deploy gate** — can block merges on high-confidence findings |
 | **Determinism** | Static analysis (taint tracking) | Static + dynamic (web/app simulation) | **Fully deterministic** — zero LLM at runtime, reproducible results |
@@ -115,7 +115,7 @@ Privado is **not just a code scanner**. It's a full privacy governance platform 
 - **Offline** — Privado is a SaaS platform. Your code goes to their cloud. Clearway runs entirely locally.
 - **Deploy gating** — Privado detects and reports. They don't block deploys.
 - **MCP native** — Privado has no MCP server. Their "agent" is their own proprietary AI.
-- **Price** — $4,200/mo vs. Clearway Pro at ~$99-199/mo. Different weight class.
+- **Price** — $4,200/mo vs. Clearway Pro at ~$199/mo. Different weight class.
 
 ### Where They're Headed
 "Wren" AI agent + agentic assessments = they're moving toward AI-automated privacy compliance. This is the "AI does everything" path. Clearway's "AI builds rules, runtime is deterministic" is a different bet.
@@ -140,10 +140,10 @@ Privado is **not just a code scanner**. It's a full privacy governance platform 
 
 ## Clearway's Defensible White Space
 
-1. **AU Privacy Act APP/NDB mapping** — literally nobody else does this. If we own AU, we own the wedge.
+1. **AU Privacy Act APP/NDB mapping** — few competitors appear to emphasize this; verify before public claims. If we own AU, we own the wedge.
 2. **Jurisdiction-cited deploy gating** — HoundDog and Privado detect issues. Clearway produces an opinion that can *block a CI pipeline*. The difference between "here's a finding" and "this merge is blocked until APP 11.1 is resolved" is the difference between a report and a gate.
 3. **Fully offline, fully deterministic** — zero cloud dependency, zero LLM at runtime. For regulated industries and security-conscious orgs, this matters.
-4. **MCP-native agent integration** — the only product where AI agents can natively check privacy-law risk before merging code. HoundDog's API Context Engine feeds context to agents; Clearway's MCP server lets agents *ask about compliance*.
+4. **MCP-native agent integration** — one of the few products positioned around agent-native privacy-law checks before merging code. HoundDog's API Context Engine feeds context to agents; Clearway's MCP server lets agents *ask about compliance*.
 5. **Opinion-grade verdicts** — not "potential issue found" but "FAIL — APP 11.1 Security of Personal Information — confidence: HIGH — remediation: add HSTS header". Actionable, not informational.
 
 ---
@@ -164,7 +164,7 @@ Privado is **not just a code scanner**. It's a full privacy governance platform 
 |---|---|---|---|
 | **HoundDog** | $0 (limited) | $100/yr per dev | Custom |
 | **Privado** | OSS scanner | $4,200/mo (200 devs) | Custom (200+ devs) |
-| **Clearway (proposed)** | $0 (CLI + MCP) | $99-199/mo per 5 repos | $15-50K+/yr |
+| **Clearway (proposed)** | $0 (CLI + MCP) | $199/mo per 5 repos | $15-50K+/yr |
 
 HoundDog is pricing for land. Privado is pricing for enterprises. Clearway's proposed pricing sits between — affordable for startups, with the repo-based meter aligning to actual value (protected surfaces).
 

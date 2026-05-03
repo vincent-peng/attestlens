@@ -9,10 +9,10 @@
 
 A **landing page** at clearway.ai is needed before npm publish and YC application. Not a full site — a single page that:
 
-1. **States the positioning** — "The deploy gate for AI privacy risk"
+1. **States the positioning** — "The privacy deploy gate for AI-generated software"
 2. **Shows the demo** — embedded terminal GIF/video of multi-jurisdiction scan
-3. **Has a CTA** — "npm install -g @attestlens/cli" or "Get started" → docs
-4. **Lists features** — 3 jurisdictions, 8 MCP tools, CI gating, offline
+3. **Has a CTA** — "npx -y --package @attestlens/cli@beta attestlens audit ." or "Get started" → docs
+4. **Lists features** — coverage-bounded jurisdiction packs, MCP tools, CI gating, offline runtime
 5. **Links to docs/GitHub** — when we publish the repo
 
 **What it is NOT:**
@@ -66,4 +66,4 @@ A **web portal** (dashboard, SaaS platform, user accounts) is **not needed** for
 | Docs site | ⏳ Later | Low | After npm beta, when external users exist |
 | Web portal / dashboard | ❌ Defer | — | Post-1.0, post-design-partner-feedback |
 
-Build the landing page in an afternoon. Ship Phase 10-lite first.
+Update the landing page to match the international YC reset before using it publicly.
