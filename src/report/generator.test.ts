@@ -27,8 +27,8 @@ function makeFinding(overrides: Partial<AttestLensFinding> = {}): AttestLensFind
     description: overrides.description || 'A test finding',
     file: overrides.file || 'app.ts',
     line: overrides.line || 1,
-    regulationMappings: [],
-    appMappings: [],
+    regulationMappings: overrides.regulationMappings || [],
+    appMappings: overrides.appMappings || [],
     evidence: {
       timestamp: new Date().toISOString(),
       scannerVersion: '0.1.0',
@@ -447,7 +447,7 @@ describe('buildComplianceReport', () => {
     expect(parsed.verdict).toBe('PARTIALLY_COMPLIANT');
     expect(parsed.scopedVerdict).toBe('NO_FINDINGS_IN_SCOPE');
     expect(parsed.displayVerdict).toBe('NO FINDINGS IN SCOPE');
-    expect(parsed.summary).toContain('NO FINDINGS IN SCOPE');
+    expect(parsed.summary).toContain('PASS');
     expect(JSON.stringify(parsed)).not.toContain('"COMPLIANT"');
   });
 
@@ -489,6 +489,119 @@ describe('buildComplianceReport', () => {
     expect(parsed.verdict).toBe('PARTIALLY_COMPLIANT');
     expect(parsed.scopedVerdict).toBe('NO_FINDINGS_IN_SCOPE');
   });
+
+  it('produces BLOCK for a high-confidence deterministic issue with trusted blocking validation', () => {
+    const report = buildComplianceReport([
+      makeFinding({
+        id: 'F-DEPLOY-BLOCK',
+        severity: 'high',
+        title: 'Public storage bucket with personal information',
+        fix: 'Make the storage bucket private and enforce authenticated access.',
+        regulationMappings: [{
+          jurisdiction: 'au-privacy-act',
+          principle: 'APP_11',
+          obligation: 'Take reasonable steps to protect personal information',
+          status: 'fail',
+          confidence: 0.95,
+        }],
+      }),
+    ], {
+      ...defaultOptions,
+      includeOpinion: true,
+      packCoverage: {
+        summary: 'Trusted deploy gate coverage for APP 11 technical safeguards.',
+        includedPrinciples: ['APP_11'],
+        excludedPrinciples: [],
+        knownGaps: [],
+        evidenceTypes: ['source code', 'infrastructure-as-code'],
+      },
+      packValidation: {
+        status: 'external_reviewed',
+        reviewedBy: 'AttestLens validation partner',
+        reviewedAt: '2026-05-03T00:00:00.000Z',
+        notes: ['Reviewed for deploy gating semantics.'],
+      },
+      packValidationTrusted: true,
+    }, 1000);
+
+    expect(report.deployDecision).toEqual(expect.objectContaining({
+      verdict: 'BLOCK',
+      blocking: true,
+      jurisdiction: 'au-privacy-act',
+      packValidationStatus: 'external_reviewed',
+    }));
+    expect(report.deployDecision?.evidenceRefs).toContain('F-DEPLOY-BLOCK');
+    expect(report.deployDecision?.remediations).toContain('Make the storage bucket private and enforce authenticated access.');
+  });
+
+  it('does not produce BLOCK by default for draft or weakly validated packs', () => {
+    const report = buildComplianceReport([
+      makeFinding({
+        id: 'F-DRAFT-WARN',
+        severity: 'critical',
+        title: 'Public database endpoint',
+        regulationMappings: [{
+          jurisdiction: 'sg-pdpa',
+          principle: 'SGPDPA_24',
+          obligation: 'Make reasonable security arrangements to protect personal data',
+          status: 'fail',
+          confidence: 0.95,
+        }],
+      }),
+    ], {
+      ...defaultOptions,
+      jurisdiction: 'sg-pdpa',
+      includeOpinion: true,
+    }, 1000);
+
+    expect(report.metadata.packValidation?.status).toBe('draft');
+    expect(report.deployDecision?.verdict).toBe('WARN');
+    expect(report.deployDecision?.blocking).toBe(false);
+    expect(report.deployDecision?.reasons.join(' ')).toContain('does not allow automated blocking');
+  });
+
+  it('produces PASS for no in-scope findings without claiming compliance', () => {
+    const report = buildComplianceReport([], {
+      ...defaultOptions,
+      includeOpinion: true,
+    }, 1000);
+    const parsed = JSON.parse(generateAgentReport(report));
+
+    expect(report.deployDecision).toEqual(expect.objectContaining({
+      verdict: 'PASS',
+      blocking: false,
+    }));
+    expect(parsed.deployDecision.verdict).toBe('PASS');
+    expect(parsed.deployDecision.reasons[0]).toContain('not a legal compliance conclusion');
+    expect(parsed.deployDecision.verdict).not.toBe('COMPLIANT');
+  });
+
+  it('produces NEEDS_REVIEW for contextual evidence gaps', () => {
+    const report = buildComplianceReport([
+      makeFinding({
+        id: 'F-CONTEXTUAL',
+        source: 'manual',
+        severity: 'medium',
+        title: 'Unverified privacy notice commitment',
+        regulationMappings: [{
+          jurisdiction: 'au-privacy-act',
+          principle: 'APP_1',
+          obligation: 'Maintain open and transparent privacy practices',
+          status: 'unknown',
+          confidence: 0.5,
+        }],
+      }),
+    ], {
+      ...defaultOptions,
+      includeOpinion: true,
+    }, 1000);
+
+    expect(report.deployDecision).toEqual(expect.objectContaining({
+      verdict: 'NEEDS_REVIEW',
+      blocking: false,
+    }));
+    expect(report.deployDecision?.reasons.join(' ')).toContain('human review');
+  });
 });
 
 describe('generateJSONReport', () => {
@@ -526,9 +639,14 @@ describe('generateJSONReport', () => {
     const report = buildComplianceReport([], {
       ...defaultOptions,
       jurisdiction: 'eu-gdpr',
+      includeOpinion: true,
     }, 1000);
     const parsed = JSON.parse(generateJSONReport(report));
 
+    expect(parsed.deployDecision).toEqual(expect.objectContaining({
+      verdict: 'PASS',
+      packValidationStatus: 'internal_validated',
+    }));
     expect(parsed.metadata.packValidation).toEqual(expect.objectContaining({
       status: 'internal_validated',
     }));
@@ -618,8 +736,11 @@ describe('generateAgentReport', () => {
 
     expect(parsed.verdict).toBe('NON_COMPLIANT');
     expect(parsed.confidence).toBe(report.complianceOpinion?.overallConfidence);
-    expect(parsed.summary).toContain('NON COMPLIANT');
-    expect(parsed.summary).toContain('principles non-compliant');
+    expect(parsed.deployDecision).toEqual(expect.objectContaining({
+      verdict: 'WARN',
+      blocking: false,
+    }));
+    expect(parsed.summary).toContain('WARN');
   });
 
   it('uses fallback values when no opinion is available', () => {
@@ -639,6 +760,12 @@ describe('generateAgentReport', () => {
     }, 1000);
     const parsed = JSON.parse(generateAgentReport(report));
 
+    expect(parsed.deployDecision).toEqual(expect.objectContaining({
+      verdict: 'PASS',
+      blocking: false,
+      jurisdiction: 'us-ccpa',
+      packValidationStatus: 'internal_validated',
+    }));
     expect(parsed.packValidationStatus).toBe('internal_validated');
     expect(parsed.packValidation).toEqual(expect.objectContaining({
       status: 'internal_validated',

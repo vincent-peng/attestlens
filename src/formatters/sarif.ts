@@ -5,6 +5,7 @@ import path from 'node:path';
 import { getRegistry } from '../jurisdiction/registry.js';
 import type {
   AttestLensFinding,
+  DeployDecision,
   Jurisdiction,
   RegulationMapping,
   RegulationPrinciple,
@@ -64,6 +65,7 @@ export interface SarifFormatOptions {
   jurisdiction: Jurisdiction;
   version: string;
   basePath?: string;
+  deployDecision?: DeployDecision;
 }
 
 const SARIF_SCHEMA = 'https://raw.githubusercontent.com/oasis-tcs/sarif-spec/main/sarif-2.1/schema/sarif-schema-2.1.0.json' as const;
@@ -73,13 +75,16 @@ const SYNTHETIC_LOCATION_URI = '__target__';
 export async function formatSarif(options: SarifFormatOptions): Promise<SarifOutput> {
   const basePathInput = options.basePath;
   const basePath = basePathInput ? await fs.realpath(basePathInput).catch(() => path.resolve(basePathInput)) : undefined;
-  const matchingFindings = options.findings.filter((finding) => hasJurisdictionMapping(finding, options.jurisdiction));
+  const matchingFindings = shouldSuppressSarifResults(options.deployDecision)
+    ? []
+    : options.findings.filter((finding) => hasJurisdictionMapping(finding, options.jurisdiction));
   const ruleMap = new Map<string, SarifRule>();
   const results: SarifResult[] = [];
 
   for (const finding of matchingFindings) {
     const mapping = getPrimaryMapping(finding, options.jurisdiction);
-    const rule = buildSarifRule(finding, mapping, options.jurisdiction);
+    const level = mapFindingToSarifLevel(finding, options.deployDecision);
+    const rule = buildSarifRule(finding, mapping, options.jurisdiction, level);
     if (!ruleMap.has(rule.id)) {
       ruleMap.set(rule.id, rule);
     }
@@ -97,7 +102,7 @@ export async function formatSarif(options: SarifFormatOptions): Promise<SarifOut
     results.push({
       ruleId,
       ruleIndex: ruleIndexById.get(ruleId) ?? 0,
-      level: mapFindingSeverityToSarifLevel(finding.severity),
+      level: mapFindingToSarifLevel(finding, options.deployDecision),
       message: {
         text: finding.description || finding.title,
       },
@@ -150,6 +155,25 @@ export function mapFindingSeverityToSarifLevel(severity: AttestLensFinding['seve
   }
 }
 
+export function mapDeployDecisionToSarifLevel(
+  deployDecision: DeployDecision,
+  fallbackSeverity: AttestLensFinding['severity'] = 'medium',
+): SarifLevel | null {
+  switch (deployDecision.verdict) {
+    case 'BLOCK':
+      return 'error';
+    case 'WARN':
+      return 'warning';
+    case 'NEEDS_REVIEW':
+      return fallbackSeverity === 'critical' || fallbackSeverity === 'high' || fallbackSeverity === 'medium'
+        ? 'warning'
+        : 'note';
+    case 'PASS':
+    case 'OUT_OF_SCOPE':
+      return null;
+  }
+}
+
 export function sarifLevelToProblemSeverity(level: SarifLevel): SarifProblemSeverity {
   switch (level) {
     case 'error':
@@ -161,8 +185,10 @@ export function sarifLevelToProblemSeverity(level: SarifLevel): SarifProblemSeve
   }
 }
 
-export function inferSarifPrecision(finding: AttestLensFinding): SarifPrecision {
-  const level = mapFindingSeverityToSarifLevel(finding.severity);
+export function inferSarifPrecision(
+  finding: AttestLensFinding,
+  level: SarifLevel = mapFindingSeverityToSarifLevel(finding.severity),
+): SarifPrecision {
   if (level === 'note') {
     return 'low';
   }
@@ -170,6 +196,20 @@ export function inferSarifPrecision(finding: AttestLensFinding): SarifPrecision 
     return 'medium';
   }
   return finding.corroboratedBy && finding.corroboratedBy.length > 0 ? 'very-high' : 'high';
+}
+
+function shouldSuppressSarifResults(deployDecision: DeployDecision | undefined): boolean {
+  return deployDecision?.verdict === 'PASS' || deployDecision?.verdict === 'OUT_OF_SCOPE';
+}
+
+function mapFindingToSarifLevel(
+  finding: AttestLensFinding,
+  deployDecision: DeployDecision | undefined,
+): SarifLevel {
+  const decisionLevel = deployDecision
+    ? mapDeployDecisionToSarifLevel(deployDecision, finding.severity)
+    : null;
+  return decisionLevel ?? mapFindingSeverityToSarifLevel(finding.severity);
 }
 
 export function buildPrimaryLocationLineHash(ruleId: string, filePath: string, line: number): string {
@@ -213,8 +253,8 @@ function buildSarifRule(
   finding: AttestLensFinding,
   mapping: RegulationMapping,
   jurisdiction: Jurisdiction,
+  level: SarifLevel = mapFindingSeverityToSarifLevel(finding.severity),
 ): SarifRule {
-  const level = mapFindingSeverityToSarifLevel(finding.severity);
   const ruleId = buildJurisdictionQualifiedRuleId(jurisdiction, mapping.principle, finding.title);
   const principleInfo = getRegistry(jurisdiction).principles[mapping.principle];
   const obligation = principleInfo?.obligation ?? mapping.obligation;
@@ -230,7 +270,7 @@ function buildSarifRule(
     helpUri: `${SARIF_INFO_URI}/rules/${ruleId}`,
     properties: {
       tags: buildRuleTags(jurisdiction, mapping.principle),
-      precision: inferSarifPrecision(finding),
+      precision: inferSarifPrecision(finding, level),
       'problem.severity': sarifLevelToProblemSeverity(level),
     },
   };

@@ -22,10 +22,12 @@ import type {
   AssessmentMode,
   RemediationItem,
   ControlStatus,
+  DeployDecision,
   Severity,
   QuestionnaireSession,
   RuleFreshness,
   RegulationControl,
+  RegulationMapping,
   ReformImpactAssessment,
   ReformProvision as ReformProvisionName,
   ScopeQualifiedVerdict,
@@ -196,6 +198,9 @@ export function buildComplianceReport(
   if (options.includeOpinion) {
     report.complianceOpinion = buildComplianceOpinion(report, { strictMode: options.strictMode });
     applyPackTrustToOpinion(report, packMetadata.validationTrusted);
+    report.deployDecision = buildDeployDecision(report, {
+      packValidationTrusted: packMetadata.validationTrusted,
+    });
   }
 
   if (options.formats.includes('smb') || options.includeSMB) {
@@ -279,6 +284,199 @@ function isExternallyValidated(status: PackValidationStatus): boolean {
   return status === 'external_reviewed'
     || status === 'customer_validated'
     || status === 'legal_partner_validated';
+}
+
+export function buildDeployDecision(
+  report: ComplianceReport,
+  options: { packValidationTrusted?: boolean } = {},
+): DeployDecision {
+  const jurisdiction = getReportJurisdiction(report);
+  const validation = report.metadata.packValidation;
+  const coverage = report.metadata.packCoverage;
+  const packValidationStatus = validation?.status;
+  const includedPrinciples = new Set(coverage?.includedPrinciples ?? []);
+  const excludedPrinciples = new Set(coverage?.excludedPrinciples ?? []);
+  const packAllowsBlocking = Boolean(
+    options.packValidationTrusted
+    && packValidationStatus
+    && isExternallyValidated(packValidationStatus),
+  );
+  const mapped = report.findings
+    .map((finding) => ({
+      finding,
+      mapping: getPrimaryFindingMapping(finding, jurisdiction),
+    }))
+    .filter((entry): entry is { finding: AttestLensFinding; mapping: RegulationMapping } => Boolean(entry.mapping));
+
+  const outOfScope = mapped.filter(({ mapping }) => (
+    excludedPrinciples.has(mapping.principle)
+    || (includedPrinciples.size > 0 && !includedPrinciples.has(mapping.principle))
+  ));
+  const inScope = mapped.filter(({ mapping }) => !(
+    excludedPrinciples.has(mapping.principle)
+    || (includedPrinciples.size > 0 && !includedPrinciples.has(mapping.principle))
+  ));
+
+  if (inScope.length === 0) {
+    if (outOfScope.length > 0) {
+      return {
+        verdict: 'OUT_OF_SCOPE',
+        blocking: false,
+        confidence: 0.5,
+        jurisdiction,
+        packValidationStatus,
+        reasons: ['Finding(s) map to obligations outside the selected jurisdiction pack coverage.'],
+        evidenceRefs: buildEvidenceRefs(outOfScope),
+        remediations: buildDeployRemediations(outOfScope.map(({ finding }) => finding)),
+        scopeNote: coverage?.summary,
+      };
+    }
+
+    return {
+      verdict: 'PASS',
+      blocking: false,
+      confidence: 0.8,
+      jurisdiction,
+      packValidationStatus,
+      reasons: ['No in-scope blocking privacy findings were detected. This is not a legal compliance conclusion.'],
+      evidenceRefs: [],
+      remediations: [],
+      scopeNote: coverage?.summary,
+    };
+  }
+
+  const blockingCandidates = inScope.filter(({ finding, mapping }) => (
+    mapping.status === 'fail'
+    && isBlockingSeverity(finding.severity)
+    && isDeterministicFinding(finding)
+    && isHighConfidenceMapping(finding, mapping)
+  ));
+  const blockable = blockingCandidates.filter(() => packAllowsBlocking);
+  if (blockable.length > 0) {
+    return {
+      verdict: 'BLOCK',
+      blocking: true,
+      confidence: maxMappingConfidence(blockable),
+      jurisdiction,
+      packValidationStatus,
+      reasons: buildDeployReasons(blockable, [
+        'High-confidence deterministic in-scope finding(s) meet the deploy blocking threshold.',
+      ]),
+      evidenceRefs: buildEvidenceRefs(blockable),
+      remediations: buildDeployRemediations(blockable.map(({ finding }) => finding)),
+      scopeNote: coverage?.summary,
+    };
+  }
+
+  const reviewCandidates = inScope.filter(({ finding, mapping }) => (
+    mapping.status === 'unknown'
+    || mapping.confidence < 0.7
+    || isContextualFinding(finding)
+  ));
+  if (reviewCandidates.length > 0) {
+    return {
+      verdict: 'NEEDS_REVIEW',
+      blocking: false,
+      confidence: Math.max(0.4, Math.min(maxMappingConfidence(reviewCandidates), 0.7)),
+      jurisdiction,
+      packValidationStatus,
+      reasons: buildDeployReasons(reviewCandidates, [
+        'In-scope finding(s) depend on contextual or lower-confidence evidence and need human review before deploy.',
+      ]),
+      evidenceRefs: buildEvidenceRefs(reviewCandidates),
+      remediations: buildDeployRemediations(reviewCandidates.map(({ finding }) => finding)),
+      scopeNote: coverage?.summary,
+    };
+  }
+
+  const warningCandidates = inScope.filter(({ mapping }) => mapping.status === 'fail');
+  if (warningCandidates.length > 0 || blockingCandidates.length > 0) {
+    const candidates = blockingCandidates.length > 0 ? blockingCandidates : warningCandidates;
+    const validationReason = blockingCandidates.length > 0 && !packAllowsBlocking
+      ? `Pack validation status ${packValidationStatus ?? 'unknown'} does not allow automated blocking by default.`
+      : 'In-scope finding(s) should be fixed or reviewed, but do not meet the automated block criteria.';
+
+    return {
+      verdict: 'WARN',
+      blocking: false,
+      confidence: Math.min(maxMappingConfidence(candidates), 0.85),
+      jurisdiction,
+      packValidationStatus,
+      reasons: buildDeployReasons(candidates, [validationReason]),
+      evidenceRefs: buildEvidenceRefs(candidates),
+      remediations: buildDeployRemediations(candidates.map(({ finding }) => finding)),
+      scopeNote: coverage?.summary,
+    };
+  }
+
+  return {
+    verdict: 'PASS',
+    blocking: false,
+    confidence: 0.75,
+    jurisdiction,
+    packValidationStatus,
+    reasons: ['No in-scope blocking privacy findings were detected. This is not a legal compliance conclusion.'],
+    evidenceRefs: [],
+    remediations: [],
+    scopeNote: coverage?.summary,
+  };
+}
+
+function getPrimaryFindingMapping(
+  finding: AttestLensFinding,
+  jurisdiction: Jurisdiction,
+): RegulationMapping | undefined {
+  return finding.regulationMappings.find((mapping) => mapping.jurisdiction === jurisdiction);
+}
+
+function isBlockingSeverity(severity: Severity): boolean {
+  return severity === 'critical' || severity === 'high';
+}
+
+function isDeterministicFinding(finding: AttestLensFinding): boolean {
+  return !isContextualFinding(finding);
+}
+
+function isContextualFinding(finding: AttestLensFinding): boolean {
+  return finding.source === 'manual'
+    || finding.source === 'questionnaire'
+    || finding.source === 'reform-2026';
+}
+
+function isHighConfidenceMapping(finding: AttestLensFinding, mapping: RegulationMapping): boolean {
+  return mapping.confidence >= 0.85 || Boolean(finding.corroboratedBy?.length);
+}
+
+function maxMappingConfidence(entries: Array<{ mapping: RegulationMapping }>): number {
+  if (entries.length === 0) {
+    return 0.5;
+  }
+  return Math.max(...entries.map(({ mapping }) => mapping.confidence));
+}
+
+function buildDeployReasons(
+  entries: Array<{ finding: AttestLensFinding }>,
+  baseReasons: string[],
+): string[] {
+  const findingReasons = entries
+    .slice(0, 3)
+    .map(({ finding }) => `${finding.severity.toUpperCase()}: ${finding.title}`);
+  return uniqueStrings([...baseReasons, ...findingReasons]);
+}
+
+function buildEvidenceRefs(entries: Array<{ finding: AttestLensFinding }>): string[] {
+  return uniqueStrings(entries.map(({ finding }) => finding.id));
+}
+
+function buildDeployRemediations(findings: AttestLensFinding[]): string[] {
+  return uniqueStrings(findings
+    .map((finding) => finding.fix ?? finding.fixPrompt)
+    .filter((remediation): remediation is string => Boolean(remediation)))
+    .slice(0, 5);
+}
+
+function uniqueStrings(values: string[]): string[] {
+  return [...new Set(values)];
 }
 
 function buildDeterministicHash(
@@ -1472,6 +1670,7 @@ function generateHTMLOpinionSection(report: ComplianceReport): string {
     return '';
   }
   const displayVerdict = getOpinionDisplayVerdict(opinion);
+  const decision = report.deployDecision;
 
   const verdictColor: Record<string, string> = {
     COMPLIANT: '#16a34a',
@@ -1495,6 +1694,12 @@ function generateHTMLOpinionSection(report: ComplianceReport): string {
       <span style="margin-left: 12px; color: #64748b;">Score: ${opinion.score}/100</span>
     </div>
     ${opinion.scopeReason ? `<p style="margin-bottom: 16px; color: #64748b;"><strong>Scope note:</strong> ${escapeHtml(opinion.scopeReason)}</p>` : ''}
+    ${decision ? `
+      <div style="margin-bottom: 20px; padding: 12px 16px; background: #f8fafc; border-left: 4px solid ${decision.blocking ? '#dc2626' : '#d97706'}; border-radius: 6px;">
+        <strong>Deploy decision:</strong> ${escapeHtml(decision.verdict)} (${decision.blocking ? 'blocking' : 'non-blocking'})
+        <div style="margin-top: 6px; color: #64748b; font-size: 0.9em;">${escapeHtml(decision.reasons[0] ?? 'No deploy decision reason available')}</div>
+      </div>
+    ` : ''}
     <table class="checklist">
       <thead>
         <tr>
@@ -1802,6 +2007,7 @@ export function generateAgentReport(
 
   const result = {
     schema: 'attestlens-agent-v1',
+    deployDecision: report.deployDecision,
     verdict: opinion?.overallVerdict ?? 'UNKNOWN',
     scopedVerdict: opinion?.scopedVerdict,
     scopeReason: opinion?.scopeReason,
@@ -1821,7 +2027,9 @@ export function generateAgentReport(
       }
       : undefined,
     actions,
-    summary: opinion
+    summary: report.deployDecision
+      ? `${report.deployDecision.verdict} - ${report.deployDecision.reasons[0] ?? 'No deploy decision reason available'}`
+      : opinion
       ? `${getOpinionDisplayVerdict(opinion)} - ${opinion.principles.filter((principle) => principle.verdict === 'NON_COMPLIANT').length} of ${opinion.principles.length} principles non-compliant`
       : 'No opinion available',
   };
@@ -1860,6 +2068,9 @@ export function generateMarkdownReport(
   lines.push(`- **Overall Grade:** ${report.overallGrade} (${report.overallScore}/100)`);
   lines.push(`- **Risk Level:** ${report.riskLevel.toUpperCase()}`);
   lines.push(`- **Total Findings:** ${report.findings.length}`);
+  if (report.deployDecision) {
+    lines.push(`- **Deploy Decision:** ${report.deployDecision.verdict} (${report.deployDecision.blocking ? 'blocking' : 'non-blocking'})`);
+  }
   if (report.assessment?.incomplete) {
     lines.push(`- **Assessment Incomplete:** ${getAssessmentIncompleteSummary(report.assessment)}`);
   }
@@ -1899,6 +2110,33 @@ export function generateMarkdownReport(
     lines.push(`*Signed: ${opinion.signedBy} @ ${opinion.signedAt}*`);
     lines.push('');
     lines.push(`*${opinion.disclaimer}*`);
+    lines.push('');
+  }
+
+  if (report.deployDecision) {
+    const decision = report.deployDecision;
+    lines.push(`### Deploy Decision`);
+    lines.push('');
+    lines.push(`**Verdict:** ${decision.verdict} | **Blocking:** ${decision.blocking ? 'Yes' : 'No'} | **Confidence:** ${Math.round(decision.confidence * 100)}%`);
+    lines.push(`**Jurisdiction:** ${decision.jurisdiction}`);
+    if (decision.packValidationStatus) {
+      lines.push(`**Pack Validation:** ${decision.packValidationStatus}`);
+    }
+    if (decision.scopeNote) {
+      lines.push(`**Scope:** ${decision.scopeNote}`);
+    }
+    lines.push('');
+    lines.push(`**Reasons:**`);
+    for (const reason of decision.reasons) {
+      lines.push(`- ${reason}`);
+    }
+    if (decision.remediations.length > 0) {
+      lines.push('');
+      lines.push(`**Remediations:**`);
+      for (const remediation of decision.remediations) {
+        lines.push(`- ${remediation}`);
+      }
+    }
     lines.push('');
   }
 

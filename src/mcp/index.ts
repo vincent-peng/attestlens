@@ -39,6 +39,7 @@ import {
   APPPrinciple as APPPrincipleSchema,
   ComplianceOpinion as ComplianceOpinionSchema,
   ControlStatus,
+  DeployDecision as DeployDecisionSchema,
   Jurisdiction,
   JurisdictionCoverage as JurisdictionCoverageSchema,
   PackValidation as PackValidationSchema,
@@ -323,6 +324,7 @@ const auditOutputSchema = {
     }).optional(),
     packValidation: PackValidationSchema.optional(),
     packCoverage: JurisdictionCoverageSchema.optional(),
+    deployDecision: DeployDecisionSchema.optional(),
   }).optional(),
 };
 
@@ -952,7 +954,7 @@ export async function handleToolCall(name: string, args: Record<string, unknown>
         formats: [format],
         outputDir: '/tmp/attestlens-mcp',
         strictMode: strict,
-        includeOpinion: args?.opinion === true,
+        includeOpinion: args?.opinion === true || format === 'agent',
         ruleFreshness: scanResult.ruleFreshness,
         jurisdiction,
         jurisdictionPack: scanResult.jurisdictionManifests?.[jurisdiction],
@@ -980,6 +982,7 @@ export async function handleToolCall(name: string, args: Record<string, unknown>
             : undefined,
           packValidation: report.metadata.packValidation,
           packCoverage: report.metadata.packCoverage,
+          deployDecision: report.deployDecision,
         },
       };
       return {

@@ -10,6 +10,7 @@ import {
   buildPrimaryLocationLineHash,
   formatSarif,
   inferSarifPrecision,
+  mapDeployDecisionToSarifLevel,
   mapFindingSeverityToSarifLevel,
 } from './sarif.js';
 
@@ -141,8 +142,98 @@ describe('SARIF formatter', () => {
     expect(mapFindingSeverityToSarifLevel('critical')).toBe('error');
     expect(mapFindingSeverityToSarifLevel('medium')).toBe('warning');
     expect(mapFindingSeverityToSarifLevel('info')).toBe('note');
+    expect(mapDeployDecisionToSarifLevel({
+      verdict: 'BLOCK',
+      blocking: true,
+      confidence: 0.9,
+      jurisdiction: 'au-privacy-act',
+      packValidationStatus: 'external_reviewed',
+      reasons: [],
+      evidenceRefs: [],
+      remediations: [],
+    })).toBe('error');
     expect(inferSarifPrecision(makeFinding({ severity: 'medium' }))).toBe('medium');
     expect(inferSarifPrecision(makeFinding({ severity: 'high', corroboratedBy: ['gitleaks'] }))).toBe('very-high');
+  });
+
+  it('maps deploy decisions to SARIF levels', async () => {
+    const warningSarif = await formatSarif({
+      findings: [makeFinding({ severity: 'critical' })],
+      jurisdiction: 'au-privacy-act',
+      version: '0.4.0',
+      deployDecision: {
+        verdict: 'WARN',
+        blocking: false,
+        confidence: 0.8,
+        jurisdiction: 'au-privacy-act',
+        packValidationStatus: 'internal_validated',
+        reasons: ['Weakly validated pack should warn instead of block.'],
+        evidenceRefs: ['finding-1'],
+        remediations: [],
+      },
+    });
+
+    expect(warningSarif.runs[0]!.results[0]!.level).toBe('warning');
+    expect(warningSarif.runs[0]!.tool.driver.rules[0]!.properties['problem.severity']).toBe('warning');
+
+    const reviewSarif = await formatSarif({
+      findings: [makeFinding({ severity: 'low' })],
+      jurisdiction: 'au-privacy-act',
+      version: '0.4.0',
+      deployDecision: {
+        verdict: 'NEEDS_REVIEW',
+        blocking: false,
+        confidence: 0.5,
+        jurisdiction: 'au-privacy-act',
+        packValidationStatus: 'internal_validated',
+        reasons: ['Contextual issue needs review.'],
+        evidenceRefs: ['finding-1'],
+        remediations: [],
+      },
+    });
+
+    expect(reviewSarif.runs[0]!.results[0]!.level).toBe('note');
+    expect(reviewSarif.runs[0]!.tool.driver.rules[0]!.properties['problem.severity']).toBe('recommendation');
+  });
+
+  it('suppresses SARIF findings for PASS and OUT_OF_SCOPE deploy decisions', async () => {
+    const passSarif = await formatSarif({
+      findings: [makeFinding()],
+      jurisdiction: 'au-privacy-act',
+      version: '0.4.0',
+      deployDecision: {
+        verdict: 'PASS',
+        blocking: false,
+        confidence: 0.8,
+        jurisdiction: 'au-privacy-act',
+        packValidationStatus: 'internal_validated',
+        reasons: ['No in-scope blocking findings.'],
+        evidenceRefs: [],
+        remediations: [],
+      },
+    });
+
+    expect(passSarif.runs[0]!.results).toEqual([]);
+    expect(passSarif.runs[0]!.tool.driver.rules).toEqual([]);
+
+    const outOfScopeSarif = await formatSarif({
+      findings: [makeFinding()],
+      jurisdiction: 'au-privacy-act',
+      version: '0.4.0',
+      deployDecision: {
+        verdict: 'OUT_OF_SCOPE',
+        blocking: false,
+        confidence: 0.5,
+        jurisdiction: 'au-privacy-act',
+        packValidationStatus: 'internal_validated',
+        reasons: ['Outside selected pack coverage.'],
+        evidenceRefs: ['finding-1'],
+        remediations: [],
+      },
+    });
+
+    expect(outOfScopeSarif.runs[0]!.results).toEqual([]);
+    expect(outOfScopeSarif.runs[0]!.tool.driver.rules).toEqual([]);
   });
 
   it('formats rule ID prefixes for supported jurisdictions', () => {

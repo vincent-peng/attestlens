@@ -157,11 +157,25 @@ program
 
       const findings = result.findings;
       if (sarifRequested) {
+        const sarifReport = buildComplianceReport(findings, {
+          targetName: target.name,
+          targetPath: target.kind === 'path' ? target.value : undefined,
+          targetUrl: target.kind === 'url' ? target.value : undefined,
+          formats: ['json'],
+          outputDir: path.resolve(options.output),
+          strictMode: options.strict,
+          includeOpinion: true,
+          ruleFreshness: result.ruleFreshness,
+          jurisdiction,
+          jurisdictionPack: result.jurisdictionManifests?.[jurisdiction],
+          packValidationTrusted: result.ruleFreshness.source === 'embedded',
+        }, duration);
         const sarif = await formatSarif({
           findings,
           jurisdiction,
           version: CLI_VERSION,
           basePath: target.kind === 'path' ? target.value : undefined,
+          deployDecision: sarifReport.deployDecision,
         });
         await emitSarifOutput(sarif, options.sarifOutput, path.resolve(options.output));
         process.exit(determineExitCode(findings, failConfig));
@@ -250,11 +264,25 @@ program
       }
       const duration = Date.now() - startTime;
       if (sarifOnly) {
+        const sarifReport = buildComplianceReport(scanResult.findings, {
+          targetName: projectName,
+          targetPath: target.kind === 'path' ? target.value : undefined,
+          targetUrl: target.kind === 'url' ? target.value : undefined,
+          formats: ['json'],
+          outputDir: path.resolve(options.output),
+          strictMode: options.strict,
+          includeOpinion: true,
+          ruleFreshness: scanResult.ruleFreshness,
+          jurisdiction,
+          jurisdictionPack: scanResult.jurisdictionManifests?.[jurisdiction],
+          packValidationTrusted: scanResult.ruleFreshness.source === 'embedded',
+        }, duration);
         const sarif = await formatSarif({
           findings: scanResult.findings,
           jurisdiction,
           version: CLI_VERSION,
           basePath: target.kind === 'path' ? target.value : undefined,
+          deployDecision: sarifReport.deployDecision,
         });
         spinner?.succeed(`Audit complete in ${(duration / 1000).toFixed(1)}s`);
         displayRuleFreshness(scanResult.ruleFreshness);
@@ -270,7 +298,7 @@ program
         formats: reportFormats.filter((format) => format !== 'sarif'),
         outputDir: path.resolve(options.output),
         strictMode: options.strict,
-        includeOpinion: options.opinion,
+        includeOpinion: options.opinion || agentOutput,
         includeReform: options.reform,
         ruleFreshness: scanResult.ruleFreshness,
         jurisdiction,
@@ -323,11 +351,25 @@ program
         console.log(chalk.green(`  📄 ${output.label}: ${output.path}`));
       }
       if (includesSarif) {
+        const sarifDeployDecision = report.deployDecision ?? buildComplianceReport(scanResult.findings, {
+          targetName: projectName,
+          targetPath: target.kind === 'path' ? target.value : undefined,
+          targetUrl: target.kind === 'url' ? target.value : undefined,
+          formats: ['json'],
+          outputDir: path.resolve(options.output),
+          strictMode: options.strict,
+          includeOpinion: true,
+          ruleFreshness: scanResult.ruleFreshness,
+          jurisdiction,
+          jurisdictionPack: scanResult.jurisdictionManifests?.[jurisdiction],
+          packValidationTrusted: scanResult.ruleFreshness.source === 'embedded',
+        }, duration).deployDecision;
         const sarif = await formatSarif({
           findings: scanResult.findings,
           jurisdiction,
           version: CLI_VERSION,
           basePath: target.kind === 'path' ? target.value : undefined,
+          deployDecision: sarifDeployDecision,
         });
         const sarifPath = options.sarifOutput || path.join(path.resolve(options.output), `${buildReportFilename(projectName, report.timestamp)}.sarif`);
         await emitSarifOutput(sarif, sarifPath, path.resolve(options.output));
@@ -619,6 +661,7 @@ program
         formats: reportFormats,
         outputDir: path.resolve(options.output),
         strictMode: options.strict,
+        includeOpinion: isAgentReportFormat(reportFormats),
         ruleFreshness: extractRuleFreshness(scanData),
         packCoverage: extractPackCoverage(scanData),
         packValidation: extractPackValidation(scanData),

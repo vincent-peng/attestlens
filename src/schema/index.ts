@@ -550,6 +550,28 @@ export const PackValidation = z.object({
 });
 export type PackValidation = z.infer<typeof PackValidation>;
 
+export const DeployVerdict = z.enum([
+  'BLOCK',
+  'WARN',
+  'NEEDS_REVIEW',
+  'PASS',
+  'OUT_OF_SCOPE',
+]);
+export type DeployVerdict = z.infer<typeof DeployVerdict>;
+
+export const DeployDecision = z.object({
+  verdict: DeployVerdict,
+  blocking: z.boolean(),
+  confidence: z.number().min(0).max(1),
+  jurisdiction: Jurisdiction,
+  packValidationStatus: PackValidationStatus.optional(),
+  reasons: z.array(z.string()),
+  evidenceRefs: z.array(z.string()),
+  remediations: z.array(z.string()),
+  scopeNote: z.string().optional(),
+});
+export type DeployDecision = z.infer<typeof DeployDecision>;
+
 export const RuleDefinition = z.object({
   id: z.string(),
   category: z.string(),
@@ -789,6 +811,7 @@ export const ComplianceReport = z.object({
   breachReadiness: BreachReadiness.optional(),
   consultantNarrative: ConsultantNarrative.optional(),
   complianceOpinion: ComplianceOpinion.optional(),
+  deployDecision: DeployDecision.optional(),
   reformImpactAssessment: reformImpactAssessmentSchema.optional(),
   remediation: z.array(RemediationItem),
   metadata: z.object({
