@@ -1080,6 +1080,22 @@ describe('MCP Server', () => {
       }));
     });
 
+    it('rejects changedFilesOnly when MCP changed files are caller supplied', async () => {
+      const scanSpy = vi.spyOn(ScannerOrchestrator.prototype, 'scan');
+
+      const response = await handleToolCall('attestlens_scan', {
+        path: tempDir,
+        changedFiles: ['src/omitted.ts'],
+        changedFilesOnly: true,
+      });
+
+      expect(response).toEqual({
+        content: [{ type: 'text', text: 'changedFilesOnly requires server-resolved diffBase and diffHead refs.' }],
+        isError: true,
+      });
+      expect(scanSpy).not.toHaveBeenCalled();
+    });
+
     it('keeps MCP scan external enrichment disabled by default', async () => {
       await writeMcpPackageProject(tempDir, 'external-only');
       const fetchMock = vi.fn(async () => {

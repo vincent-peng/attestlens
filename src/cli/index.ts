@@ -863,6 +863,7 @@ async function resolveCliDiffContext(target: CliTarget, options: any): Promise<D
     cwd: target.value,
     baseRef: options.diffBase,
     headRef: options.diffHead,
+    timeoutMs: parseScannerTimeoutOption(options.scannerTimeout),
   });
 }
 

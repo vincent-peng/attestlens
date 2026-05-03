@@ -286,7 +286,7 @@ export class ScannerOrchestrator {
       ? { ...options.diffContext, introducedFindings: [] as string[] }
       : undefined;
     let finalFindings = diffContext
-      ? annotateFindingsWithDiff(deduplicated, diffContext.changedFiles, targetPath)
+      ? annotateFindingsWithDiff(deduplicated, diffContext, targetPath)
       : deduplicated;
     if (diffContext && options?.changedFilesOnly) {
       finalFindings = finalFindings.filter((finding) => finding.introducedInDiff === true);
@@ -552,15 +552,18 @@ function normalizeFindingFile(file: string | undefined): string {
 
 function annotateFindingsWithDiff(
   findings: AttestLensFinding[],
-  changedFiles: string[],
+  diffContext: DiffContext,
   targetPath: string,
 ): AttestLensFinding[] {
-  const changedSet = new Set(changedFiles
+  const changedSet = new Set(diffContext.changedFiles
     .map((file) => normalizeDiffPath(file))
     .filter((file): file is string => Boolean(file)));
+  const addedDependencies = new Set(diffContext.addedDependencies);
+  const packageMetadataChanged = diffContext.changedFiles.some(isPackageMetadataPath);
   return findings.map((finding) => ({
     ...finding,
-    introducedInDiff: isFindingInChangedFiles(finding, changedSet, targetPath),
+    introducedInDiff: isFindingInChangedFiles(finding, changedSet, targetPath)
+      || isSupplyChainFindingIntroduced(finding, addedDependencies, packageMetadataChanged),
   }));
 }
 
@@ -579,6 +582,22 @@ function isFindingInChangedFiles(
     }
   }
   return false;
+}
+
+function isSupplyChainFindingIntroduced(
+  finding: AttestLensFinding,
+  addedDependencies: Set<string>,
+  packageMetadataChanged: boolean,
+): boolean {
+  if (finding.source !== 'supply-chain') {
+    return false;
+  }
+  const rawOutput = finding.evidence.rawOutput as Record<string, unknown> | undefined;
+  const packageName = typeof rawOutput?.packageName === 'string' ? rawOutput.packageName : undefined;
+  if (packageName) {
+    return addedDependencies.has(packageName);
+  }
+  return packageMetadataChanged;
 }
 
 function getFindingFileCandidates(file: string, targetPath: string): string[] {
@@ -610,6 +629,10 @@ function normalizeDiffPath(file: string): string | undefined {
     return undefined;
   }
   return normalized;
+}
+
+function isPackageMetadataPath(file: string): boolean {
+  return /(^|\/)package(?:-lock)?\.json$/.test(file);
 }
 
 function normalizeFindingUrl(url: string | undefined): string {

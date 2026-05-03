@@ -422,6 +422,47 @@ describe('ScannerOrchestrator', { timeout: 20000 }, () => {
     expect(result.findings.map((finding) => finding.id)).toEqual(['changed-finding']);
     expect(result.diffContext?.introducedFindings).toEqual(['changed-finding']);
   });
+
+  it('keeps added dependency findings when changedFilesOnly is set', async () => {
+    const orchestrator = new ScannerOrchestrator();
+    const findings = [
+      makeFinding({
+        id: 'added-dependency-finding',
+        source: 'supply-chain',
+        file: '.',
+        evidence: {
+          timestamp: new Date().toISOString(),
+          scannerVersion: 'test',
+          rawOutput: { packageName: 'risky-package' },
+        },
+      }),
+      makeFinding({
+        id: 'existing-dependency-finding',
+        source: 'supply-chain',
+        file: '.',
+        evidence: {
+          timestamp: new Date().toISOString(),
+          scannerVersion: 'test',
+          rawOutput: { packageName: 'existing-package' },
+        },
+      }),
+    ];
+    orchestrator.register(makeFindingAdapter('supply-chain', findings));
+
+    const result = await orchestrator.scan(fixtureDir, ['supply-chain'], {
+      changedFilesOnly: true,
+      diffContext: {
+        changedFiles: ['package.json'],
+        introducedFindings: [],
+        addedDependencies: ['risky-package'],
+        addedRoutes: [],
+      },
+    });
+
+    expect(result.findings.map((finding) => finding.id)).toEqual(['added-dependency-finding']);
+    expect(result.findings[0]?.introducedInDiff).toBe(true);
+    expect(result.diffContext?.introducedFindings).toEqual(['added-dependency-finding']);
+  });
 });
 
 async function createVulnerableAppFixture(): Promise<string> {

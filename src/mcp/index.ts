@@ -817,7 +817,11 @@ function buildScanSummary(
   };
 }
 
-async function resolveMcpDiffContext(args: Record<string, unknown> | undefined, cwd: string): Promise<DiffContext | ToolErrorResponse | undefined> {
+async function resolveMcpDiffContext(
+  args: Record<string, unknown> | undefined,
+  cwd: string,
+  options: { signal?: AbortSignal; timeoutMs?: number } = {},
+): Promise<DiffContext | ToolErrorResponse | undefined> {
   const diffBase = typeof args?.diffBase === 'string' && args.diffBase.trim().length > 0
     ? args.diffBase
     : undefined;
@@ -834,6 +838,9 @@ async function resolveMcpDiffContext(args: Record<string, unknown> | undefined, 
   if ((diffBase && !diffHead) || (!diffBase && diffHead)) {
     return makeToolError('diffBase and diffHead must be supplied together.');
   }
+  if (args?.changedFilesOnly === true && (!diffBase || !diffHead)) {
+    return makeToolError('changedFilesOnly requires server-resolved diffBase and diffHead refs.');
+  }
   if (!changedFiles?.length && (!diffBase || !diffHead)) {
     return makeToolError('diffBase and diffHead are required when changedFiles are not supplied.');
   }
@@ -844,6 +851,8 @@ async function resolveMcpDiffContext(args: Record<string, unknown> | undefined, 
       baseRef: diffBase,
       headRef: diffHead,
       changedFiles,
+      signal: options.signal,
+      timeoutMs: options.timeoutMs,
     });
   } catch (error) {
     return makeToolError(error instanceof Error ? error.message : String(error));
@@ -919,7 +928,10 @@ export async function handleToolCall(name: string, args: Record<string, unknown>
       if (isToolError(jurisdictionAvailability)) {
         return jurisdictionAvailability;
       }
-      const diffContext = await resolveMcpDiffContext(args, scanPath);
+      const diffContext = await resolveMcpDiffContext(args, scanPath, {
+        signal: extra.signal,
+        timeoutMs: scannerTimeoutMs,
+      });
       if (isToolError(diffContext)) {
         return diffContext;
       }
@@ -1002,7 +1014,10 @@ export async function handleToolCall(name: string, args: Record<string, unknown>
       if (isToolError(jurisdictionAvailability)) {
         return jurisdictionAvailability;
       }
-      const diffContext = await resolveMcpDiffContext(args, scanPath);
+      const diffContext = await resolveMcpDiffContext(args, scanPath, {
+        signal: extra.signal,
+        timeoutMs: scannerTimeoutMs,
+      });
       if (isToolError(diffContext)) {
         return diffContext;
       }

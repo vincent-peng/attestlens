@@ -9,13 +9,27 @@ type ExecResult = {
   stderr: string;
 };
 
+type GitCommandOptions = {
+  cwd?: string;
+  signal?: AbortSignal;
+  timeoutMs?: number;
+};
+
+const DEFAULT_GIT_TIMEOUT_MS = 30_000;
+
 export async function getChangedFiles(
   baseRef: string,
   headRef: string,
-  options: { cwd?: string } = {},
+  options: GitCommandOptions = {},
 ): Promise<string[]> {
   try {
-    const { stdout } = await execGit(['diff', '--name-only', baseRef, headRef], options.cwd);
+    validateRefName(baseRef);
+    validateRefName(headRef);
+    const [baseOid, headOid] = await Promise.all([
+      resolveGitCommit(baseRef, options),
+      resolveGitCommit(headRef, options),
+    ]);
+    const { stdout } = await execGit(['diff', '--name-only', '--relative', baseOid, headOid], options);
     return normalizeChangedFiles(stdout.split(/\r?\n/));
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
@@ -28,17 +42,24 @@ export async function buildDiffContext(options: {
   baseRef?: string;
   headRef?: string;
   changedFiles?: string[];
+  signal?: AbortSignal;
+  timeoutMs?: number;
 }): Promise<DiffContext> {
+  const hasResolvedRefs = Boolean(options.baseRef && options.headRef);
   const changedFiles = options.changedFiles
     ? normalizeChangedFiles(options.changedFiles)
     : await getChangedFiles(requireRef(options.baseRef, 'diff base'), requireRef(options.headRef, 'diff head'), {
       cwd: options.cwd,
+      signal: options.signal,
+      timeoutMs: options.timeoutMs,
     });
 
-  const [addedDependencies, addedRoutes] = await Promise.all([
-    detectAddedDependencies(options.cwd, options.baseRef, options.headRef, changedFiles),
-    detectAddedRoutes(options.cwd, options.headRef, changedFiles),
-  ]);
+  const [addedDependencies, addedRoutes] = hasResolvedRefs
+    ? await Promise.all([
+      detectAddedDependencies(options.cwd, options.baseRef, options.headRef, changedFiles, options),
+      detectAddedRoutes(options.cwd, options.headRef, changedFiles, options),
+    ])
+    : [[], []];
 
   return {
     baseRef: options.baseRef,
@@ -62,6 +83,7 @@ async function detectAddedDependencies(
   baseRef: string | undefined,
   headRef: string | undefined,
   changedFiles: string[],
+  options: Pick<GitCommandOptions, 'signal' | 'timeoutMs'> = {},
 ): Promise<string[]> {
   const packageFiles = changedFiles.filter((file) => /(^|\/)package(?:-lock)?\.json$/.test(file));
   if (packageFiles.length === 0) {
@@ -72,16 +94,16 @@ async function detectAddedDependencies(
   for (const file of packageFiles) {
     if (file.endsWith('package.json')) {
       const [baseContent, headContent] = await Promise.all([
-        baseRef ? readGitFile(cwd, baseRef, file).catch(() => undefined) : undefined,
-        readHeadFile(cwd, headRef, file),
+        baseRef ? readGitFile(cwd, baseRef, file, options).catch(() => undefined) : undefined,
+        readHeadFile(cwd, headRef, file, options),
       ]);
       for (const name of diffPackageJsonDependencies(baseContent, headContent)) {
         dependencies.add(name);
       }
     } else if (file.endsWith('package-lock.json')) {
       const [baseContent, headContent] = await Promise.all([
-        baseRef ? readGitFile(cwd, baseRef, file).catch(() => undefined) : undefined,
-        readHeadFile(cwd, headRef, file),
+        baseRef ? readGitFile(cwd, baseRef, file, options).catch(() => undefined) : undefined,
+        readHeadFile(cwd, headRef, file, options),
       ]);
       for (const name of diffPackageLockDependencies(baseContent, headContent)) {
         dependencies.add(name);
@@ -96,6 +118,7 @@ async function detectAddedRoutes(
   cwd: string,
   headRef: string | undefined,
   changedFiles: string[],
+  options: Pick<GitCommandOptions, 'signal' | 'timeoutMs'> = {},
 ): Promise<string[]> {
   const routes = new Set<string>();
   const routeCandidates = changedFiles.filter((file) => (
@@ -109,7 +132,7 @@ async function detectAddedRoutes(
       routes.add(pathRoute);
     }
 
-    const content = await readHeadFile(cwd, headRef, file).catch(() => undefined);
+    const content = await readHeadFile(cwd, headRef, file, options).catch(() => undefined);
     if (!content) {
       continue;
     }
@@ -223,21 +246,38 @@ function cleanNextRoute(route: string): string {
     .join('/');
 }
 
-async function readHeadFile(cwd: string, headRef: string | undefined, relativePath: string): Promise<string | undefined> {
+async function readHeadFile(
+  cwd: string,
+  headRef: string | undefined,
+  relativePath: string,
+  options: Pick<GitCommandOptions, 'signal' | 'timeoutMs'> = {},
+): Promise<string | undefined> {
   if (headRef) {
-    return readGitFile(cwd, headRef, relativePath).catch(() => undefined);
+    return readGitFile(cwd, headRef, relativePath, options).catch(() => undefined);
   }
   return fs.readFile(path.join(cwd, relativePath), 'utf-8').catch(() => undefined);
 }
 
-async function readGitFile(cwd: string, ref: string, relativePath: string): Promise<string> {
-  const objectPath = await toGitObjectPath(cwd, relativePath);
-  const { stdout } = await execGit(['show', `${ref}:${objectPath}`], cwd);
+async function readGitFile(
+  cwd: string,
+  ref: string,
+  relativePath: string,
+  options: Pick<GitCommandOptions, 'signal' | 'timeoutMs'> = {},
+): Promise<string> {
+  const [commitOid, objectPath] = await Promise.all([
+    resolveGitCommit(ref, { cwd, ...options }),
+    toGitObjectPath(cwd, relativePath, options),
+  ]);
+  const { stdout } = await execGit(['show', `${commitOid}:${objectPath}`], { cwd, ...options });
   return stdout;
 }
 
-async function toGitObjectPath(cwd: string, relativePath: string): Promise<string> {
-  const { stdout } = await execGit(['rev-parse', '--show-prefix'], cwd);
+async function toGitObjectPath(
+  cwd: string,
+  relativePath: string,
+  options: Pick<GitCommandOptions, 'signal' | 'timeoutMs'> = {},
+): Promise<string> {
+  const { stdout } = await execGit(['rev-parse', '--show-prefix'], { cwd, ...options });
   return normalizeChangedFile(`${stdout.trim()}${relativePath}`) || relativePath;
 }
 
@@ -269,12 +309,34 @@ function requireRef(value: string | undefined, label: string): string {
   if (!value) {
     throw new Error(`Missing ${label} ref`);
   }
+  validateRefName(value);
   return value;
 }
 
-function execGit(args: string[], cwd = process.cwd()): Promise<ExecResult> {
+async function resolveGitCommit(ref: string, options: GitCommandOptions = {}): Promise<string> {
+  validateRefName(ref);
+  const { stdout } = await execGit(['rev-parse', '--verify', '--end-of-options', `${ref}^{commit}`], options);
+  const oid = stdout.trim();
+  if (!/^[0-9a-f]{40,64}$/i.test(oid)) {
+    throw new Error(`Git ref ${ref} did not resolve to a commit`);
+  }
+  return oid;
+}
+
+function validateRefName(ref: string): void {
+  if (!ref || ref.startsWith('-')) {
+    throw new Error(`Unsupported git ref: ${ref || '(empty)'}`);
+  }
+}
+
+function execGit(args: string[], options: GitCommandOptions = {}): Promise<ExecResult> {
   return new Promise((resolve, reject) => {
-    execFile('git', args, { cwd, maxBuffer: 10 * 1024 * 1024 }, (error, stdout, stderr) => {
+    execFile('git', args, {
+      cwd: options.cwd ?? process.cwd(),
+      maxBuffer: 10 * 1024 * 1024,
+      signal: options.signal,
+      timeout: options.timeoutMs ?? DEFAULT_GIT_TIMEOUT_MS,
+    }, (error, stdout, stderr) => {
       if (error) {
         const details = typeof stderr === 'string' && stderr.trim()
           ? stderr.trim()
