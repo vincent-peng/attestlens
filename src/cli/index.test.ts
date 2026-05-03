@@ -367,6 +367,18 @@ describe('CLI metadata', () => {
     expect(uninstallResult.code).toBe(0);
     expect(uninstallResult.stdout).toContain('Remove the Clearway MCP server');
   });
+
+  it('exposes PR diff flags on scan and audit', async () => {
+    const scanResult = await runCli(['scan', '--help']);
+    const auditResult = await runCli(['audit', '--help']);
+
+    for (const result of [scanResult, auditResult]) {
+      expect(result.code).toBe(0);
+      expect(result.stdout).toContain('--diff-base');
+      expect(result.stdout).toContain('--diff-head');
+      expect(result.stdout).toContain('--changed-files-only');
+    }
+  });
 });
 
 describe('CLI agent report format', () => {

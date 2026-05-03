@@ -8,6 +8,7 @@
 import type {
   AnyJurisdictionPackManifest,
   AttestLensFinding,
+  DiffContext,
   Jurisdiction,
   Severity,
   ScanSource,
@@ -40,6 +41,7 @@ export interface OrchestratedScanResult {
   totalDurationMs: number;
   ruleFreshness: RuleFreshness;
   jurisdictionManifests?: Partial<Record<Jurisdiction, AnyJurisdictionPackManifest>>;
+  diffContext?: DiffContext;
 }
 
 export type ScannerProgressPhase = 'start' | 'complete' | 'skip' | 'warning' | 'timeout';

@@ -49,8 +49,9 @@ import {
   Severity,
   reformImpactAssessmentSchema,
 } from '../schema/index.js';
-import type { APPPrinciple, AttestLensFinding, Jurisdiction as JurisdictionType, ReformImpactAssessment } from '../schema/index.js';
+import type { APPPrinciple, AttestLensFinding, DiffContext, Jurisdiction as JurisdictionType, ReformImpactAssessment } from '../schema/index.js';
 import { sanitizeTargetPathForOutput, sanitizeTargetUrlForOutput } from '../utils/target.js';
+import { buildDiffContext } from '../git/diff.js';
 import { ATTESTLENS_VERSION } from '../version.js';
 
 type ToolResponse = {
@@ -164,6 +165,10 @@ const pathScanOptionsInputSchema = {
   iac: z.boolean().describe('Enable infrastructure-as-code misconfiguration scanning').default(true),
   includeGitleaks: z.boolean().describe('Enable opt-in git history secret scanning via gitleaks').default(false),
   scannerTimeoutMs: scannerTimeoutMsInputSchema,
+  diffBase: z.string().describe('Git base ref for PR diff mode').optional(),
+  diffHead: z.string().describe('Git head ref for PR diff mode').optional(),
+  changedFiles: z.array(z.string()).describe('Changed files for PR diff mode when refs are resolved by the caller').optional(),
+  changedFilesOnly: z.boolean().describe('Restrict feasible file-based findings to changed files').default(false),
 };
 
 const scanInputSchema = {
@@ -263,8 +268,18 @@ const serializedFindingOutputSchema = z.object({
   fix: z.string().optional(),
   fixPrompt: z.string().optional(),
   corroboratedBy: z.array(ScanSource).optional(),
+  introducedInDiff: z.boolean().optional(),
   regulationMappings: z.array(regulationMappingOutputSchema),
   appMappings: z.array(appMappingOutputSchema),
+});
+
+const diffContextOutputSchema = z.object({
+  baseRef: z.string().optional(),
+  headRef: z.string().optional(),
+  changedFiles: z.array(z.string()),
+  introducedFindings: z.array(z.string()),
+  addedDependencies: z.array(z.string()),
+  addedRoutes: z.array(z.string()),
 });
 
 const scannerErrorOutputSchema = z.object({
@@ -296,6 +311,7 @@ const scanSummaryOutputSchema = {
   errors: z.array(scannerErrorOutputSchema),
   durationMs: z.number(),
   ruleFreshness: RuleFreshnessSchema,
+  diffContext: diffContextOutputSchema.optional(),
 };
 
 const scanOutputSchema = {
@@ -325,6 +341,7 @@ const auditOutputSchema = {
     packValidation: PackValidationSchema.optional(),
     packCoverage: JurisdictionCoverageSchema.optional(),
     deployDecision: DeployDecisionSchema.optional(),
+    diffContext: diffContextOutputSchema.optional(),
   }).optional(),
 };
 
@@ -612,8 +629,9 @@ function runScan(
   orchestrator: ScannerOrchestrator,
   target: string,
   signal?: AbortSignal,
+  options: Omit<NonNullable<Parameters<ScannerOrchestrator['scan']>[2]>, 'signal'> = {},
 ): ReturnType<ScannerOrchestrator['scan']> {
-  return orchestrator.scan(target, undefined, { signal });
+  return orchestrator.scan(target, undefined, { ...options, signal });
 }
 
 function parseScannerTimeoutMs(value: unknown): number | undefined | ToolErrorResponse {
@@ -691,6 +709,7 @@ function serializeFindings(findings: AttestLensFinding[]) {
     fix: finding.fix,
     fixPrompt: finding.fixPrompt,
     corroboratedBy: finding.corroboratedBy,
+    introducedInDiff: finding.introducedInDiff,
     regulationMappings: (finding.regulationMappings ?? []).map((mapping) => ({
       jurisdiction: mapping.jurisdiction,
       principle: mapping.principle,
@@ -794,7 +813,41 @@ function buildScanSummary(
     errors: sanitizeMcpErrors(result.errors),
     durationMs: result.totalDurationMs,
     ruleFreshness: RuleFreshnessSchema.parse(result.ruleFreshness),
+    diffContext: result.diffContext,
   };
+}
+
+async function resolveMcpDiffContext(args: Record<string, unknown> | undefined, cwd: string): Promise<DiffContext | ToolErrorResponse | undefined> {
+  const diffBase = typeof args?.diffBase === 'string' && args.diffBase.trim().length > 0
+    ? args.diffBase
+    : undefined;
+  const diffHead = typeof args?.diffHead === 'string' && args.diffHead.trim().length > 0
+    ? args.diffHead
+    : undefined;
+  const changedFiles = Array.isArray(args?.changedFiles)
+    ? args.changedFiles.filter((file): file is string => typeof file === 'string')
+    : undefined;
+
+  if (!diffBase && !diffHead && !changedFiles?.length && args?.changedFilesOnly !== true) {
+    return undefined;
+  }
+  if ((diffBase && !diffHead) || (!diffBase && diffHead)) {
+    return makeToolError('diffBase and diffHead must be supplied together.');
+  }
+  if (!changedFiles?.length && (!diffBase || !diffHead)) {
+    return makeToolError('diffBase and diffHead are required when changedFiles are not supplied.');
+  }
+
+  try {
+    return await buildDiffContext({
+      cwd,
+      baseRef: diffBase,
+      headRef: diffHead,
+      changedFiles,
+    });
+  } catch (error) {
+    return makeToolError(error instanceof Error ? error.message : String(error));
+  }
 }
 
 function parseReportFormat(rawFormat: unknown): ReportFormat | ToolErrorResponse {
@@ -866,9 +919,16 @@ export async function handleToolCall(name: string, args: Record<string, unknown>
       if (isToolError(jurisdictionAvailability)) {
         return jurisdictionAvailability;
       }
+      const diffContext = await resolveMcpDiffContext(args, scanPath);
+      if (isToolError(diffContext)) {
+        return diffContext;
+      }
 
       const orchestrator = createOrchestrator('path', { externalEnrichment, includeTyposquat, behavioral, iac, includeGitleaks, scannerTimeoutMs, jurisdiction });
-      const result = await runScan(orchestrator, scanPath, extra.signal);
+      const result = await runScan(orchestrator, scanPath, extra.signal, {
+        diffContext,
+        changedFilesOnly: args?.changedFilesOnly === true,
+      });
 
       return makeJsonToolResponse({
         targetType: 'path',
@@ -942,10 +1002,17 @@ export async function handleToolCall(name: string, args: Record<string, unknown>
       if (isToolError(jurisdictionAvailability)) {
         return jurisdictionAvailability;
       }
+      const diffContext = await resolveMcpDiffContext(args, scanPath);
+      if (isToolError(diffContext)) {
+        return diffContext;
+      }
 
       const orchestrator = createOrchestrator('path', { externalEnrichment, includeTyposquat, behavioral, iac, includeGitleaks, scannerTimeoutMs, jurisdiction });
       const startTime = Date.now();
-      const scanResult = await runScan(orchestrator, scanPath, extra.signal);
+      const scanResult = await runScan(orchestrator, scanPath, extra.signal, {
+        diffContext,
+        changedFilesOnly: args?.changedFilesOnly === true,
+      });
       const duration = Date.now() - startTime;
 
       const reportOptions: ReportOptions = {
@@ -960,6 +1027,7 @@ export async function handleToolCall(name: string, args: Record<string, unknown>
         jurisdiction,
         jurisdictionPack: scanResult.jurisdictionManifests?.[jurisdiction],
         packValidationTrusted: scanResult.ruleFreshness.source === 'embedded',
+        diffContext: scanResult.diffContext,
       };
       const report = buildComplianceReport(scanResult.findings, reportOptions, duration);
       report.metadata.scannerVersions = Object.fromEntries(
@@ -984,6 +1052,7 @@ export async function handleToolCall(name: string, args: Record<string, unknown>
           packValidation: report.metadata.packValidation,
           packCoverage: report.metadata.packCoverage,
           deployDecision: report.deployDecision,
+          diffContext: report.metadata.diffContext,
         },
       };
       return {

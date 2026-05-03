@@ -68,6 +68,7 @@ import type {
   AssessmentMode,
   AttestLensFinding,
   ComplianceReport,
+  DiffContext,
   JurisdictionCoverage,
   Jurisdiction as JurisdictionType,
   PackValidation,
@@ -90,6 +91,7 @@ import {
 import { registerMonitorCommands } from '../monitor/cli.js';
 import { proposeRules } from '../authoring/propose.js';
 import { reviewPack } from '../authoring/review.js';
+import { buildDiffContext } from '../git/diff.js';
 import { ATTESTLENS_VERSION } from '../version.js';
 
 const CLI_VERSION = ATTESTLENS_VERSION;
@@ -127,6 +129,9 @@ program
   .option('--scanner-timeout <ms>', 'Per-scanner timeout in milliseconds')
   .option('--auto-update', 'Refresh the cached rule pack from ATTESTLENS_RULE_SOURCE before scanning')
   .option('--jurisdiction <jurisdiction>', 'Jurisdiction to check against (default: au-privacy-act)', 'au-privacy-act')
+  .option('--diff-base <ref>', 'Git base ref for PR diff mode')
+  .option('--diff-head <ref>', 'Git head ref for PR diff mode')
+  .option('--changed-files-only', 'Restrict feasible file-based findings to files changed in diff mode')
   .option('--reform', 'Include Privacy Act 2026 reform impact assessment')
   .action(async (targetInput: string, options: any) => {
     const sarifRequested = isSarifRequested(options.format);
@@ -140,11 +145,15 @@ program
       const jurisdiction = parseJurisdictionOption(options.jurisdiction);
       assertJurisdictionAvailableForCli(jurisdiction);
       await maybeAutoUpdateRules(options);
+      const diffContext = await resolveCliDiffContext(target, options);
       const orchestrator = createOrchestrator(target.kind, options);
       const spinner = ora(target.kind === 'url' ? `Scanning URL: ${target.value}` : 'Scanning project...').start();
       const startTime = Date.now();
 
-      const result = await orchestrator.scan(target.value);
+      const result = await orchestrator.scan(target.value, undefined, {
+        diffContext,
+        changedFilesOnly: options.changedFilesOnly === true,
+      });
       const urlScanFailure = target.kind === 'url' ? getUrlScanFailureMessage(result) : null;
       if (urlScanFailure) {
         spinner.fail('URL scan failed');
@@ -171,6 +180,7 @@ program
           jurisdiction,
           jurisdictionPack: result.jurisdictionManifests?.[jurisdiction],
           packValidationTrusted: result.ruleFreshness.source === 'embedded',
+          diffContext: result.diffContext,
         }, duration);
         const sarif = await formatSarif({
           findings,
@@ -234,6 +244,9 @@ program
   .option('--scanner-timeout <ms>', 'Per-scanner timeout in milliseconds')
   .option('--auto-update', 'Refresh the cached rule pack from ATTESTLENS_RULE_SOURCE before scanning')
   .option('--jurisdiction <jurisdiction>', 'Jurisdiction to check against (default: au-privacy-act)', 'au-privacy-act')
+  .option('--diff-base <ref>', 'Git base ref for PR diff mode')
+  .option('--diff-head <ref>', 'Git head ref for PR diff mode')
+  .option('--changed-files-only', 'Restrict feasible file-based findings to files changed in diff mode')
   .option('--opinion', 'Include compliance opinion in report')
   .option('--reform', 'Include Privacy Act 2026 reform impact assessment')
 
@@ -252,13 +265,17 @@ program
       assertJurisdictionAvailableForCli(jurisdiction);
       const projectName = target.name;
       await maybeAutoUpdateRules(options, agentOutput);
+      const diffContext = await resolveCliDiffContext(target, options);
       const orchestrator = createOrchestrator(target.kind, options);
       const spinner = agentOutput
         ? undefined
         : ora(`Running compliance scan for ${target.kind === 'url' ? 'URL' : 'project'}...`).start();
       const startTime = Date.now();
 
-      const scanResult = await orchestrator.scan(target.value);
+      const scanResult = await orchestrator.scan(target.value, undefined, {
+        diffContext,
+        changedFilesOnly: options.changedFilesOnly === true,
+      });
       const urlScanFailure = target.kind === 'url' ? getUrlScanFailureMessage(scanResult) : null;
       if (urlScanFailure) {
         spinner?.fail('Audit failed');
@@ -278,6 +295,7 @@ program
           jurisdiction,
           jurisdictionPack: scanResult.jurisdictionManifests?.[jurisdiction],
           packValidationTrusted: scanResult.ruleFreshness.source === 'embedded',
+          diffContext: scanResult.diffContext,
         }, duration);
         const sarif = await formatSarif({
           findings: scanResult.findings,
@@ -307,6 +325,7 @@ program
         jurisdiction,
         jurisdictionPack: scanResult.jurisdictionManifests?.[jurisdiction],
         packValidationTrusted: scanResult.ruleFreshness.source === 'embedded',
+        diffContext: scanResult.diffContext,
       };
 
       const report = buildComplianceReport(scanResult.findings, reportOptions, duration);
@@ -824,6 +843,27 @@ async function resolveCliTarget(targetInput: string, explicitName?: string): Pro
     value: resolvedPath,
     name: explicitName || path.basename(resolvedPath),
   };
+}
+
+async function resolveCliDiffContext(target: CliTarget, options: any): Promise<DiffContext | undefined> {
+  const hasDiffBase = typeof options.diffBase === 'string' && options.diffBase.trim().length > 0;
+  const hasDiffHead = typeof options.diffHead === 'string' && options.diffHead.trim().length > 0;
+  const changedFilesOnly = options.changedFilesOnly === true;
+  if (!hasDiffBase && !hasDiffHead && !changedFilesOnly) {
+    return undefined;
+  }
+  if (target.kind !== 'path') {
+    throw new Error('PR diff mode is only supported for local path scans.');
+  }
+  if (!hasDiffBase || !hasDiffHead) {
+    throw new Error('--diff-base and --diff-head are required for PR diff mode.');
+  }
+
+  return buildDiffContext({
+    cwd: target.value,
+    baseRef: options.diffBase,
+    headRef: options.diffHead,
+  });
 }
 
 async function maybeAutoUpdateRules(options: any, quiet = false): Promise<void> {

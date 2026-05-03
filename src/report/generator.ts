@@ -22,6 +22,7 @@ import type {
   AssessmentMode,
   RemediationItem,
   ControlStatus,
+  DiffContext,
   DeployDecision,
   Severity,
   QuestionnaireSession,
@@ -84,6 +85,7 @@ export interface ReportOptions {
   packCoverage?: JurisdictionCoverage;
   packValidation?: PackValidation;
   packValidationTrusted?: boolean;
+  diffContext?: DiffContext;
   branding?: {
     logo?: string;
     primaryColor?: string;
@@ -191,6 +193,7 @@ export function buildComplianceReport(
       ruleFreshness: options.ruleFreshness ? RuleFreshnessSchema.parse(options.ruleFreshness) : undefined,
       packCoverage: packMetadata.coverage,
       packValidation: packMetadata.validation,
+      diffContext: options.diffContext,
     },
     disclaimer,
   };
@@ -2011,6 +2014,7 @@ export function generateAgentReport(
   const severityOrder: Severity[] = ['critical', 'high', 'medium', 'low', 'info'];
   const reportControls = controls;
   const scopedOutput = Boolean(opinion?.scopedVerdict);
+  const sortedFindings = sortFindingsForAgent(report.findings);
   const actions: Array<{
     principle: string;
     verdict: string;
@@ -2065,6 +2069,26 @@ export function generateAgentReport(
         evidenceTypes: report.metadata.packCoverage.evidenceTypes,
       }
       : undefined,
+    diffContext: report.metadata.diffContext
+      ? {
+        baseRef: report.metadata.diffContext.baseRef,
+        headRef: report.metadata.diffContext.headRef,
+        changedFiles: report.metadata.diffContext.changedFiles,
+        changedFileCount: report.metadata.diffContext.changedFiles.length,
+        introducedFindings: report.metadata.diffContext.introducedFindings,
+        introducedFindingCount: report.metadata.diffContext.introducedFindings.length,
+        addedDependencies: report.metadata.diffContext.addedDependencies,
+        addedRoutes: report.metadata.diffContext.addedRoutes,
+      }
+      : undefined,
+    findings: sortedFindings.map((finding) => ({
+      id: finding.id,
+      severity: finding.severity,
+      title: finding.title,
+      file: finding.file,
+      introducedInDiff: finding.introducedInDiff === true,
+      fix: finding.fix,
+    })),
     actions,
     summary: report.deployDecision
       ? `${report.deployDecision.verdict} - ${report.deployDecision.reasons[0] ?? 'No deploy decision reason available'}`
@@ -2074,6 +2098,27 @@ export function generateAgentReport(
   };
 
   return JSON.stringify(result, null, 2);
+}
+
+function sortFindingsForAgent(findings: AttestLensFinding[]): AttestLensFinding[] {
+  const severityOrder: Record<Severity, number> = {
+    critical: 0,
+    high: 1,
+    medium: 2,
+    low: 3,
+    info: 4,
+  };
+  return [...findings].sort((left, right) => {
+    const introducedDelta = Number(right.introducedInDiff === true) - Number(left.introducedInDiff === true);
+    if (introducedDelta !== 0) {
+      return introducedDelta;
+    }
+    const severityDelta = severityOrder[left.severity] - severityOrder[right.severity];
+    if (severityDelta !== 0) {
+      return severityDelta;
+    }
+    return left.id.localeCompare(right.id);
+  });
 }
 
 // ─── Markdown Report Generator ────────────────────────────────────────────────

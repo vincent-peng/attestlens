@@ -37,6 +37,7 @@ function makeFinding(overrides: Partial<AttestLensFinding> = {}): AttestLensFind
     code: overrides.code,
     fix: overrides.fix,
     fixPrompt: overrides.fixPrompt,
+    introducedInDiff: overrides.introducedInDiff,
   };
 }
 
@@ -866,6 +867,51 @@ describe('generateAgentReport', () => {
       evidenceTypes: expect.arrayContaining([expect.any(String)]),
     }));
     expect(parsed.packCoverage.summary).toContain('not a full CCPA/CPRA legal compliance assessment');
+  });
+
+  it('sorts introduced diff findings first and includes diff summaries', () => {
+    const report = buildComplianceReport([
+      makeFinding({
+        id: 'unchanged-critical',
+        severity: 'critical',
+        title: 'Existing critical issue',
+        file: 'src/existing.ts',
+        introducedInDiff: false,
+      }),
+      makeFinding({
+        id: 'introduced-low',
+        severity: 'low',
+        title: 'New low issue',
+        file: 'src/new.ts',
+        introducedInDiff: true,
+      }),
+    ], {
+      ...defaultOptions,
+      includeDeployDecision: true,
+      diffContext: {
+        baseRef: 'origin/main',
+        headRef: 'HEAD',
+        changedFiles: ['src/new.ts'],
+        introducedFindings: ['introduced-low'],
+        addedDependencies: ['zod'],
+        addedRoutes: ['POST /api/profile'],
+      },
+    }, 1000);
+
+    const parsed = JSON.parse(generateAgentReport(report));
+
+    expect(parsed.diffContext).toEqual(expect.objectContaining({
+      baseRef: 'origin/main',
+      headRef: 'HEAD',
+      changedFileCount: 1,
+      introducedFindingCount: 1,
+      addedDependencies: ['zod'],
+      addedRoutes: ['POST /api/profile'],
+    }));
+    expect(parsed.findings.map((finding: { id: string }) => finding.id)).toEqual([
+      'introduced-low',
+      'unchanged-critical',
+    ]);
   });
 });
 

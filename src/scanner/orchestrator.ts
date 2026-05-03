@@ -4,10 +4,13 @@
  * Coordinates all scanner adapters, merges findings, and deduplicates results.
  */
 
+import path from 'node:path';
+
 import type {
   AnyJurisdictionPackManifest,
   AttestLensFinding,
   AuthoredRule,
+  DiffContext,
   Jurisdiction,
   RuleDefinition,
   RulePackManifest,
@@ -54,6 +57,8 @@ export interface ScannerOrchestratorOptions {
 
 export type ScanOptions = {
   signal?: AbortSignal;
+  diffContext?: DiffContext;
+  changedFilesOnly?: boolean;
 };
 
 export class ScannerOrchestrator {
@@ -277,15 +282,31 @@ export class ScannerOrchestrator {
 
     // Deduplicate findings
     const deduplicated = this.deduplicateFindings(allFindings);
-    mapAllFindings(deduplicated, { jurisdictions: this.jurisdictions });
+    const diffContext = options?.diffContext
+      ? { ...options.diffContext, introducedFindings: [] as string[] }
+      : undefined;
+    let finalFindings = diffContext
+      ? annotateFindingsWithDiff(deduplicated, diffContext.changedFiles, targetPath)
+      : deduplicated;
+    if (diffContext && options?.changedFilesOnly) {
+      finalFindings = finalFindings.filter((finding) => finding.introducedInDiff === true);
+    }
+    mapAllFindings(finalFindings, { jurisdictions: this.jurisdictions });
+    if (diffContext) {
+      diffContext.introducedFindings = finalFindings
+        .filter((finding) => finding.introducedInDiff === true)
+        .map((finding) => finding.id)
+        .sort();
+    }
 
     return {
-      findings: deduplicated,
+      findings: finalFindings,
       results,
       errors: allErrors,
       totalDurationMs: Date.now() - startTime,
       ruleFreshness: primaryRulePack.freshness,
       jurisdictionManifests: getJurisdictionManifests(jurisdictionPacks),
+      diffContext,
     };
   }
 
@@ -527,6 +548,68 @@ class ScannerTimeoutError extends Error {
 
 function normalizeFindingFile(file: string | undefined): string {
   return (file || '').replace(/\\/g, '/').replace(/^\.\//, '');
+}
+
+function annotateFindingsWithDiff(
+  findings: AttestLensFinding[],
+  changedFiles: string[],
+  targetPath: string,
+): AttestLensFinding[] {
+  const changedSet = new Set(changedFiles
+    .map((file) => normalizeDiffPath(file))
+    .filter((file): file is string => Boolean(file)));
+  return findings.map((finding) => ({
+    ...finding,
+    introducedInDiff: isFindingInChangedFiles(finding, changedSet, targetPath),
+  }));
+}
+
+function isFindingInChangedFiles(
+  finding: AttestLensFinding,
+  changedFiles: Set<string>,
+  targetPath: string,
+): boolean {
+  if (!finding.file || changedFiles.size === 0) {
+    return false;
+  }
+
+  for (const candidate of getFindingFileCandidates(finding.file, targetPath)) {
+    if (changedFiles.has(candidate)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function getFindingFileCandidates(file: string, targetPath: string): string[] {
+  const candidates = new Set<string>();
+  const normalized = normalizeDiffPath(file);
+  if (normalized) {
+    candidates.add(normalized);
+  }
+
+  if (path.isAbsolute(file)) {
+    const relativeToTarget = normalizeDiffPath(path.relative(targetPath, file));
+    if (relativeToTarget) {
+      candidates.add(relativeToTarget);
+    }
+  } else {
+    const absoluteFromCwd = path.resolve(process.cwd(), file);
+    const relativeToTarget = normalizeDiffPath(path.relative(targetPath, absoluteFromCwd));
+    if (relativeToTarget) {
+      candidates.add(relativeToTarget);
+    }
+  }
+
+  return Array.from(candidates);
+}
+
+function normalizeDiffPath(file: string): string | undefined {
+  const normalized = file.replace(/\\/g, '/').replace(/^\.\//, '');
+  if (!normalized || normalized === '.' || normalized.startsWith('../') || normalized === '..') {
+    return undefined;
+  }
+  return normalized;
 }
 
 function normalizeFindingUrl(url: string | undefined): string {

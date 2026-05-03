@@ -212,11 +212,22 @@ export const AttestLensFinding = z.object({
   fix: z.string().optional(),           // Suggested fix
   fixPrompt: z.string().optional(),     // AI-ready fix prompt for Cursor/Copilot
   corroboratedBy: z.array(ScanSource).optional(), // Other scanner sources merged into this finding
+  introducedInDiff: z.boolean().optional(),
   regulationMappings: z.array(RegulationMapping),
   appMappings: z.array(APPMapping).optional().default([]),
   evidence: FindingEvidence,
 });
 export type AttestLensFinding = z.infer<typeof AttestLensFinding>;
+
+export const DiffContext = z.object({
+  baseRef: z.string().optional(),
+  headRef: z.string().optional(),
+  changedFiles: z.array(z.string()),
+  introducedFindings: z.array(z.string()).default([]),
+  addedDependencies: z.array(z.string()).default([]),
+  addedRoutes: z.array(z.string()).default([]),
+});
+export type DiffContext = z.infer<typeof DiffContext>;
 
 // ─── Questionnaire ──────────────────────────────────────────────────────────
 
@@ -822,6 +833,7 @@ export const ComplianceReport = z.object({
     ruleFreshness: RuleFreshness.optional(),
     packCoverage: JurisdictionCoverage.optional(),
     packValidation: PackValidation.optional(),
+    diffContext: DiffContext.optional(),
   }),
   disclaimer: z.string(),
 });

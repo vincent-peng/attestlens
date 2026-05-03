@@ -376,6 +376,52 @@ describe('ScannerOrchestrator', { timeout: 20000 }, () => {
       await fs.rm(projectDir, { recursive: true, force: true });
     }
   });
+
+  it('annotates findings introduced in changed files', async () => {
+    const orchestrator = new ScannerOrchestrator();
+    const findings = [
+      makeFinding({ id: 'changed-finding', file: 'src/changed.ts' }),
+      makeFinding({ id: 'unchanged-finding', file: 'src/unchanged.ts' }),
+    ];
+    orchestrator.register(makeFindingAdapter('manual', findings));
+
+    const result = await orchestrator.scan(fixtureDir, ['manual'], {
+      diffContext: {
+        baseRef: 'origin/main',
+        headRef: 'HEAD',
+        changedFiles: ['src/changed.ts'],
+        introducedFindings: [],
+        addedDependencies: [],
+        addedRoutes: [],
+      },
+    });
+
+    expect(result.findings.find((finding) => finding.id === 'changed-finding')?.introducedInDiff).toBe(true);
+    expect(result.findings.find((finding) => finding.id === 'unchanged-finding')?.introducedInDiff).toBe(false);
+    expect(result.diffContext?.introducedFindings).toEqual(['changed-finding']);
+  });
+
+  it('filters to changed-file findings when changedFilesOnly is set', async () => {
+    const orchestrator = new ScannerOrchestrator();
+    const findings = [
+      makeFinding({ id: 'changed-finding', file: 'src/changed.ts' }),
+      makeFinding({ id: 'unchanged-finding', file: 'src/unchanged.ts' }),
+    ];
+    orchestrator.register(makeFindingAdapter('manual', findings));
+
+    const result = await orchestrator.scan(fixtureDir, ['manual'], {
+      changedFilesOnly: true,
+      diffContext: {
+        changedFiles: ['src/changed.ts'],
+        introducedFindings: [],
+        addedDependencies: [],
+        addedRoutes: [],
+      },
+    });
+
+    expect(result.findings.map((finding) => finding.id)).toEqual(['changed-finding']);
+    expect(result.diffContext?.introducedFindings).toEqual(['changed-finding']);
+  });
 });
 
 async function createVulnerableAppFixture(): Promise<string> {
