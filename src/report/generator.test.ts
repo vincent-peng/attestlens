@@ -616,6 +616,38 @@ describe('buildComplianceReport', () => {
     expect(parsed.deployDecision.verdict).not.toBe('COMPLIANT');
   });
 
+  it('produces NEEDS_REVIEW when findings are unmapped for the selected jurisdiction', () => {
+    const report = buildComplianceReport([
+      makeFinding({
+        id: 'F-UNMAPPED',
+        source: 'manual',
+        sourceRule: 'CUSTOM-AU-ONLY',
+        severity: 'low',
+        category: 'Custom',
+        title: 'AU-only unmapped signal',
+        description: 'A custom signal only mapped by the imported AU pack.',
+        regulationMappings: [{
+          jurisdiction: 'au-privacy-act',
+          principle: 'APP_11',
+          obligation: 'Take reasonable steps to protect personal information',
+          status: 'fail',
+          confidence: 0.9,
+        }],
+      }),
+    ], {
+      ...defaultOptions,
+      jurisdiction: 'eu-gdpr',
+      includeDeployDecision: true,
+    }, 1000);
+
+    expect(report.deployDecision).toEqual(expect.objectContaining({
+      verdict: 'NEEDS_REVIEW',
+      blocking: false,
+    }));
+    expect(report.deployDecision?.evidenceRefs).toContain('F-UNMAPPED');
+    expect(report.deployDecision?.reasons.join(' ')).toContain('not mapped to the selected jurisdiction');
+  });
+
   it('produces NEEDS_REVIEW for contextual evidence gaps', () => {
     const report = buildComplianceReport([
       makeFinding({

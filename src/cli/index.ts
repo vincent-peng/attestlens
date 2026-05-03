@@ -638,6 +638,7 @@ program
   .option('-o, --output <dir>', 'Output directory', './attestlens-reports')
   .option('-f, --format <formats>', 'Output formats', 'html,json,markdown,pdf')
   .option('-n, --name <name>', 'Project name', '')
+  .option('--jurisdiction <jurisdiction>', 'Jurisdiction to check against when regenerating a report')
   .option('--strict', 'Treat UNKNOWN controls as FAIL')
   .action(async (filePath: string, options: any) => {
     const resolvedPath = path.resolve(filePath);
@@ -648,6 +649,7 @@ program
       
       const reportFormats = parseReportFormats(options.format);
       const reportTarget = resolveReportTarget(scanData, resolvedPath, options.name);
+      const jurisdiction = resolveReportJurisdiction(scanData, options.jurisdiction);
 
       const reportOptions: ReportOptions = {
         targetName: reportTarget.targetName,
@@ -657,10 +659,11 @@ program
         outputDir: path.resolve(options.output),
         strictMode: options.strict,
         includeDeployDecision: isAgentReportFormat(reportFormats),
+        jurisdiction,
         ruleFreshness: extractRuleFreshness(scanData),
         packCoverage: extractPackCoverage(scanData),
         packValidation: extractPackValidation(scanData),
-        packValidationTrusted: extractPackValidationTrusted(scanData),
+        packValidationTrusted: false,
       };
 
       const report = buildComplianceReport(scanData.findings || scanData, reportOptions, 0);
@@ -878,10 +881,6 @@ function extractPackValidation(scanData: Record<string, any>): PackValidation | 
   return parsed.success ? parsed.data : undefined;
 }
 
-function extractPackValidationTrusted(scanData: Record<string, any>): boolean {
-  return scanData.packValidationTrusted === true || scanData.metadata?.packValidationTrusted === true;
-}
-
 function displayRuleFreshness(ruleFreshness: RuleFreshnessMetadata): void {
   console.log(chalk.gray(`Rules: ${formatRuleFreshnessForCli(ruleFreshness)}`));
 }
@@ -913,6 +912,52 @@ function parseJurisdictionOption(rawValue: unknown): JurisdictionType {
     throw new Error(`Unsupported jurisdiction: ${String(value)}. Valid jurisdictions: ${Jurisdiction.options.join(', ')}`);
   }
   return result.data;
+}
+
+function resolveReportJurisdiction(scanData: Record<string, any>, rawValue: unknown): JurisdictionType | undefined {
+  if (rawValue !== undefined && rawValue !== null && rawValue !== '') {
+    return parseJurisdictionOption(rawValue);
+  }
+
+  const direct = Jurisdiction.safeParse(scanData.jurisdiction ?? scanData.metadata?.jurisdiction);
+  if (direct.success) {
+    return direct.data;
+  }
+
+  const controlJurisdictions = new Set<string>();
+  for (const control of scanData.regulationControls || []) {
+    if (typeof control?.jurisdiction === 'string') {
+      controlJurisdictions.add(control.jurisdiction);
+    }
+  }
+  if (controlJurisdictions.size === 1) {
+    const parsed = Jurisdiction.safeParse([...controlJurisdictions][0]);
+    if (parsed.success) {
+      return parsed.data;
+    }
+  }
+
+  const findingJurisdictions = new Set<string>();
+  const findings = Array.isArray(scanData.findings)
+    ? scanData.findings
+    : Array.isArray(scanData)
+      ? scanData
+      : [];
+  for (const finding of findings) {
+    for (const mapping of finding?.regulationMappings || []) {
+      if (typeof mapping?.jurisdiction === 'string') {
+        findingJurisdictions.add(mapping.jurisdiction);
+      }
+    }
+  }
+  if (findingJurisdictions.size === 1) {
+    const parsed = Jurisdiction.safeParse([...findingJurisdictions][0]);
+    if (parsed.success) {
+      return parsed.data;
+    }
+  }
+
+  return undefined;
 }
 
 function assertJurisdictionAvailableForCli(jurisdiction: JurisdictionType): void {
@@ -1343,7 +1388,7 @@ function normalizeScanSnapshot(
       jurisdiction: parsedJurisdiction.success ? parsedJurisdiction.data : undefined,
       packCoverage: extractPackCoverage(normalizedScanData),
       packValidation: extractPackValidation(normalizedScanData),
-      packValidationTrusted: extractPackValidationTrusted(normalizedScanData),
+      packValidationTrusted: false,
     },
   };
 }

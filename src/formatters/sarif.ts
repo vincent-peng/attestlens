@@ -206,7 +206,7 @@ function mapFindingToSarifLevel(
   finding: AttestLensFinding,
   deployDecision: DeployDecision | undefined,
 ): SarifLevel {
-  const decisionLevel = deployDecision
+  const decisionLevel = deployDecision && deployDecision.evidenceRefs.includes(finding.id)
     ? mapDeployDecisionToSarifLevel(deployDecision, finding.severity)
     : null;
   return decisionLevel ?? mapFindingSeverityToSarifLevel(finding.severity);

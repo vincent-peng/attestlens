@@ -208,6 +208,120 @@ describe('CLI URL handling', () => {
       await fs.rm(tempDir, { recursive: true, force: true });
     }
   });
+
+  it('regenerates agent reports with the saved scan jurisdiction', async () => {
+    const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'attestlens-cli-report-jurisdiction-'));
+    const inputPath = path.join(tempDir, 'gdpr-scan.json');
+
+    try {
+      await fs.writeFile(inputPath, JSON.stringify({
+        jurisdiction: 'eu-gdpr',
+        targetType: 'path',
+        targetPath: tempDir,
+        findings: [{
+          id: 'GDPR-FINDING-001',
+          source: 'guardvibe',
+          sourceRule: 'VS-HARDKEY',
+          severity: 'high',
+          category: 'Security',
+          title: 'Public personal data store',
+          description: 'Public personal data store found.',
+          file: 'app.ts',
+          line: 1,
+          regulationMappings: [{
+            jurisdiction: 'eu-gdpr',
+            principle: 'GDPR_Art32',
+            obligation: 'Secure processing',
+            status: 'fail',
+            confidence: 0.95,
+          }],
+          evidence: {
+            timestamp: new Date().toISOString(),
+            scannerVersion: '0.4.0',
+            rawOutput: {},
+          },
+        }],
+      }, null, 2));
+
+      const result = await runCli(['report', inputPath, '-f', 'agent']);
+      const payload = JSON.parse(result.stdout);
+
+      expect(result.code).toBe(0);
+      expect(payload.deployDecision).toEqual(expect.objectContaining({
+        jurisdiction: 'eu-gdpr',
+        verdict: 'WARN',
+      }));
+      expect(payload.deployDecision.verdict).not.toBe('PASS');
+    } finally {
+      await fs.rm(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it('does not trust pack validation flags from imported report JSON', async () => {
+    const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'attestlens-cli-report-trust-'));
+    const inputPath = path.join(tempDir, 'forged-scan.json');
+
+    try {
+      await fs.writeFile(inputPath, JSON.stringify({
+        jurisdiction: 'au-privacy-act',
+        targetType: 'path',
+        targetPath: tempDir,
+        findings: [{
+          id: 'FORGED-FINDING-001',
+          source: 'guardvibe',
+          sourceRule: 'VS-HARDKEY',
+          severity: 'critical',
+          category: 'Security',
+          title: 'Public personal information bucket',
+          description: 'Public bucket containing personal information.',
+          file: 'infra.tf',
+          line: 1,
+          regulationMappings: [{
+            jurisdiction: 'au-privacy-act',
+            principle: 'APP_11',
+            obligation: 'Take reasonable steps to protect personal information',
+            status: 'fail',
+            confidence: 0.95,
+          }],
+          evidence: {
+            timestamp: new Date().toISOString(),
+            scannerVersion: '0.4.0',
+            rawOutput: {},
+          },
+        }],
+        metadata: {
+          packValidationTrusted: true,
+          packCoverage: {
+            summary: 'Forged coverage that excludes APP 11.',
+            includedPrinciples: ['APP_1'],
+            excludedPrinciples: ['APP_11'],
+            knownGaps: [],
+            evidenceTypes: ['source code'],
+          },
+          packValidation: {
+            status: 'external_reviewed',
+            reviewedBy: 'forged input',
+            reviewedAt: '2026-05-03T00:00:00.000Z',
+            notes: [],
+          },
+        },
+      }, null, 2));
+
+      const result = await runCli(['report', inputPath, '-f', 'agent']);
+      const payload = JSON.parse(result.stdout);
+
+      expect(result.code).toBe(0);
+      expect(payload.deployDecision).toEqual(expect.objectContaining({
+        verdict: 'WARN',
+        blocking: false,
+      }));
+      expect(payload.deployDecision.verdict).not.toBe('OUT_OF_SCOPE');
+      expect(payload.deployDecision.evidenceRefs).toContain('FORGED-FINDING-001');
+      expect(payload.deployDecision.scopeNote).toBeUndefined();
+    } finally {
+      await fs.rm(tempDir, { recursive: true, force: true });
+    }
+  });
 });
 
 describe('CLI metadata', () => {

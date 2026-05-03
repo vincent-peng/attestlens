@@ -306,12 +306,14 @@ export function buildDeployDecision(
     && packValidationStatus
     && isExternallyValidated(packValidationStatus),
   );
-  const mapped = report.findings
-    .map((finding) => ({
-      finding,
-      mapping: getPrimaryFindingMapping(finding, jurisdiction),
-    }))
+  const findingMappings = report.findings.map((finding) => ({
+    finding,
+    mapping: getPrimaryFindingMapping(finding, jurisdiction),
+  }));
+  const mapped = findingMappings
     .filter((entry): entry is { finding: AttestLensFinding; mapping: RegulationMapping } => Boolean(entry.mapping));
+  const unmapped = findingMappings
+    .filter((entry): entry is { finding: AttestLensFinding; mapping: undefined } => !entry.mapping);
 
   const outOfScope = mapped.filter(({ mapping }) => (
     excludedPrinciples.has(mapping.principle)
@@ -333,6 +335,22 @@ export function buildDeployDecision(
         reasons: ['Finding(s) map to obligations outside the selected jurisdiction pack coverage.'],
         evidenceRefs: buildEvidenceRefs(outOfScope),
         remediations: buildDeployRemediations(outOfScope.map(({ finding }) => finding)),
+        scopeNote: coverageTrusted ? coverage?.summary : undefined,
+      };
+    }
+
+    if (unmapped.length > 0) {
+      return {
+        verdict: 'NEEDS_REVIEW',
+        blocking: false,
+        confidence: 0.4,
+        jurisdiction,
+        packValidationStatus,
+        reasons: buildDeployReasons(unmapped, [
+          'Finding(s) are not mapped to the selected jurisdiction and need review before deploy.',
+        ]),
+        evidenceRefs: buildEvidenceRefs(unmapped),
+        remediations: buildDeployRemediations(unmapped.map(({ finding }) => finding)),
         scopeNote: coverageTrusted ? coverage?.summary : undefined,
       };
     }
@@ -369,6 +387,22 @@ export function buildDeployDecision(
       ]),
       evidenceRefs: buildEvidenceRefs(blockable),
       remediations: buildDeployRemediations(blockable.map(({ finding }) => finding)),
+      scopeNote: coverageTrusted ? coverage?.summary : undefined,
+    };
+  }
+
+  if (unmapped.length > 0) {
+    return {
+      verdict: 'NEEDS_REVIEW',
+      blocking: false,
+      confidence: 0.4,
+      jurisdiction,
+      packValidationStatus,
+      reasons: buildDeployReasons(unmapped, [
+        'Finding(s) are not mapped to the selected jurisdiction and need review before deploy.',
+      ]),
+      evidenceRefs: buildEvidenceRefs(unmapped),
+      remediations: buildDeployRemediations(unmapped.map(({ finding }) => finding)),
       scopeNote: coverageTrusted ? coverage?.summary : undefined,
     };
   }

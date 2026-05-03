@@ -196,6 +196,42 @@ describe('SARIF formatter', () => {
     expect(reviewSarif.runs[0]!.tool.driver.rules[0]!.properties['problem.severity']).toBe('recommendation');
   });
 
+  it('applies deploy decision levels only to referenced evidence findings', async () => {
+    const sarif = await formatSarif({
+      findings: [
+        makeFinding({
+          id: 'blocking-finding',
+          title: 'Blocking privacy issue',
+          severity: 'high',
+        }),
+        makeFinding({
+          id: 'unrelated-finding',
+          title: 'Unrelated informational issue',
+          severity: 'info',
+        }),
+      ],
+      jurisdiction: 'au-privacy-act',
+      version: '0.4.0',
+      deployDecision: {
+        verdict: 'BLOCK',
+        blocking: true,
+        confidence: 0.95,
+        jurisdiction: 'au-privacy-act',
+        packValidationStatus: 'external_reviewed',
+        reasons: ['Blocking issue prevents deploy.'],
+        evidenceRefs: ['blocking-finding'],
+        remediations: [],
+      },
+    });
+
+    const levelByRuleId = Object.fromEntries(
+      sarif.runs[0]!.results.map((result) => [result.ruleId, result.level]),
+    );
+
+    expect(levelByRuleId['AU.APP.11.1.blocking-privacy-issue']).toBe('error');
+    expect(levelByRuleId['AU.APP.11.1.unrelated-informational-issue']).toBe('note');
+  });
+
   it('suppresses SARIF findings for PASS and OUT_OF_SCOPE deploy decisions', async () => {
     const passSarif = await formatSarif({
       findings: [makeFinding()],
