@@ -8,6 +8,8 @@
 
 ---
 
+**Note:** This is a strategy debate/reference doc. Any external market claims should be re-verified before public use.
+
 ## Context
 
 Three market events in the same week:
@@ -111,7 +113,7 @@ Both lanes normalize into `AttestLensFinding` with full provenance. Both flow th
 
 ## Related
 
-- First debate (GTM strategy): `docs/GTM-DEBATE-RESULTS.md`
+- First debate (GTM strategy): `docs/archive/GTM-DEBATE-RESULTS.md`
 - Market context: Claude Security (May 1, 2026), GPT-5.5-Cyber, Sam Altman agent protocol tweet
 - ScannerAdapter interface: `src/scanner/types.ts`
-- Phase 11 design: `docs/RULE-AUTHORING-PIPELINE.md`
+- Phase 11 design: `docs/archive/RULE-AUTHORING-PIPELINE.md`

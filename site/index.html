@@ -3,9 +3,9 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Clearway — Privacy Compliance Deploy Gate for AI Agents</title>
-  <meta name="description" content="Deterministic privacy compliance checks for AI agents. Block violations before they ship. MCP-native, offline, multi-jurisdiction.">
-  <meta property="og:title" content="Clearway — Privacy Compliance Deploy Gate for AI Agents">
+  <title>Clearway — Privacy Deploy Gate for AI-Generated Software</title>
+  <meta name="description" content="Deterministic privacy deploy checks for AI-generated software. MCP-native, offline, multi-jurisdiction.">
+  <meta property="og:title" content="Clearway — Privacy Deploy Gate for AI-Generated Software">
   <meta property="og:description" content="Deterministic privacy compliance checks for AI agents. Block violations before they ship.">
   <meta property="og:type" content="website">
   <meta name="twitter:card" content="summary_large_image">
@@ -121,13 +121,13 @@
 
   <section class="hero">
     <div class="container">
-      <div class="badge"><span class="dot"></span>AI agents are automating cyber tasks. Compliance can't keep up.</div>
-      <h1>The deploy gate for<br><span class="green">AI privacy risk</span></h1>
+      <div class="badge"><span class="dot"></span>AI agents are writing production code. Privacy review needs to run before merge.</div>
+      <h1>The privacy deploy gate for<br><span class="green">AI-generated software</span></h1>
       <p class="sub">
-        Deterministic, offline privacy compliance checks that block violations before they ship.
-        Multi-jurisdiction. MCP-native. Zero LLM at runtime.
+        Deterministic, offline privacy deploy checks for agent-created software changes.
+        Multi-jurisdiction. MCP-native. Zero LLM at scan runtime.
       </p>
-      <div class="install-box">npx @attestlens/cli@beta scan ./my-project</div>
+      <div class="install-box">npx -y --package @attestlens/cli@beta attestlens audit .</div>
       <p class="note">AU Privacy Act · US CCPA/CPRA · EU GDPR · SG PDPA</p>
     </div>
   </section>
@@ -135,22 +135,22 @@
   <section class="threat">
     <div class="container">
       <h2 style="font-size:28px;font-weight:800;letter-spacing:-0.5px;text-align:center">The problem isn't compliance. It's speed.</h2>
-      <p style="text-align:center;color:var(--muted);font-size:16px;margin-top:8px">Frontier models automate multi-step cyber operations. $50M+ fines. 100K businesses newly liable.</p>
+      <p style="text-align:center;color:var(--muted);font-size:16px;margin-top:8px">AI coding agents can change data flows faster than manual review can keep up.</p>
       <div class="threat-grid">
         <div class="threat-card">
           <div class="icon">⚡</div>
           <h3>Agents act at machine speed</h3>
-          <p>GPT-5.5-Cyber. Mythos. Agents now execute multi-step operations autonomously. A human can't review fast enough.</p>
+          <p>Agents can create routes, logs, dependencies, analytics calls, and infrastructure changes. Manual privacy review does not scale to every generated PR.</p>
         </div>
         <div class="threat-card">
           <div class="icon">💰</div>
           <h3>Liability is real</h3>
-          <p>AU Privacy Act reforms kick in July 2026. Up to $50M fines. 100K+ businesses newly regulated. Enforcement is active.</p>
+          <p>Privacy-law risk is real across AU, US, and EU markets. Clearway keeps pack coverage explicit instead of claiming global compliance.</p>
         </div>
         <div class="threat-card">
           <div class="icon">🔓</div>
-          <h3>No gate = guaranteed violations</h3>
-          <p>Advisory PDFs don't block deploys. You need a deterministic checkpoint that fails the build before violations ship.</p>
+          <h3>No gate = avoidable risk</h3>
+          <p>Reports alone do not stop a risky PR. Teams need deterministic checks that can warn, route to review, or block high-confidence issues.</p>
         </div>
       </div>
     </div>
@@ -159,7 +159,7 @@
   <section class="how">
     <div class="container">
       <h2>How it works</h2>
-      <p class="sub">Scan → Map → Opinion → Gate. Deterministic every time.</p>
+      <p class="sub">Scan → Map → Decide → Gate. Deterministic every time.</p>
       <div class="how-grid">
         <div class="step">
           <div class="step-num">1</div>
@@ -179,7 +179,7 @@
           <div class="step-num">3</div>
           <div>
             <h3>Opinion</h3>
-            <p>Structured compliance verdict with evidence. Agents act on it directly. Humans review it. CI gates on it.</p>
+            <p>Structured deploy decision with evidence. Agents act on it directly. Humans review uncertain cases. CI gates on it.</p>
           </div>
         </div>
         <div class="step">
@@ -277,7 +277,7 @@
 
   <section class="cta">
     <div class="container">
-      <h2>Ship compliant. Or don't ship.</h2>
+      <h2>Ship reviewed. Or route to review.</h2>
       <p>572 tests passing. 4 jurisdictions. MCP-native. Open source.</p>
       <div class="cta-links">
         <a href="https://github.com/vincent-peng/attestlens" class="primary">View on GitHub</a>

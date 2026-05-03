@@ -5,6 +5,8 @@ risks, missing pieces, and things we might have overlooked.
 
 ---
 
+> **Post-reset note:** This is an older gap analysis. Keep it as a useful checklist, but reconcile it with `docs/ROADMAP.md` and `docs/IMPLEMENTATION-PHASES-CODEX.md` before treating any item as current.
+
 ## 🔴 Critical Gaps
 
 ### 1. `attestlens check` is AU-only for principle validation

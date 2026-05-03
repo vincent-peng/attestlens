@@ -1,99 +1,198 @@
 # CI/CD Integration Guide
 
-AttestLens can run multi-jurisdiction compliance checks in your CI/CD pipeline before they ship.
+Clearway can run privacy deploy checks in CI before AI-generated or human-written changes merge.
 
-## Quick Start
+Clearway is a technical deploy gate, not legal advice. Start in advisory mode, measure false positives, then enable blocking only for high-confidence deterministic findings.
 
-Add this to `.github/workflows/compliance.yml`:
+---
 
-```yaml
-name: Privacy Compliance
-on: [pull_request]
-jobs:
-  compliance:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 20
-      - run: npx @attestlens/cli audit . --opinion --format agent
-```
+## Copy-paste advisory workflow
 
-The `--format agent` flag outputs machine-readable JSON. Exit code 1 means NON_COMPLIANT.
-
-## Opinion Gate
-
-Fail the build on non-compliant opinions:
+Add this to `.github/workflows/clearway-advisory.yml`:
 
 ```yaml
-- run: npx @attestlens/cli audit . --opinion --format agent
-  # Exit code 1 = NON_COMPLIANT, 0 = COMPLIANT/PARTIALLY_COMPLIANT
-```
+name: Clearway Privacy Advisory
 
-## Multi-Jurisdiction Gates
-
-Run the same audit against a specific jurisdiction pack:
-
-```yaml
-- run: npx @attestlens/cli audit . --jurisdiction eu-gdpr --opinion --format agent
-- run: npx @attestlens/cli audit . --jurisdiction us-ccpa --opinion --format agent
-```
-
-## Single-Principle Gates
-
-Use the MCP tool `attestlens_check` for targeted checks via the MCP server:
-
-```yaml
-- run: |
-    npx attestlens-mcp &
-    sleep 2
-    # Use MCP client to call attestlens_check with principle: APP_11
-```
-
-## Advanced: Full Audit with Reports
-
-```yaml
-name: Nightly Compliance Audit
 on:
-  schedule:
-    - cron: "0 2 * * *"
+  pull_request:
+
+permissions:
+  contents: read
+  security-events: write
+
 jobs:
-  audit:
+  clearway:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
       - uses: actions/setup-node@v4
         with:
           node-version: 20
-      - run: npx @attestlens/cli audit . --opinion --format html,json,markdown
-      - uses: actions/upload-artifact@v4
+
+      - name: Run Clearway in advisory mode
+        run: |
+          npx -y --package @attestlens/cli@beta attestlens audit . \
+            --jurisdiction eu-gdpr \
+            --opinion \
+            --format sarif \
+            --sarif-output clearway.sarif \
+            --no-fail
+
+      - name: Upload SARIF
+        if: always()
+        uses: github/codeql-action/upload-sarif@v4
         with:
-          name: compliance-reports
-          path: attestlens-reports/
+          sarif_file: clearway.sarif
+          category: clearway-privacy
 ```
 
-## MCP Server in CI
+Use advisory mode first. This creates visibility without blocking PRs.
 
-Run the MCP server for agent-driven checks:
+---
+
+## Blocking workflow
+
+After tuning, enable blocking for high-confidence findings:
 
 ```yaml
-- run: npx attestlens-mcp --help
-  # Start server: npx attestlens-mcp
-  # Tools: attestlens_scan, attestlens_scan_url, attestlens_audit, attestlens_map,
-  #        attestlens_opinion, attestlens_check, attestlens_compliance_check, attestlens_reform
+name: Clearway Privacy Gate
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+  security-events: write
+
+jobs:
+  clearway:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Run Clearway gate
+        run: |
+          npx -y --package @attestlens/cli@beta attestlens audit . \
+            --jurisdiction au-privacy-act \
+            --opinion \
+            --format sarif \
+            --sarif-output clearway.sarif \
+            --fail-on-severity error
+
+      - name: Upload SARIF
+        if: always()
+        uses: github/codeql-action/upload-sarif@v4
+        with:
+          sarif_file: clearway.sarif
+          category: clearway-privacy
 ```
 
-## CLI Flags Reference
+The build fails through the CLI exit code, not because SARIF itself blocks the PR. SARIF is for annotations and visibility.
 
-| Flag | Description | CI Use |
-|------|-------------|--------|
-| `--format agent` | Machine-readable JSON | Pipe to other tools |
-| `--format json` | Full JSON report | Artifact upload |
-| `--opinion` | Include compliance opinion | Gate on verdict |
-| `--jurisdiction` | Select jurisdiction pack | AU, US, or EU gates |
-| `--strict` | Treat UNKNOWN as FAIL | Strict mode |
+---
+
+## Agent-readable output
+
+For MCP clients, coding agents, or CI log parsing:
+
+```bash
+npx -y --package @attestlens/cli@beta attestlens audit . \
+  --jurisdiction us-ccpa \
+  --opinion \
+  --format agent
+```
+
+The desired future shape is an operational deploy decision:
+
+- `BLOCK`
+- `WARN`
+- `NEEDS_REVIEW`
+- `PASS`
+- `OUT_OF_SCOPE`
+
+Until the deploy-verdict schema lands, treat existing compliance/opinion output as decision-support rather than a legal conclusion.
+
+---
+
+## Multi-jurisdiction matrix
+
+```yaml
+strategy:
+  matrix:
+    jurisdiction: [au-privacy-act, us-ccpa, eu-gdpr]
+
+steps:
+  - uses: actions/checkout@v4
+  - uses: actions/setup-node@v4
+    with:
+      node-version: 20
+  - run: |
+      npx -y --package @attestlens/cli@beta attestlens audit . \
+        --jurisdiction ${{ matrix.jurisdiction }} \
+        --opinion \
+        --format agent
+```
+
+Do not call this “global compliance.” Each jurisdiction pack is coverage-bounded.
+
+---
+
+## MCP server in local agent workflows
+
+Use this command in MCP client config:
+
+```bash
+npx -y --package @attestlens/cli@beta attestlens-mcp
+```
+
+Typical MCP config:
+
+```json
+{
+  "mcpServers": {
+    "clearway": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "--package",
+        "@attestlens/cli@beta",
+        "attestlens-mcp"
+      ]
+    }
+  }
+}
+```
+
+---
+
+## Rollout plan
+
+1. Local scan on one repo.
+2. Advisory CI mode.
+3. Tune suppressions and false positives.
+4. Enable blocking only for high-confidence deterministic findings.
+5. Expand jurisdictions and repos after validation.
+
+---
+
+## CLI flags reference
+
+| Flag | Description | CI use |
+| --- | --- | --- |
+| `--format agent` | Compact machine-readable output | Agent workflows |
+| `--format sarif` | SARIF output | GitHub code scanning |
+| `--sarif-output <path>` | SARIF destination | Upload artifact/SARIF |
+| `--opinion` | Include deterministic opinion output | Decision-support |
+| `--jurisdiction` | Select jurisdiction pack | AU, CCPA, GDPR, SG |
+| `--fail-on-severity` | Non-zero exit at threshold | Blocking gate |
+| `--no-fail` | Always exit 0 | Advisory mode |
+| `--strict` | Treat unknowns as failing | Conservative mode |
 | `--no-mcp-scan` | Skip MCP scanning | Faster CI |
 | `--no-supply-chain` | Skip supply chain | Faster CI |
-| `--no-behavioral` | Skip behavioral | Faster CI |
+| `--no-behavioral` | Skip behavioral analysis | Faster CI |
 | `--no-iac` | Skip IaC scanning | Faster CI |
