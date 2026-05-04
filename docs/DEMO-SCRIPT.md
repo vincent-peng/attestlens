@@ -52,16 +52,14 @@ Say:
 
 ### 30-50 seconds: Agent fixes it
 
-Apply the remediated version that logs a derived, non-identifying value:
+Apply the remediated version that logs only non-identifying operational fields:
 
 ```js
 export async function POST(request) {
   const body = await request.json();
-  const emailDomain = typeof body.email === 'string'
-    ? body.email.split('@').at(-1)
-    : 'unknown';
+  const contactProvided = typeof body.email === 'string' && body.email.length > 0;
   const plan = typeof body.plan === 'string' ? body.plan : 'unknown';
-  console.info('new signup request', { emailDomain, plan });
+  console.info('new signup request', { contactProvided, plan });
   return Response.json({ ok: true });
 }
 ```

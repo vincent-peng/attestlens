@@ -628,6 +628,59 @@ describe('CLI SARIF and exit thresholds', () => {
     }
   });
 
+  it('preserves legacy severity exits for basic scan while audit reports use deploy decision exits', async () => {
+    const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'attestlens-cli-audit-deploy-exit-'));
+    const projectDir = path.join(tempDir, 'project');
+    const outputDir = path.join(tempDir, 'reports');
+
+    try {
+      await fs.mkdir(projectDir, { recursive: true });
+      await fs.writeFile(path.join(projectDir, 'Dockerfile'), 'FROM node:latest\nUSER root\n');
+
+      const scanResult = await runCli([
+        'scan',
+        projectDir,
+        '--no-guardvibe',
+        '--no-mcp-scan',
+        '--no-supply-chain',
+        '--no-behavioral',
+      ]);
+      expect(scanResult.code).toBe(1);
+
+      const auditDefaultResult = await runCli([
+        'audit',
+        projectDir,
+        '--format',
+        'html,json,markdown,pdf',
+        '--output',
+        outputDir,
+        '--no-guardvibe',
+        '--no-mcp-scan',
+        '--no-supply-chain',
+        '--no-behavioral',
+      ]);
+      expect(auditDefaultResult.code).toBe(0);
+
+      const auditWarningThresholdResult = await runCli([
+        'audit',
+        projectDir,
+        '--format',
+        'json',
+        '--output',
+        outputDir,
+        '--fail-on-severity',
+        'warning',
+        '--no-guardvibe',
+        '--no-mcp-scan',
+        '--no-supply-chain',
+        '--no-behavioral',
+      ]);
+      expect(auditWarningThresholdResult.code).toBe(1);
+    } finally {
+      await fs.rm(tempDir, { recursive: true, force: true });
+    }
+  });
+
   it('writes SARIF to a file for audit and exits from emitted SARIF levels', async () => {
     const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'attestlens-cli-audit-sarif-'));
     const projectDir = path.join(tempDir, 'project');
@@ -1024,6 +1077,8 @@ describe('CLI external enrichment option', () => {
         'json',
         '-o',
         outputDir,
+        '--fail-on-severity',
+        'warning',
         '--no-mcp-scan',
         '--no-supply-chain',
         '--no-behavioral',

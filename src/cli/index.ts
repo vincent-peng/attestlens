@@ -99,7 +99,7 @@ const program = new Command();
 
 program
   .name('attestlens')
-  .description('Privacy Compliance Deploy Gate for AI Agents')
+  .description('Clearway — Privacy Deploy Gate for AI-Generated Software')
   .version(CLI_VERSION);
 program.exitOverride();
 
@@ -133,7 +133,7 @@ program
   .option('--diff-base <ref>', 'Git base ref for PR diff mode')
   .option('--diff-head <ref>', 'Git head ref for PR diff mode')
   .option('--changed-files-only', 'Restrict feasible file-based findings to files changed in diff mode')
-  .option('--allow-internal-validation-blocking', 'Allow trusted internal-validated embedded packs to produce BLOCK deploy decisions for local/demo gates')
+  .option('--allow-internal-validation-blocking', 'Allow trusted internal-validated embedded packs to produce BLOCK deploy decisions for local/demo/self-hosted gates')
   .option('--reform', 'Include Privacy Act 2026 reform impact assessment')
   .action(async (targetInput: string, options: any) => {
     const sarifRequested = isSarifRequested(options.format);
@@ -251,7 +251,7 @@ program
   .option('--diff-base <ref>', 'Git base ref for PR diff mode')
   .option('--diff-head <ref>', 'Git head ref for PR diff mode')
   .option('--changed-files-only', 'Restrict feasible file-based findings to files changed in diff mode')
-  .option('--allow-internal-validation-blocking', 'Allow trusted internal-validated embedded packs to produce BLOCK deploy decisions for local/demo gates')
+  .option('--allow-internal-validation-blocking', 'Allow trusted internal-validated embedded packs to produce BLOCK deploy decisions for local/demo/self-hosted gates')
   .option('--opinion', 'Include compliance opinion in report')
   .option('--reform', 'Include Privacy Act 2026 reform impact assessment')
 
@@ -325,7 +325,7 @@ program
         outputDir: path.resolve(options.output),
         strictMode: options.strict,
         includeOpinion: options.opinion,
-        includeDeployDecision: agentOutput,
+        includeDeployDecision: true,
         includeReform: options.reform,
         ruleFreshness: scanResult.ruleFreshness,
         jurisdiction,
@@ -401,7 +401,7 @@ program
       displayScannerWarnings(scanResult.errors);
 
       console.log(chalk.gray(`\n  ${report.disclaimer}`));
-      process.exit(sarifExitCode ?? determineExitCode(scanResult.findings, failConfig));
+      process.exit(sarifExitCode ?? determineDeployDecisionExitCode(requireDeployDecision(report), failConfig));
 
     } catch (error: any) {
       console.error(chalk.red(`\nError: ${error.message}`));

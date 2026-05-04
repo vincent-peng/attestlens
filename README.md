@@ -87,7 +87,31 @@ npx -y --package @attestlens/cli@beta attestlens audit ./my-project \
 
 ## CI deploy gate
 
-Clearway can fail a build when high-confidence findings exceed a threshold.
+Clearway separates SARIF visibility from CI failure policy. Start in advisory mode, then choose whether WARN or only BLOCK deploy decisions should fail the build.
+
+Advisory mode:
+
+```bash
+npx -y --package @attestlens/cli@beta attestlens audit . \
+  --jurisdiction eu-gdpr \
+  --opinion \
+  --format sarif \
+  --sarif-output clearway.sarif \
+  --no-fail
+```
+
+Fail on WARN or BLOCK:
+
+```bash
+npx -y --package @attestlens/cli@beta attestlens audit . \
+  --jurisdiction eu-gdpr \
+  --opinion \
+  --format sarif \
+  --sarif-output clearway.sarif \
+  --fail-on-severity warning
+```
+
+Fail only on BLOCK:
 
 ```bash
 npx -y --package @attestlens/cli@beta attestlens audit . \
@@ -98,12 +122,14 @@ npx -y --package @attestlens/cli@beta attestlens audit . \
   --fail-on-severity error
 ```
 
+Current `internal_validated` packs produce `WARN` for blocking candidates by default. Use `--allow-internal-validation-blocking` only as a local/demo/self-hosted override when you explicitly trust the embedded pack enough to turn those candidates into `BLOCK`; it is not the recommended default posture for third-party CI rollout.
+
 Recommended rollout:
 
-1. Run in advisory mode.
+1. Run in advisory mode with `--no-fail`.
 2. Tune suppressions and rule confidence.
-3. Block only high-confidence rules.
-4. Expand blocking after false positives are measured.
+3. Fail on `WARN`/`BLOCK` with `--fail-on-severity warning`.
+4. Move to `--fail-on-severity error` only when the selected packs and policy allow true `BLOCK` decisions.
 
 ## MCP integration
 

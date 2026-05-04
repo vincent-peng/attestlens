@@ -2,7 +2,7 @@
   "name": "@attestlens/cli",
   "version": "0.4.0-beta",
   "mcpName": "io.github.attestlens/clearway",
-  "description": "Clearway — Privacy Compliance Deploy Gate for AI Agents",
+  "description": "Clearway — Privacy Deploy Gate for AI-Generated Software",
   "type": "module",
   "bin": {
     "attestlens": "./dist/cli/index.js",

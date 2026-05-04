@@ -247,6 +247,7 @@ Typical MCP config:
 | `--jurisdiction` | Select jurisdiction pack | AU, CCPA, GDPR, SG |
 | `--fail-on-severity` | Non-zero exit at threshold | Blocking gate |
 | `--no-fail` | Always exit 0 | Advisory mode |
+| `--allow-internal-validation-blocking` | Local/demo/self-hosted override for trusted embedded `internal_validated` packs | Not recommended as default third-party CI posture |
 | `--strict` | Treat unknowns as failing | Conservative mode |
 | `--no-mcp-scan` | Skip MCP scanning | Faster CI |
 | `--no-supply-chain` | Skip supply chain | Faster CI |
