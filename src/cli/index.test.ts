@@ -397,6 +397,7 @@ describe('CLI metadata', () => {
       expect(result.stdout).toContain('--diff-base');
       expect(result.stdout).toContain('--diff-head');
       expect(result.stdout).toContain('--changed-files-only');
+      expect(result.stdout).toContain('--allow-internal-validation-blocking');
     }
   });
 });
@@ -505,6 +506,39 @@ describe('CLI agent report format', () => {
       await fs.rm(projectDir, { recursive: true, force: true });
     }
   });
+
+  it('allows local demo policy to turn trusted internal-validated blocking candidates into BLOCK', async () => {
+    const projectDir = await fs.mkdtemp(path.join(os.tmpdir(), 'attestlens-cli-agent-block-override-'));
+
+    try {
+      await fs.writeFile(
+        path.join(projectDir, 'Dockerfile'),
+        'FROM node:latest\nUSER root\n',
+      );
+
+      const result = await runCli([
+        'audit',
+        projectDir,
+        '-f',
+        'agent',
+        '--allow-internal-validation-blocking',
+        '--no-guardvibe',
+        '--no-mcp-scan',
+        '--no-supply-chain',
+        '--no-behavioral',
+      ]);
+      const payload = JSON.parse(result.stdout);
+
+      expect(result.code).toBe(1);
+      expect(payload.deployDecision).toEqual(expect.objectContaining({
+        verdict: 'BLOCK',
+        blocking: true,
+        packValidationStatus: 'internal_validated',
+      }));
+    } finally {
+      await fs.rm(projectDir, { recursive: true, force: true });
+    }
+  });
 });
 
 describe('CLI SARIF and exit thresholds', () => {
@@ -520,12 +554,18 @@ describe('CLI SARIF and exit thresholds', () => {
   });
 
   it('derives deploy-gate exit codes from deploy decisions and threshold policy', () => {
-    const makeDecision = (verdict: 'BLOCK' | 'WARN' | 'NEEDS_REVIEW' | 'PASS' | 'OUT_OF_SCOPE', blocking = verdict === 'BLOCK') => ({
+    const makeDecision = (
+      verdict: 'BLOCK' | 'WARN' | 'NEEDS_REVIEW' | 'PASS' | 'OUT_OF_SCOPE',
+      blocking = verdict === 'BLOCK',
+      packValidationStatus: 'internal_validated' | 'external_reviewed' = verdict === 'BLOCK'
+        ? 'external_reviewed'
+        : 'internal_validated',
+    ) => ({
       verdict,
       blocking,
       confidence: 0.8,
       jurisdiction: 'au-privacy-act' as const,
-      packValidationStatus: 'internal_validated' as const,
+      packValidationStatus,
       reasons: [],
       evidenceRefs: [],
       remediations: [],

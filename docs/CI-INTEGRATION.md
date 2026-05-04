@@ -2,7 +2,7 @@
 
 Clearway can run privacy deploy checks in CI before AI-generated or human-written changes merge.
 
-Clearway is a technical deploy gate, not legal advice. Start in advisory mode, measure false positives, then enable blocking only for high-confidence deterministic findings.
+Clearway is a technical deploy gate, not legal advice. Start in advisory mode, measure false positives, then enable blocking only for deterministic or high-confidence findings.
 
 ---
 
@@ -11,27 +11,27 @@ Clearway is a technical deploy gate, not legal advice. Start in advisory mode, m
 This repo includes two GitHub Actions workflows:
 
 - `.github/workflows/ci.yml` runs TypeScript validation, tests, and build.
-- `.github/workflows/clearway-gate.yml` builds the local package, generates SARIF for the repo in advisory mode, filters intentional demo-fixture findings from the uploaded advisory SARIF, and verifies a deterministic failing/passing demo fixture.
+- `.github/workflows/clearway-gate.yml` builds the local package, generates SARIF for the repo in advisory mode, filters intentional demo-fixture findings from the uploaded advisory SARIF, uploads SARIF on a non-blocking basis, and verifies deterministic failing/passing demo fixtures.
 
-The internal Clearway workflow does not make `main` permanently fail. It runs the repository scan in advisory mode, then proves blocking behavior against `demo/agent-pr-privacy-risk/fail` and proves the remediated version passes against `demo/agent-pr-privacy-risk/pass`.
+The internal Clearway workflow does not make `main` permanently fail. It runs the repository scan in advisory mode, proves WARN-threshold behavior against `demo/agent-pr-privacy-risk/pii-log-fail`, proves the remediated PII logging version passes against `demo/agent-pr-privacy-risk/pii-log-pass`, and separately proves strict local blocking override behavior against the Dockerfile fixture.
 
 Run the same fixture locally:
 
 ```bash
-npx -y --package @attestlens/cli@beta attestlens audit demo/agent-pr-privacy-risk/fail \
+npx -y --package @attestlens/cli@beta attestlens audit demo/agent-pr-privacy-risk/pii-log-fail \
   --jurisdiction au-privacy-act \
   --format sarif \
-  --sarif-output clearway.sarif \
+  --sarif-output clearway-pii-log.sarif \
   --no-guardvibe \
   --no-mcp-scan \
   --no-supply-chain \
   --no-behavioral \
   --fail-on-severity warning
 
-npx -y --package @attestlens/cli@beta attestlens audit demo/agent-pr-privacy-risk/pass \
+npx -y --package @attestlens/cli@beta attestlens audit demo/agent-pr-privacy-risk/pii-log-pass \
   --jurisdiction au-privacy-act \
   --format sarif \
-  --sarif-output clearway-pass.sarif \
+  --sarif-output clearway-pii-log-pass.sarif \
   --no-guardvibe \
   --no-mcp-scan \
   --no-supply-chain \
@@ -40,6 +40,21 @@ npx -y --package @attestlens/cli@beta attestlens audit demo/agent-pr-privacy-ris
 ```
 
 The first command should exit non-zero because the demo policy treats Clearway `WARN` and above as CI-failing for the current internal-validated pack. The second should pass. Both generate SARIF.
+
+Strict local/demo blocking can be exercised without changing embedded pack validation status:
+
+```bash
+npx -y --package @attestlens/cli@beta attestlens audit demo/agent-pr-privacy-risk/fail \
+  --jurisdiction au-privacy-act \
+  --format sarif \
+  --sarif-output clearway-strict.sarif \
+  --no-guardvibe \
+  --no-mcp-scan \
+  --no-supply-chain \
+  --no-behavioral \
+  --allow-internal-validation-blocking \
+  --fail-on-severity error
+```
 
 ---
 

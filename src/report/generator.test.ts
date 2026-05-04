@@ -583,6 +583,43 @@ describe('buildComplianceReport', () => {
     expect(report.deployDecision?.reasons.join(' ')).toContain('does not allow automated blocking');
   });
 
+  it('keeps internal-validated pack findings at WARN unless the local blocking override is enabled', () => {
+    const finding = makeFinding({
+      id: 'F-INTERNAL-VALIDATED-HIGH',
+      severity: 'high',
+      title: 'Dockerfile explicitly runs as root',
+      regulationMappings: [{
+        jurisdiction: 'au-privacy-act',
+        principle: 'APP_11',
+        obligation: 'Take reasonable steps to protect personal information',
+        status: 'fail',
+        confidence: 0.95,
+      }],
+    });
+
+    const defaultReport = buildComplianceReport([finding], {
+      ...defaultOptions,
+      includeDeployDecision: true,
+    }, 1000);
+    const overrideReport = buildComplianceReport([finding], {
+      ...defaultOptions,
+      includeDeployDecision: true,
+      allowInternalValidationBlocking: true,
+    }, 1000);
+
+    expect(defaultReport.metadata.packValidation?.status).toBe('internal_validated');
+    expect(defaultReport.deployDecision).toEqual(expect.objectContaining({
+      verdict: 'WARN',
+      blocking: false,
+      packValidationStatus: 'internal_validated',
+    }));
+    expect(overrideReport.deployDecision).toEqual(expect.objectContaining({
+      verdict: 'BLOCK',
+      blocking: true,
+      packValidationStatus: 'internal_validated',
+    }));
+  });
+
   it('does not let untrusted coverage metadata suppress mapped findings as out of scope', () => {
     const report = buildComplianceReport([
       makeFinding({

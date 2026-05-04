@@ -51,7 +51,8 @@ jobs:
             run.results = (run.results ?? []).filter((result) => {
               return !(result.locations ?? []).some((location) => {
                 const uri = location.physicalLocation?.artifactLocation?.uri ?? '';
-                return uri.startsWith('demo/agent-pr-privacy-risk/fail/');
+                return uri.startsWith('demo/agent-pr-privacy-risk/fail/')
+                  || uri.startsWith('demo/agent-pr-privacy-risk/pii-log-fail/');
               });
             });
           }
@@ -60,20 +61,22 @@ jobs:
 
       - name: Upload Clearway SARIF
         if: ${{ always() && hashFiles('clearway.sarif') != '' }}
+        continue-on-error: true
         uses: github/codeql-action/upload-sarif@v4
         with:
           sarif_file: clearway.sarif
           category: clearway-privacy
 
-      # Blocking-threshold demo fixture. This proves CI can fail on the deploy
-      # decision policy without making main permanently fail.
-      - name: Verify blocking gate fixture fails
+      # Product demo fixture: PII introduced by an agent reaches application
+      # logs. Internal-validated packs produce deployDecision WARN by default,
+      # and this demo policy treats WARN and above as CI-failing.
+      - name: Verify PII logging gate fixture fails
         run: |
           set +e
-          node dist/cli/index.js audit demo/agent-pr-privacy-risk/fail \
+          node dist/cli/index.js audit demo/agent-pr-privacy-risk/pii-log-fail \
             --jurisdiction au-privacy-act \
             --format sarif \
-            --sarif-output clearway-demo-fail.sarif \
+            --sarif-output clearway-demo-pii-log-fail.sarif \
             --no-guardvibe \
             --no-mcp-scan \
             --no-supply-chain \
@@ -88,24 +91,28 @@ jobs:
           node --input-type=module <<'NODE'
           import fs from 'node:fs';
 
-          const sarifPath = 'clearway-demo-fail.sarif';
+          const sarifPath = 'clearway-demo-pii-log-fail.sarif';
           if (!fs.existsSync(sarifPath)) {
-            throw new Error('Expected clearway-demo-fail.sarif to be written.');
+            throw new Error('Expected clearway-demo-pii-log-fail.sarif to be written.');
           }
           const sarif = JSON.parse(fs.readFileSync(sarifPath, 'utf8'));
           const results = (sarif.runs ?? []).flatMap((run) => run.results ?? []);
-          const expectedRuleId = 'AU.APP.11.1.dockerfile-explicitly-runs-as-root';
-          if (!results.some((result) => result.ruleId === expectedRuleId)) {
+          const expectedRuleId = 'AU.APP.11.1.personal-data-flows-into-application-logs';
+          const result = results.find((entry) => entry.ruleId === expectedRuleId);
+          if (!result) {
             throw new Error(`Expected SARIF to contain ${expectedRuleId}.`);
+          }
+          if (result.level !== 'warning') {
+            throw new Error(`Expected PII logging fixture to emit warning-level SARIF, got ${result.level}.`);
           }
           NODE
 
-      - name: Verify remediated fixture passes
+      - name: Verify remediated PII logging fixture passes
         run: |
-          node dist/cli/index.js audit demo/agent-pr-privacy-risk/pass \
+          node dist/cli/index.js audit demo/agent-pr-privacy-risk/pii-log-pass \
             --jurisdiction au-privacy-act \
             --format sarif \
-            --sarif-output clearway-demo-pass.sarif \
+            --sarif-output clearway-demo-pii-log-pass.sarif \
             --no-guardvibe \
             --no-mcp-scan \
             --no-supply-chain \
@@ -114,9 +121,46 @@ jobs:
           node --input-type=module <<'NODE'
           import fs from 'node:fs';
 
-          const sarif = JSON.parse(fs.readFileSync('clearway-demo-pass.sarif', 'utf8'));
+          const sarif = JSON.parse(fs.readFileSync('clearway-demo-pii-log-pass.sarif', 'utf8'));
           const results = (sarif.runs ?? []).flatMap((run) => run.results ?? []);
           if (results.length !== 0) {
             throw new Error(`Expected remediated fixture SARIF to have no results, found ${results.length}.`);
+          }
+          NODE
+
+      # Optional local/demo blocking override. This does not change embedded
+      # pack validation status; it only proves strict local policy can turn a
+      # trusted internal-validated deterministic finding into BLOCK.
+      - name: Verify internal-validation blocking override fixture fails
+        run: |
+          set +e
+          node dist/cli/index.js audit demo/agent-pr-privacy-risk/fail \
+            --jurisdiction au-privacy-act \
+            --format sarif \
+            --sarif-output clearway-demo-blocking-override.sarif \
+            --no-guardvibe \
+            --no-mcp-scan \
+            --no-supply-chain \
+            --no-behavioral \
+            --allow-internal-validation-blocking \
+            --fail-on-severity error
+          gate_status=$?
+          set -e
+          if [ "$gate_status" -ne 1 ]; then
+            echo "Expected the blocking override fixture to exit 1, but Clearway exited $gate_status."
+            exit 1
+          fi
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+
+          const sarif = JSON.parse(fs.readFileSync('clearway-demo-blocking-override.sarif', 'utf8'));
+          const results = (sarif.runs ?? []).flatMap((run) => run.results ?? []);
+          const expectedRuleId = 'AU.APP.11.1.dockerfile-explicitly-runs-as-root';
+          const result = results.find((entry) => entry.ruleId === expectedRuleId);
+          if (!result) {
+            throw new Error(`Expected SARIF to contain ${expectedRuleId}.`);
+          }
+          if (result.level !== 'error') {
+            throw new Error(`Expected blocking override fixture to emit error-level SARIF, got ${result.level}.`);
           }
           NODE

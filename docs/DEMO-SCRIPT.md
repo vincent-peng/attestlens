@@ -10,26 +10,29 @@ Clearway is not legal advice and does not claim global compliance. It checks tec
 
 ### 0-10 seconds: Agent introduces risky code
 
-Open a pull request where an AI coding agent adds a production Dockerfile that runs as root:
+Open a pull request where an AI coding agent logs a signup request body:
 
-```dockerfile
-FROM node:latest
-USER root
+```js
+export async function POST(request) {
+  const body = await request.json();
+  console.log('new signup request', { email: body.email, plan: body.plan });
+  return Response.json({ ok: true });
+}
 ```
 
 Say:
 
-> An AI coding agent just changed production runtime configuration. This is exactly the kind of fast software change that can bypass manual privacy and security review.
+> An AI coding agent just added a normal-looking debug line, but it sends personal data into application logs. This is exactly the kind of fast software change that can bypass manual privacy review.
 
 ### 10-30 seconds: Clearway flags it
 
 Run the gate:
 
 ```bash
-npx -y --package @attestlens/cli@beta attestlens audit demo/agent-pr-privacy-risk/fail \
+npx -y --package @attestlens/cli@beta attestlens audit demo/agent-pr-privacy-risk/pii-log-fail \
   --jurisdiction au-privacy-act \
   --format sarif \
-  --sarif-output clearway.sarif \
+  --sarif-output clearway-pii-log.sarif \
   --no-guardvibe \
   --no-mcp-scan \
   --no-supply-chain \
@@ -41,7 +44,7 @@ Expected result:
 
 - Clearway emits SARIF for GitHub code scanning.
 - The command exits non-zero because this demo policy treats Clearway `WARN` and above as CI-failing for the current internal-validated pack.
-- The finding maps to privacy/security obligations such as protecting personal information.
+- The finding maps to privacy/security obligations such as protecting personal information in logs.
 
 Say:
 
@@ -49,21 +52,27 @@ Say:
 
 ### 30-50 seconds: Agent fixes it
 
-Apply the remediated version:
+Apply the remediated version that logs a derived, non-identifying value:
 
-```dockerfile
-FROM node:20.12.2-alpine
-USER node
-HEALTHCHECK CMD node -e "process.exit(0)"
+```js
+export async function POST(request) {
+  const body = await request.json();
+  const emailDomain = typeof body.email === 'string'
+    ? body.email.split('@').at(-1)
+    : 'unknown';
+  const plan = typeof body.plan === 'string' ? body.plan : 'unknown';
+  console.info('new signup request', { emailDomain, plan });
+  return Response.json({ ok: true });
+}
 ```
 
 Run:
 
 ```bash
-npx -y --package @attestlens/cli@beta attestlens audit demo/agent-pr-privacy-risk/pass \
+npx -y --package @attestlens/cli@beta attestlens audit demo/agent-pr-privacy-risk/pii-log-pass \
   --jurisdiction au-privacy-act \
   --format sarif \
-  --sarif-output clearway-pass.sarif \
+  --sarif-output clearway-pii-log-pass.sarif \
   --no-guardvibe \
   --no-mcp-scan \
   --no-supply-chain \
@@ -75,13 +84,30 @@ Expected result:
 
 - The command exits 0.
 - SARIF is still generated.
-- The PR can proceed because no in-scope blocking issue remains.
+- The PR can proceed because no in-scope deploy-gate issue remains.
 
 ### 50-60 seconds: Close the story
 
 Say:
 
-> The product is a privacy deploy gate for AI-generated software. Start in advisory mode, measure false positives, then block only high-confidence deterministic checks. The long-term product is a policy runtime every agent calls before touching customer data or production.
+> The product is a privacy deploy gate for AI-generated software. Start in advisory mode, measure false positives, then block only deterministic or high-confidence checks. The long-term product is a policy runtime every agent calls before touching customer data or production.
+
+Optional strict local proof:
+
+```bash
+npx -y --package @attestlens/cli@beta attestlens audit demo/agent-pr-privacy-risk/fail \
+  --jurisdiction au-privacy-act \
+  --format sarif \
+  --sarif-output clearway-strict.sarif \
+  --no-guardvibe \
+  --no-mcp-scan \
+  --no-supply-chain \
+  --no-behavioral \
+  --allow-internal-validation-blocking \
+  --fail-on-severity error
+```
+
+This local/demo override proves strict blocking mechanics without changing the embedded pack validation status.
 
 ---
 
@@ -90,7 +116,7 @@ Say:
 The repository includes:
 
 - `.github/workflows/ci.yml` for standard TypeScript validation.
-- `.github/workflows/clearway-gate.yml` for repo SARIF visibility plus a deterministic blocking fixture.
+- `.github/workflows/clearway-gate.yml` for repo SARIF visibility plus deterministic PII logging and strict local blocking fixtures.
 - `examples/github-action/clearway.yml` as the copy-paste workflow for external users.
 
 Use advisory mode first:

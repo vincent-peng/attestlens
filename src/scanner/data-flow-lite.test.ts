@@ -5,6 +5,7 @@ import { describe, expect, it } from 'vitest';
 import { DataFlowLiteAdapter } from './data-flow-lite.js';
 
 const FIXTURE_ROOT = path.resolve('tests/fixtures/data-flow-lite');
+const DEMO_ROOT = path.resolve('demo/agent-pr-privacy-risk');
 
 describe('DataFlowLiteAdapter', () => {
   it('detects email logged in the same route', async () => {
@@ -111,5 +112,18 @@ describe('DataFlowLiteAdapter', () => {
     const result = await new DataFlowLiteAdapter().scan(path.join(FIXTURE_ROOT, 'docs-example'));
 
     expect(result.findings).toEqual([]);
+  });
+
+  it('keeps the PII logging demo fixture failing and remediated fixture clean', async () => {
+    const failResult = await new DataFlowLiteAdapter().scan(path.join(DEMO_ROOT, 'pii-log-fail'));
+    const passResult = await new DataFlowLiteAdapter().scan(path.join(DEMO_ROOT, 'pii-log-pass'));
+
+    expect(failResult.findings).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        sourceRule: 'DATAFLOW-PII-LOG',
+        file: 'server.js',
+      }),
+    ]));
+    expect(passResult.findings).toEqual([]);
   });
 });

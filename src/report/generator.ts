@@ -88,6 +88,7 @@ export interface ReportOptions {
   packCoverage?: JurisdictionCoverage;
   packValidation?: PackValidation;
   packValidationTrusted?: boolean;
+  allowInternalValidationBlocking?: boolean;
   diffContext?: DiffContext;
   branding?: {
     logo?: string;
@@ -217,6 +218,7 @@ export function buildComplianceReport(
   if (options.includeOpinion || options.includeDeployDecision) {
     report.deployDecision = buildDeployDecision(report, {
       packValidationTrusted: packMetadata.validationTrusted,
+      allowInternalValidationBlocking: options.allowInternalValidationBlocking === true,
     });
     attachEvidenceRefsToDeployDecision(report);
   }
@@ -306,7 +308,7 @@ function isExternallyValidated(status: PackValidationStatus): boolean {
 
 export function buildDeployDecision(
   report: ComplianceReport,
-  options: { packValidationTrusted?: boolean } = {},
+  options: { packValidationTrusted?: boolean; allowInternalValidationBlocking?: boolean } = {},
 ): DeployDecision {
   const jurisdiction = getReportJurisdiction(report);
   const validation = report.metadata.packValidation;
@@ -318,7 +320,10 @@ export function buildDeployDecision(
   const packAllowsBlocking = Boolean(
     options.packValidationTrusted
     && packValidationStatus
-    && isExternallyValidated(packValidationStatus),
+    && (
+      isExternallyValidated(packValidationStatus)
+      || (options.allowInternalValidationBlocking === true && packValidationStatus === 'internal_validated')
+    ),
   );
   const findingMappings = report.findings.map((finding) => ({
     finding,
@@ -385,8 +390,7 @@ export function buildDeployDecision(
   const blockingCandidates = inScope.filter(({ finding, mapping }) => (
     mapping.status === 'fail'
     && isBlockingSeverity(finding.severity)
-    && isDeterministicFinding(finding)
-    && isHighConfidenceMapping(finding, mapping)
+    && (isDeterministicFinding(finding) || isHighConfidenceMapping(finding, mapping))
   ));
   const blockable = blockingCandidates.filter(() => packAllowsBlocking);
   if (blockable.length > 0) {

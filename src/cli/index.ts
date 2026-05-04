@@ -133,6 +133,7 @@ program
   .option('--diff-base <ref>', 'Git base ref for PR diff mode')
   .option('--diff-head <ref>', 'Git head ref for PR diff mode')
   .option('--changed-files-only', 'Restrict feasible file-based findings to files changed in diff mode')
+  .option('--allow-internal-validation-blocking', 'Allow trusted internal-validated embedded packs to produce BLOCK deploy decisions for local/demo gates')
   .option('--reform', 'Include Privacy Act 2026 reform impact assessment')
   .action(async (targetInput: string, options: any) => {
     const sarifRequested = isSarifRequested(options.format);
@@ -181,6 +182,7 @@ program
           jurisdiction,
           jurisdictionPack: result.jurisdictionManifests?.[jurisdiction],
           packValidationTrusted: result.ruleFreshness.source === 'embedded',
+          allowInternalValidationBlocking: options.allowInternalValidationBlocking === true,
           diffContext: result.diffContext,
         }, duration);
         const sarif = await formatSarif({
@@ -249,6 +251,7 @@ program
   .option('--diff-base <ref>', 'Git base ref for PR diff mode')
   .option('--diff-head <ref>', 'Git head ref for PR diff mode')
   .option('--changed-files-only', 'Restrict feasible file-based findings to files changed in diff mode')
+  .option('--allow-internal-validation-blocking', 'Allow trusted internal-validated embedded packs to produce BLOCK deploy decisions for local/demo gates')
   .option('--opinion', 'Include compliance opinion in report')
   .option('--reform', 'Include Privacy Act 2026 reform impact assessment')
 
@@ -297,6 +300,7 @@ program
           jurisdiction,
           jurisdictionPack: scanResult.jurisdictionManifests?.[jurisdiction],
           packValidationTrusted: scanResult.ruleFreshness.source === 'embedded',
+          allowInternalValidationBlocking: options.allowInternalValidationBlocking === true,
           diffContext: scanResult.diffContext,
         }, duration);
         const sarif = await formatSarif({
@@ -327,6 +331,7 @@ program
         jurisdiction,
         jurisdictionPack: scanResult.jurisdictionManifests?.[jurisdiction],
         packValidationTrusted: scanResult.ruleFreshness.source === 'embedded',
+        allowInternalValidationBlocking: options.allowInternalValidationBlocking === true,
         diffContext: scanResult.diffContext,
       };
 
@@ -378,6 +383,7 @@ program
       if (includesSarif) {
         const sarifDeployDecision = report.deployDecision ?? buildDeployDecision(report, {
           packValidationTrusted: scanResult.ruleFreshness.source === 'embedded',
+          allowInternalValidationBlocking: options.allowInternalValidationBlocking === true,
         });
         const sarif = await formatSarif({
           findings: scanResult.findings,
