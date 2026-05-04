@@ -232,7 +232,7 @@ describe('SARIF formatter', () => {
     expect(levelByRuleId['AU.APP.11.1.unrelated-informational-issue']).toBe('note');
   });
 
-  it('suppresses SARIF findings for PASS and OUT_OF_SCOPE deploy decisions', async () => {
+  it('suppresses SARIF findings for PASS and emits note-level OUT_OF_SCOPE findings', async () => {
     const passSarif = await formatSarif({
       findings: [makeFinding()],
       jurisdiction: 'au-privacy-act',
@@ -268,8 +268,10 @@ describe('SARIF formatter', () => {
       },
     });
 
-    expect(outOfScopeSarif.runs[0]!.results).toEqual([]);
-    expect(outOfScopeSarif.runs[0]!.tool.driver.rules).toEqual([]);
+    expect(outOfScopeSarif.runs[0]!.results).toHaveLength(1);
+    expect(outOfScopeSarif.runs[0]!.results[0]!.level).toBe('note');
+    expect(outOfScopeSarif.runs[0]!.tool.driver.rules).toHaveLength(1);
+    expect(outOfScopeSarif.runs[0]!.tool.driver.rules[0]!.properties['problem.severity']).toBe('recommendation');
   });
 
   it('formats rule ID prefixes for supported jurisdictions', () => {

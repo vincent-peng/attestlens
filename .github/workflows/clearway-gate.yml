@@ -26,7 +26,9 @@ jobs:
 
       # Advisory mode for the repository: SARIF visibility without blocking the PR.
       # Switch to blocking only after false positives are measured:
-      #   node dist/cli/index.js audit . --format sarif --sarif-output clearway.sarif --fail-on-severity error
+      #   node dist/cli/index.js audit . --format sarif --sarif-output clearway.sarif --fail-on-severity warning
+      # With the current internal-validated pack, deterministic findings produce
+      # deployDecision WARN; external/customer/legal validation can later support BLOCK.
       - name: Run Clearway advisory scan
         run: |
           node dist/cli/index.js audit . \
@@ -63,8 +65,8 @@ jobs:
           sarif_file: clearway.sarif
           category: clearway-privacy
 
-      # Blocking demo fixture. This proves the deploy gate can fail on a
-      # deterministic high-confidence issue without making main permanently fail.
+      # Blocking-threshold demo fixture. This proves CI can fail on the deploy
+      # decision policy without making main permanently fail.
       - name: Verify blocking gate fixture fails
         run: |
           set +e
@@ -76,11 +78,11 @@ jobs:
             --no-mcp-scan \
             --no-supply-chain \
             --no-behavioral \
-            --fail-on-severity error
+            --fail-on-severity warning
           gate_status=$?
           set -e
           if [ "$gate_status" -ne 1 ]; then
-            echo "Expected the failing fixture to exit 1 for a blocking finding, but Clearway exited $gate_status."
+            echo "Expected the failing fixture to exit 1 when WARN findings are configured to fail CI, but Clearway exited $gate_status."
             exit 1
           fi
           node --input-type=module <<'NODE'
@@ -108,7 +110,7 @@ jobs:
             --no-mcp-scan \
             --no-supply-chain \
             --no-behavioral \
-            --fail-on-severity error
+            --fail-on-severity warning
           node --input-type=module <<'NODE'
           import fs from 'node:fs';
 

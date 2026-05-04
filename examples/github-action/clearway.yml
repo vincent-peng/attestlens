@@ -40,7 +40,8 @@ jobs:
 
       # Blocking mode after tuning:
       # - remove --no-fail above
-      # - add --fail-on-severity error
+      # - add --fail-on-severity warning to fail on WARN/BLOCK deploy decisions
+      # - use --fail-on-severity error when you only want BLOCK to fail CI
       #
       # Example:
       # npx -y --package @attestlens/cli@beta attestlens audit . \
@@ -48,4 +49,4 @@ jobs:
       #   --opinion \
       #   --format sarif \
       #   --sarif-output clearway.sarif \
-      #   --fail-on-severity error
+      #   --fail-on-severity warning

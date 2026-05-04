@@ -168,8 +168,9 @@ export function mapDeployDecisionToSarifLevel(
       return fallbackSeverity === 'critical' || fallbackSeverity === 'high' || fallbackSeverity === 'medium'
         ? 'warning'
         : 'note';
-    case 'PASS':
     case 'OUT_OF_SCOPE':
+      return 'note';
+    case 'PASS':
       return null;
   }
 }
@@ -199,7 +200,7 @@ export function inferSarifPrecision(
 }
 
 function shouldSuppressSarifResults(deployDecision: DeployDecision | undefined): boolean {
-  return deployDecision?.verdict === 'PASS' || deployDecision?.verdict === 'OUT_OF_SCOPE';
+  return deployDecision?.verdict === 'PASS';
 }
 
 function mapFindingToSarifLevel(

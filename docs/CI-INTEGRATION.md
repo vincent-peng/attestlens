@@ -26,7 +26,7 @@ npx -y --package @attestlens/cli@beta attestlens audit demo/agent-pr-privacy-ris
   --no-mcp-scan \
   --no-supply-chain \
   --no-behavioral \
-  --fail-on-severity error
+  --fail-on-severity warning
 
 npx -y --package @attestlens/cli@beta attestlens audit demo/agent-pr-privacy-risk/pass \
   --jurisdiction au-privacy-act \
@@ -36,10 +36,10 @@ npx -y --package @attestlens/cli@beta attestlens audit demo/agent-pr-privacy-ris
   --no-mcp-scan \
   --no-supply-chain \
   --no-behavioral \
-  --fail-on-severity error
+  --fail-on-severity warning
 ```
 
-The first command should exit non-zero. The second should pass. Both generate SARIF.
+The first command should exit non-zero because the demo policy treats Clearway `WARN` and above as CI-failing for the current internal-validated pack. The second should pass. Both generate SARIF.
 
 ---
 
@@ -91,7 +91,7 @@ Use advisory mode first. This creates visibility without blocking PRs.
 
 ## Blocking workflow
 
-After tuning, enable blocking for high-confidence findings:
+After tuning, enable CI failure for deploy warnings or blocking findings:
 
 ```yaml
 name: Clearway Privacy Gate
@@ -121,7 +121,7 @@ jobs:
             --opinion \
             --format sarif \
             --sarif-output clearway.sarif \
-            --fail-on-severity error
+            --fail-on-severity warning
 
       - name: Upload SARIF
         if: ${{ always() && hashFiles('clearway.sarif') != '' }}
@@ -148,7 +148,7 @@ npx -y --package @attestlens/cli@beta attestlens audit . \
   --format agent
 ```
 
-The desired future shape is an operational deploy decision:
+Agent output includes an operational `deployDecision`:
 
 - `BLOCK`
 - `WARN`
@@ -156,7 +156,7 @@ The desired future shape is an operational deploy decision:
 - `PASS`
 - `OUT_OF_SCOPE`
 
-Until the deploy-verdict schema lands, treat existing compliance/opinion output as decision-support rather than a legal conclusion.
+Treat `deployDecision` as the deploy-gate signal. `PASS` means no in-scope blocking findings were detected; it is not a legal compliance conclusion.
 
 ---
 

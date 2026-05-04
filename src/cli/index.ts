@@ -17,7 +17,6 @@ import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 import { formatSarif, mapFindingSeverityToSarifLevel } from '../formatters/sarif.js';
-import type { SarifOutput } from '../formatters/sarif.js';
 import { ScannerOrchestrator, type ScannerOrchestratorOptions } from '../scanner/orchestrator.js';
 import { mapAllFindings } from '../mapping/engine.js';
 import {
@@ -68,6 +67,7 @@ import type {
   AssessmentMode,
   AttestLensFinding,
   ComplianceReport,
+  DeployDecision,
   DiffContext,
   JurisdictionCoverage,
   Jurisdiction as JurisdictionType,
@@ -191,7 +191,7 @@ program
           deployDecision: sarifReport.deployDecision,
         });
         await emitSarifOutput(sarif, options.sarifOutput, path.resolve(options.output));
-        process.exit(determineSarifExitCode(sarif, failConfig));
+        process.exit(determineDeployDecisionExitCode(requireDeployDecision(sarifReport), failConfig));
       }
 
       if (findings.length === 0) {
@@ -310,7 +310,7 @@ program
         displayRuleFreshness(scanResult.ruleFreshness);
         displayScannerWarnings(scanResult.errors);
         await emitSarifOutput(sarif, options.sarifOutput, path.resolve(options.output));
-        process.exit(determineSarifExitCode(sarif, failConfig));
+        process.exit(determineDeployDecisionExitCode(requireDeployDecision(sarifReport), failConfig));
       }
 
       const reportOptions: ReportOptions = {
@@ -338,7 +338,7 @@ program
 
       if (agentOutput) {
         console.log(generateAgentReport(report, effectiveControls));
-        process.exit(determineExitCode(scanResult.findings, failConfig));
+        process.exit(determineDeployDecisionExitCode(requireDeployDecision(report), failConfig));
         return;
       }
 
@@ -388,7 +388,7 @@ program
         });
         const sarifPath = options.sarifOutput || path.join(path.resolve(options.output), `${buildReportFilename(projectName, report.timestamp)}.sarif`);
         await emitSarifOutput(sarif, sarifPath, path.resolve(options.output));
-        sarifExitCode = determineSarifExitCode(sarif, failConfig);
+        sarifExitCode = determineDeployDecisionExitCode(sarifDeployDecision, failConfig);
         console.log(chalk.green(`  📄 SARIF report: ${sarifPath}`));
       }
 
@@ -1825,14 +1825,15 @@ function isSarifRequested(rawFormats: string): boolean {
   return formats.includes('sarif');
 }
 
-type FailureSeverityThreshold = 'error' | 'warning' | 'note';
+export type FailureSeverityThreshold = 'error' | 'warning' | 'note';
 
-interface FailureControlOptions {
+export interface FailureControlOptions {
   threshold: FailureSeverityThreshold;
   noFail: boolean;
+  strict: boolean;
 }
 
-function parseFailureControlOptions(options: { failOnSeverity?: unknown; fail?: boolean }): FailureControlOptions {
+function parseFailureControlOptions(options: { failOnSeverity?: unknown; fail?: boolean; strict?: boolean }): FailureControlOptions {
   const rawThreshold = String(options.failOnSeverity ?? 'error').trim().toLowerCase();
   if (rawThreshold !== 'error' && rawThreshold !== 'warning' && rawThreshold !== 'note') {
     throw new Error(`Unsupported fail severity: ${String(options.failOnSeverity)}. Valid values: error, warning, note`);
@@ -1841,6 +1842,7 @@ function parseFailureControlOptions(options: { failOnSeverity?: unknown; fail?: 
   return {
     threshold: rawThreshold,
     noFail: options.fail === false,
+    strict: options.strict === true,
   };
 }
 
@@ -1852,16 +1854,32 @@ function determineExitCode(findings: AttestLensFinding[], options: FailureContro
   return hasFindingsAtOrAboveThreshold(findings, options.threshold) ? 1 : 0;
 }
 
-function determineSarifExitCode(sarif: SarifOutput, options: FailureControlOptions): number {
+function requireDeployDecision(report: Pick<ComplianceReport, 'deployDecision'>): DeployDecision {
+  if (!report.deployDecision) {
+    throw new Error('Deploy decision was not generated for deploy-gate output.');
+  }
+  return report.deployDecision;
+}
+
+export function determineDeployDecisionExitCode(
+  deployDecision: DeployDecision,
+  options: FailureControlOptions,
+): number {
   if (options.noFail) {
     return 0;
   }
 
-  const thresholdRank = getSarifLevelRank(options.threshold);
-  const failsThreshold = sarif.runs.some((run) => (
-    run.results.some((result) => getSarifLevelRank(result.level) <= thresholdRank)
-  ));
-  return failsThreshold ? 1 : 0;
+  switch (deployDecision.verdict) {
+    case 'BLOCK':
+      return 1;
+    case 'WARN':
+      return deployDecisionThresholdFails('warning', options.threshold) ? 1 : 0;
+    case 'NEEDS_REVIEW':
+      return options.strict || deployDecisionThresholdFails('warning', options.threshold) ? 1 : 0;
+    case 'PASS':
+    case 'OUT_OF_SCOPE':
+      return 0;
+  }
 }
 
 export function hasFindingsAtOrAboveThreshold(
@@ -1870,6 +1888,13 @@ export function hasFindingsAtOrAboveThreshold(
 ): boolean {
   const thresholdRank = getSarifLevelRank(threshold);
   return findings.some((finding) => getSarifLevelRank(mapFindingSeverityToSarifLevel(finding.severity)) <= thresholdRank);
+}
+
+function deployDecisionThresholdFails(
+  verdictLevel: FailureSeverityThreshold,
+  threshold: FailureSeverityThreshold,
+): boolean {
+  return getSarifLevelRank(verdictLevel) <= getSarifLevelRank(threshold);
 }
 
 function getSarifLevelRank(level: FailureSeverityThreshold): number {

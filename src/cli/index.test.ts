@@ -19,7 +19,12 @@ import {
 } from '../questionnaire/index.js';
 import { OSV_QUERY_BATCH_URL } from '../scanner/osv.js';
 import { buildEmbeddedRulePack } from '../scanner/rules/index.js';
-import { buildScannerOrchestratorOptions, executeAttestCommand, hasFindingsAtOrAboveThreshold } from './index.js';
+import {
+  buildScannerOrchestratorOptions,
+  determineDeployDecisionExitCode,
+  executeAttestCommand,
+  hasFindingsAtOrAboveThreshold,
+} from './index.js';
 
 const execFileAsync = promisify(execFile);
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
@@ -397,7 +402,7 @@ describe('CLI metadata', () => {
 });
 
 describe('CLI agent report format', () => {
-  it('prints agent JSON to stdout and exits 1 for non-compliant opinions', async () => {
+  it('prints agent JSON to stdout without failing for non-blocking WARN opinions at the default threshold', async () => {
     const projectDir = await fs.mkdtemp(path.join(os.tmpdir(), 'attestlens-cli-agent-'));
 
     try {
@@ -419,9 +424,13 @@ describe('CLI agent report format', () => {
       ]);
       const payload = JSON.parse(result.stdout);
 
-      expect(result.code).toBe(1);
+      expect(result.code).toBe(0);
       expect(payload.schema).toBe('attestlens-agent-v1');
       expect(payload.verdict).toBe('NON_COMPLIANT');
+      expect(payload.deployDecision).toEqual(expect.objectContaining({
+        verdict: 'WARN',
+        blocking: false,
+      }));
       expect(payload.actions.some((action: { principle: string }) => action.principle === 'APP_11')).toBe(true);
       expect(result.stdout.trim()).toMatch(/^\{/);
       expect(result.stdout).not.toContain('Privacy Act Compliance Audit');
@@ -452,9 +461,42 @@ describe('CLI agent report format', () => {
       ]);
       const payload = JSON.parse(result.stdout);
 
-      expect(result.code).toBe(1);
+      expect(result.code).toBe(0);
       expect(payload.schema).toBe('attestlens-agent-v1');
       expect(payload.verdict).toBe('UNKNOWN');
+      expect(payload.deployDecision).toEqual(expect.objectContaining({
+        verdict: 'WARN',
+        blocking: false,
+      }));
+    } finally {
+      await fs.rm(projectDir, { recursive: true, force: true });
+    }
+  });
+
+  it('exits 1 for non-blocking agent WARN only when the selected threshold includes warnings', async () => {
+    const projectDir = await fs.mkdtemp(path.join(os.tmpdir(), 'attestlens-cli-agent-warn-threshold-'));
+
+    try {
+      await fs.writeFile(
+        path.join(projectDir, 'Dockerfile'),
+        'FROM node:latest\nUSER root\n',
+      );
+
+      const result = await runCli([
+        'audit',
+        projectDir,
+        '-f',
+        'agent',
+        '--fail-on-severity',
+        'warning',
+        '--no-guardvibe',
+        '--no-mcp-scan',
+        '--no-supply-chain',
+        '--no-behavioral',
+      ]);
+      const payload = JSON.parse(result.stdout);
+
+      expect(result.code).toBe(1);
       expect(payload.deployDecision).toEqual(expect.objectContaining({
         verdict: 'WARN',
         blocking: false,
@@ -475,6 +517,48 @@ describe('CLI SARIF and exit thresholds', () => {
 
     expect(hasFindingsAtOrAboveThreshold(findings, 'error')).toBe(false);
     expect(hasFindingsAtOrAboveThreshold(findings, 'warning')).toBe(true);
+  });
+
+  it('derives deploy-gate exit codes from deploy decisions and threshold policy', () => {
+    const makeDecision = (verdict: 'BLOCK' | 'WARN' | 'NEEDS_REVIEW' | 'PASS' | 'OUT_OF_SCOPE', blocking = verdict === 'BLOCK') => ({
+      verdict,
+      blocking,
+      confidence: 0.8,
+      jurisdiction: 'au-privacy-act' as const,
+      packValidationStatus: 'internal_validated' as const,
+      reasons: [],
+      evidenceRefs: [],
+      remediations: [],
+    });
+    const baseConfig = { threshold: 'error' as const, noFail: false, strict: false };
+
+    expect(determineDeployDecisionExitCode(makeDecision('WARN', false), baseConfig)).toBe(0);
+    expect(determineDeployDecisionExitCode(makeDecision('WARN', false), {
+      ...baseConfig,
+      threshold: 'warning',
+    })).toBe(1);
+    expect(determineDeployDecisionExitCode(makeDecision('BLOCK'), baseConfig)).toBe(1);
+    expect(determineDeployDecisionExitCode(makeDecision('NEEDS_REVIEW', false), baseConfig)).toBe(0);
+    expect(determineDeployDecisionExitCode(makeDecision('NEEDS_REVIEW', false), {
+      ...baseConfig,
+      threshold: 'note',
+    })).toBe(1);
+    expect(determineDeployDecisionExitCode(makeDecision('NEEDS_REVIEW', false), {
+      ...baseConfig,
+      strict: true,
+    })).toBe(1);
+    expect(determineDeployDecisionExitCode(makeDecision('PASS', false), {
+      ...baseConfig,
+      threshold: 'note',
+    })).toBe(0);
+    expect(determineDeployDecisionExitCode(makeDecision('OUT_OF_SCOPE', false), {
+      ...baseConfig,
+      threshold: 'note',
+    })).toBe(0);
+    expect(determineDeployDecisionExitCode(makeDecision('BLOCK'), {
+      ...baseConfig,
+      noFail: true,
+    })).toBe(0);
   });
 
   it('writes SARIF to stdout for scan and honors --no-fail', async () => {

@@ -34,18 +34,18 @@ npx -y --package @attestlens/cli@beta attestlens audit demo/agent-pr-privacy-ris
   --no-mcp-scan \
   --no-supply-chain \
   --no-behavioral \
-  --fail-on-severity error
+  --fail-on-severity warning
 ```
 
 Expected result:
 
 - Clearway emits SARIF for GitHub code scanning.
-- The command exits non-zero because a high-confidence deterministic issue crossed the blocking threshold.
+- The command exits non-zero because this demo policy treats Clearway `WARN` and above as CI-failing for the current internal-validated pack.
 - The finding maps to privacy/security obligations such as protecting personal information.
 
 Say:
 
-> Clearway is not asking a model whether this looks bad. The runtime is deterministic. The rule fires, maps to a jurisdiction pack, emits SARIF, and blocks the PR.
+> Clearway is not asking a model whether this looks bad. The runtime is deterministic. The rule fires, maps to a jurisdiction pack, emits SARIF, and the deploy policy fails the PR.
 
 ### 30-50 seconds: Agent fixes it
 
@@ -68,7 +68,7 @@ npx -y --package @attestlens/cli@beta attestlens audit demo/agent-pr-privacy-ris
   --no-mcp-scan \
   --no-supply-chain \
   --no-behavioral \
-  --fail-on-severity error
+  --fail-on-severity warning
 ```
 
 Expected result:
@@ -110,5 +110,5 @@ npx -y --package @attestlens/cli@beta attestlens audit . \
   --jurisdiction au-privacy-act \
   --format sarif \
   --sarif-output clearway.sarif \
-  --fail-on-severity error
+  --fail-on-severity warning
 ```
