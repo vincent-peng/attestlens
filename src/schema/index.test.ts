@@ -27,6 +27,7 @@ describe('ScanSource', () => {
       'behavioral',
       'gitleaks',
       'iac',
+      'data-flow-lite',
       'url-scan',
       'manual',
       'questionnaire',

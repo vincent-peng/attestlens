@@ -122,6 +122,7 @@ program
   .option('--no-supply-chain', 'Disable supply chain scanner')
   .option('--no-behavioral', 'Disable behavioral supply-chain analysis')
   .option('--no-iac', 'Disable infrastructure-as-code misconfiguration scanning')
+  .option('--no-data-flow-lite', 'Disable Data Flow Lite source-to-sink privacy scanning')
   .option('--include-gitleaks', 'Enable opt-in git history secret scanning via gitleaks')
   .option('--gitleaks-path <path>', 'Path to gitleaks binary', 'gitleaks')
   .option('--include-typosquat', 'Enable experimental typosquatting detection (VS-SC-004)')
@@ -237,6 +238,7 @@ program
   .option('--no-supply-chain', 'Disable supply chain scanner')
   .option('--no-behavioral', 'Disable behavioral supply-chain analysis')
   .option('--no-iac', 'Disable infrastructure-as-code misconfiguration scanning')
+  .option('--no-data-flow-lite', 'Disable Data Flow Lite source-to-sink privacy scanning')
   .option('--include-gitleaks', 'Enable opt-in git history secret scanning via gitleaks')
   .option('--gitleaks-path <path>', 'Path to gitleaks binary', 'gitleaks')
   .option('--include-typosquat', 'Enable experimental typosquatting detection (VS-SC-004)')
@@ -457,6 +459,7 @@ program
   .option('--no-supply-chain', 'Disable supply chain scanner')
   .option('--no-behavioral', 'Disable behavioral supply-chain analysis')
   .option('--no-iac', 'Disable infrastructure-as-code misconfiguration scanning')
+  .option('--no-data-flow-lite', 'Disable Data Flow Lite source-to-sink privacy scanning')
   .option('--include-gitleaks', 'Enable opt-in git history secret scanning via gitleaks')
   .option('--gitleaks-path <path>', 'Path to gitleaks binary', 'gitleaks')
   .option('--include-typosquat', 'Enable experimental typosquatting detection (VS-SC-004)')
@@ -1066,6 +1069,9 @@ export function buildScannerOrchestratorOptions(options: any): ScannerOrchestrat
     iac: {
       enabled: options.iac !== false,
     },
+    dataFlowLite: {
+      enabled: options.dataFlowLite !== false,
+    },
     gitleaks: {
       enabled: options.includeGitleaks === true,
       path: options.gitleaksPath || 'gitleaks',
@@ -1098,6 +1104,7 @@ function createOrchestrator(targetKind: CliTarget['kind'], options: any): Scanne
     orchestrator.disable('guardvibe');
     orchestrator.disable('mcp-scan');
     orchestrator.disable('supply-chain');
+    orchestrator.disable('data-flow-lite');
     return orchestrator;
   }
 
@@ -1106,6 +1113,7 @@ function createOrchestrator(targetKind: CliTarget['kind'], options: any): Scanne
   if (options.supplyChain === false) orchestrator.disable('supply-chain');
   if (options.behavioral === false) orchestrator.disable('behavioral');
   if (options.iac === false) orchestrator.disable('iac');
+  if (options.dataFlowLite === false) orchestrator.disable('data-flow-lite');
   if (options.includeGitleaks === true) orchestrator.enable('gitleaks');
   return orchestrator;
 }

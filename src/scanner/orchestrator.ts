@@ -31,6 +31,7 @@ import { SupplyChainAdapter, type SupplyChainAdapterOptions } from './supply-cha
 import { BehavioralAdapter, type BehavioralAdapterOptions } from './behavioral.js';
 import { GitleaksAdapter, type GitleaksAdapterOptions } from './gitleaks.js';
 import { IacAdapter, type IacAdapterOptions } from './iac.js';
+import { DataFlowLiteAdapter, type DataFlowLiteAdapterOptions } from './data-flow-lite.js';
 import { UrlScanAdapter } from './url-scan.js';
 import { ReformAdapter, type ReformAdapterOptions } from './reform.js';
 import {
@@ -49,6 +50,7 @@ export interface ScannerOrchestratorOptions {
   behavioral?: BehavioralAdapterOptions;
   gitleaks?: GitleaksAdapterOptions;
   iac?: IacAdapterOptions;
+  dataFlowLite?: DataFlowLiteAdapterOptions;
   reform?: ReformAdapterOptions;
   adapterTimeoutMs?: number | Partial<Record<ScanSource, number>>;
   onProgress?: (event: ScannerProgressEvent) => void;
@@ -82,6 +84,7 @@ export class ScannerOrchestrator {
     this.register(new BehavioralAdapter(options.behavioral), options.behavioral?.enabled !== false);
     this.register(new GitleaksAdapter(options.gitleaks), options.gitleaks?.enabled === true);
     this.register(new IacAdapter(options.iac), options.iac?.enabled !== false);
+    this.register(new DataFlowLiteAdapter(options.dataFlowLite), options.dataFlowLite?.enabled !== false);
     // URL scanner registered but only activated when URL input detected
     this.register(new UrlScanAdapter());
     this.register(new ReformAdapter(options.reform), options.reform?.enabled === true);
@@ -467,6 +470,7 @@ const DEFAULT_ADAPTER_TIMEOUT_MS: Record<ScanSource, number> = {
   behavioral: 60_000,
   gitleaks: 60_000,
   iac: 60_000,
+  'data-flow-lite': 60_000,
   'url-scan': 60_000,
   vibesafe: 60_000,
   'vibe-check': 60_000,
@@ -489,13 +493,14 @@ const SOURCE_PRIORITY: Record<ScanSource, number> = {
   'supply-chain': 3,
   behavioral: 4,
   iac: 5,
-  gitleaks: 6,
-  'url-scan': 7,
-  vibesafe: 8,
-  'vibe-check': 9,
-  manual: 10,
-  questionnaire: 11,
-  'reform-2026': 12,
+  'data-flow-lite': 6,
+  gitleaks: 7,
+  'url-scan': 8,
+  vibesafe: 9,
+  'vibe-check': 10,
+  manual: 11,
+  questionnaire: 12,
+  'reform-2026': 13,
 };
 
 const CANONICAL_RULE_TYPES: Record<string, string> = {
@@ -520,6 +525,10 @@ const CANONICAL_RULE_TYPES: Record<string, string> = {
   'VS-SAST-015': 'missing-auth-sensitive-route',
   'VS-SAST-017': 'csrf-gap',
   'VS-SAST-018': 'open-redirect',
+  'DATAFLOW-PII-LOG': 'data-flow:log',
+  'DATAFLOW-PII-ANALYTICS': 'data-flow:analytics',
+  'DATAFLOW-PII-EXTERNAL': 'data-flow:external',
+  'DATAFLOW-PII-LLM': 'data-flow:llm',
 };
 
 function throwIfScanAborted(signal?: AbortSignal): void {

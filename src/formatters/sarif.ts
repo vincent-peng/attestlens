@@ -206,10 +206,15 @@ function mapFindingToSarifLevel(
   finding: AttestLensFinding,
   deployDecision: DeployDecision | undefined,
 ): SarifLevel {
-  const decisionLevel = deployDecision && deployDecision.evidenceRefs.includes(finding.id)
+  const decisionLevel = deployDecision && deployDecisionReferencesFinding(deployDecision, finding.id)
     ? mapDeployDecisionToSarifLevel(deployDecision, finding.severity)
     : null;
   return decisionLevel ?? mapFindingSeverityToSarifLevel(finding.severity);
+}
+
+function deployDecisionReferencesFinding(deployDecision: DeployDecision, findingId: string): boolean {
+  return deployDecision.evidenceRefs.includes(findingId)
+    || deployDecision.evidenceRefs.includes(`ev-chain:finding:${findingId}`);
 }
 
 export function buildPrimaryLocationLineHash(ruleId: string, filePath: string, line: number): string {

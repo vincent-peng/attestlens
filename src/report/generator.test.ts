@@ -110,6 +110,7 @@ describe('buildComplianceReport', () => {
     expect(report.overallScore).toBe(100);
     expect(report.overallGrade).toBe('A');
     expect(report.riskLevel).toBe('low');
+    expect(report.appControls[0]?.evidenceRefs).toContain('ev-chain:pack:au-privacy-act');
   });
 
   it('adds scanner-only breach readiness and consultant narrative without changing the overall score', () => {
@@ -237,6 +238,8 @@ describe('buildComplianceReport', () => {
       expect(output).toContain('[REDACTED]');
       expect(output).not.toContain('asthma');
     }
+    expect(JSON.stringify(report.evidenceChains)).toContain('[REDACTED]');
+    expect(JSON.stringify(report.evidenceChains)).not.toContain('asthma');
   });
 
   it('should include remediation items', () => {
@@ -531,7 +534,26 @@ describe('buildComplianceReport', () => {
       jurisdiction: 'au-privacy-act',
       packValidationStatus: 'external_reviewed',
     }));
-    expect(report.deployDecision?.evidenceRefs).toContain('F-DEPLOY-BLOCK');
+    expect(report.deployDecision?.evidenceRefs).toContain('ev-chain:finding:F-DEPLOY-BLOCK');
+    expect(report.evidenceChains).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        id: 'ev-chain:finding:F-DEPLOY-BLOCK',
+        controls: expect.arrayContaining(['APP_11']),
+        nodes: expect.arrayContaining([
+          expect.objectContaining({
+            type: 'finding',
+            title: 'Public storage bucket with personal information',
+          }),
+          expect.objectContaining({
+            type: 'pack_rule',
+            title: 'Rule VS-HARDKEY',
+          }),
+        ]),
+      }),
+    ]));
+    expect(report.regulationControls?.find((control) => control.principle === 'APP_11')?.evidenceRefs)
+      .toContain('ev-chain:finding:F-DEPLOY-BLOCK');
+    expect(report.complianceOpinion?.evidenceRefs).toContain('ev-chain:finding:F-DEPLOY-BLOCK');
     expect(report.deployDecision?.remediations).toContain('Make the storage bucket private and enforce authenticated access.');
   });
 
@@ -597,7 +619,7 @@ describe('buildComplianceReport', () => {
       verdict: 'WARN',
       blocking: false,
     }));
-    expect(report.deployDecision?.evidenceRefs).toContain('F-UNTRUSTED-COVERAGE');
+    expect(report.deployDecision?.evidenceRefs).toContain('ev-chain:finding:F-UNTRUSTED-COVERAGE');
     expect(report.deployDecision?.scopeNote).toBeUndefined();
   });
 
@@ -645,8 +667,60 @@ describe('buildComplianceReport', () => {
       verdict: 'NEEDS_REVIEW',
       blocking: false,
     }));
-    expect(report.deployDecision?.evidenceRefs).toContain('F-UNMAPPED');
+    expect(report.deployDecision?.evidenceRefs).toContain('ev-chain:finding:F-UNMAPPED');
     expect(report.deployDecision?.reasons.join(' ')).toContain('not mapped to the selected jurisdiction');
+  });
+
+  it('prioritizes unmapped review over out-of-scope coverage suppression', () => {
+    const report = buildComplianceReport([
+      makeFinding({
+        id: 'F-OUT-OF-SCOPE',
+        severity: 'medium',
+        sourceRule: 'VS-HARDKEY',
+        title: 'Mapped finding outside trusted coverage',
+        regulationMappings: [{
+          jurisdiction: 'au-privacy-act',
+          principle: 'APP_11',
+          obligation: 'Take reasonable steps to protect personal information',
+          status: 'fail',
+          confidence: 0.9,
+        }],
+      }),
+      makeFinding({
+        id: 'F-UNMAPPED-MIXED',
+        source: 'manual',
+        sourceRule: 'CUSTOM-UNMAPPED',
+        severity: 'medium',
+        category: 'Custom',
+        title: 'Unmapped privacy finding',
+        description: 'A privacy finding that should remain visible for review.',
+        regulationMappings: [],
+      }),
+    ], {
+      ...defaultOptions,
+      includeDeployDecision: true,
+      packCoverage: {
+        summary: 'Trusted coverage excludes APP 11.',
+        includedPrinciples: ['APP_1'],
+        excludedPrinciples: ['APP_11'],
+        knownGaps: [],
+        evidenceTypes: ['source code'],
+      },
+      packValidation: {
+        status: 'external_reviewed',
+        reviewedBy: 'AttestLens validation partner',
+        reviewedAt: '2026-05-03T00:00:00.000Z',
+        notes: [],
+      },
+      packValidationTrusted: true,
+    }, 1000);
+
+    expect(report.deployDecision).toEqual(expect.objectContaining({
+      verdict: 'NEEDS_REVIEW',
+      blocking: false,
+    }));
+    expect(report.deployDecision?.evidenceRefs).toContain('ev-chain:finding:F-UNMAPPED-MIXED');
+    expect(report.deployDecision?.evidenceRefs).not.toContain('ev-chain:finding:F-OUT-OF-SCOPE');
   });
 
   it('produces NEEDS_REVIEW for contextual evidence gaps', () => {
@@ -708,6 +782,49 @@ describe('generateJSONReport', () => {
     }));
   });
 
+  it('sanitizes manual attestation refs in evidence chains', () => {
+    const report = buildComplianceReport([], defaultOptions, 1000, makeQuestionnaireSession({
+      assessmentMode: 'artifact_only',
+      answers: [
+        {
+          questionId: 'Q-APP1-001',
+          answer: true,
+          timestamp: new Date().toISOString(),
+          evidenceRefs: [
+            'https://storage.example.com/privacy.pdf?token=super-secret-token#download',
+            '/Users/alice/private/privacy-policy.md',
+          ],
+          evaluation: {
+            status: 'pass',
+            confidence: 0.85,
+            rationale: 'Policy evidence was supplied.',
+          },
+        },
+      ],
+      principleResults: [
+        {
+          principle: 'APP_1',
+          status: 'pass',
+          confidence: 0.85,
+          rationale: 'Policy evidence was supplied.',
+          answeredQuestionIds: ['Q-APP1-001'],
+        },
+      ],
+    }));
+
+    const serializedEvidence = JSON.stringify(report.evidenceChains);
+    const manualNodes = report.evidenceChains
+      ?.flatMap((chain) => chain.nodes)
+      .filter((node) => node.type === 'manual_attestation') ?? [];
+
+    expect(manualNodes.map((node) => node.location)).toEqual([
+      'https://storage.example.com/privacy.pdf',
+      'privacy-policy.md',
+    ]);
+    expect(serializedEvidence).not.toContain('super-secret-token');
+    expect(serializedEvidence).not.toContain('/Users/alice/private');
+  });
+
   it('includes jurisdiction pack validation and coverage metadata', () => {
     const report = buildComplianceReport([], {
       ...defaultOptions,
@@ -723,6 +840,16 @@ describe('generateJSONReport', () => {
     expect(parsed.metadata.packValidation).toEqual(expect.objectContaining({
       status: 'internal_validated',
     }));
+    expect(parsed.evidenceChains).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        id: 'ev-chain:pack:eu-gdpr',
+        nodes: expect.arrayContaining([
+          expect.objectContaining({
+            type: 'pack_rule',
+          }),
+        ]),
+      }),
+    ]));
     expect(parsed.metadata.packCoverage).toEqual(expect.objectContaining({
       summary: expect.stringContaining('GDPR subset'),
       knownGaps: expect.arrayContaining([expect.stringContaining('full GDPR')]),
@@ -813,7 +940,43 @@ describe('generateAgentReport', () => {
       verdict: 'WARN',
       blocking: false,
     }));
+    expect(parsed.deployDecision.evidenceRefs).toContain('ev-chain:finding:F-APP11-001');
+    expect(parsed.deployDecisionReasons[0].evidenceRefs).toContain('ev-chain:finding:F-APP11-001');
+    expect(parsed.findings[0].evidenceRefs).toContain('ev-chain:finding:F-APP11-001');
+    expect(parsed.evidenceChains).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        id: 'ev-chain:finding:F-APP11-001',
+        nodes: expect.arrayContaining([
+          expect.objectContaining({ type: 'finding' }),
+        ]),
+      }),
+    ]));
     expect(parsed.summary).toContain('WARN');
+  });
+
+  it('keeps referenced evidence chains in compact agent output', () => {
+    const findings = Array.from({ length: 25 }, (_, index) => makeFinding({
+      id: `F-COMPACT-${String(index).padStart(2, '0')}`,
+      severity: 'low',
+      sourceRule: 'VS-HARDKEY',
+    }));
+    const report = buildComplianceReport(findings, defaultOptions, 1000);
+    report.deployDecision = {
+      verdict: 'WARN',
+      blocking: false,
+      confidence: 0.8,
+      jurisdiction: 'au-privacy-act',
+      packValidationStatus: 'internal_validated',
+      reasons: ['Referenced finding should remain traceable in compact output.'],
+      evidenceRefs: ['ev-chain:finding:F-COMPACT-24'],
+      remediations: [],
+    };
+
+    const parsed = JSON.parse(generateAgentReport(report));
+
+    expect(parsed.evidenceChains).toHaveLength(20);
+    expect(parsed.evidenceChains.map((chain: { id: string }) => chain.id))
+      .toContain('ev-chain:finding:F-COMPACT-24');
   });
 
   it('uses fallback values when no opinion is available', () => {

@@ -155,6 +155,21 @@ async function createCliIacProject(): Promise<string> {
   return projectDir;
 }
 
+async function createCliDataFlowProject(): Promise<string> {
+  const projectDir = await fs.mkdtemp(path.join(os.tmpdir(), 'attestlens-cli-dataflow-'));
+  await fs.writeFile(
+    path.join(projectDir, 'route.ts'),
+    [
+      'export async function POST(request: Request) {',
+      '  const body = await request.json();',
+      '  console.info("signup", body.email);',
+      '  return Response.json({ ok: true });',
+      '}',
+    ].join('\n'),
+  );
+  return projectDir;
+}
+
 describe('CLI URL handling', () => {
   it('fails URL scans when the target is blocked or unreachable', async () => {
     const result = await runCli(['scan', 'http://localhost:3000']);
@@ -316,7 +331,7 @@ describe('CLI URL handling', () => {
         blocking: false,
       }));
       expect(payload.deployDecision.verdict).not.toBe('OUT_OF_SCOPE');
-      expect(payload.deployDecision.evidenceRefs).toContain('FORGED-FINDING-001');
+      expect(payload.deployDecision.evidenceRefs).toContain('ev-chain:finding:FORGED-FINDING-001');
       expect(payload.deployDecision.scopeNote).toBeUndefined();
     } finally {
       await fs.rm(tempDir, { recursive: true, force: true });
@@ -612,6 +627,9 @@ describe('CLI external enrichment option', () => {
     expect(scanHelp.stdout).toContain('--no-iac');
     expect(auditHelp.stdout).toContain('--no-iac');
     expect(attestHelp.stdout).toContain('--no-iac');
+    expect(scanHelp.stdout).toContain('--no-data-flow-lite');
+    expect(auditHelp.stdout).toContain('--no-data-flow-lite');
+    expect(attestHelp.stdout).toContain('--no-data-flow-lite');
     expect(scanHelp.stdout).toContain('--include-gitleaks');
     expect(auditHelp.stdout).toContain('--include-gitleaks');
     expect(attestHelp.stdout).toContain('--include-gitleaks');
@@ -633,6 +651,9 @@ describe('CLI external enrichment option', () => {
           enabled: true,
         },
         iac: {
+          enabled: true,
+        },
+        dataFlowLite: {
           enabled: true,
         },
         gitleaks: {
@@ -658,6 +679,9 @@ describe('CLI external enrichment option', () => {
         enabled: true,
       },
       iac: {
+        enabled: true,
+      },
+      dataFlowLite: {
         enabled: true,
       },
       gitleaks: {
@@ -688,6 +712,9 @@ describe('CLI external enrichment option', () => {
       iac: {
         enabled: true,
       },
+      dataFlowLite: {
+        enabled: true,
+      },
       gitleaks: {
         enabled: false,
         path: 'gitleaks',
@@ -713,6 +740,9 @@ describe('CLI external enrichment option', () => {
         enabled: true,
       },
       iac: {
+        enabled: true,
+      },
+      dataFlowLite: {
         enabled: true,
       },
       gitleaks: {
@@ -749,6 +779,21 @@ describe('CLI external enrichment option', () => {
 
       const disabled = await runCli(['scan', projectDir, '--no-guardvibe', '--no-mcp-scan', '--no-supply-chain', '--no-behavioral', '--no-iac']);
       expect(`${disabled.stdout}\n${disabled.stderr}`).not.toContain('VS-IAC-007');
+      expect(disabled.code).toBe(0);
+    } finally {
+      await fs.rm(projectDir, { recursive: true, force: true });
+    }
+  });
+
+  it('disables Data Flow Lite findings from CLI scans when requested', async () => {
+    const projectDir = await createCliDataFlowProject();
+
+    try {
+      const enabled = await runCli(['scan', projectDir, '--no-guardvibe', '--no-mcp-scan', '--no-supply-chain', '--no-behavioral', '--no-iac']);
+      expect(`${enabled.stdout}\n${enabled.stderr}`).toContain('Found 1 finding');
+
+      const disabled = await runCli(['scan', projectDir, '--no-guardvibe', '--no-mcp-scan', '--no-supply-chain', '--no-behavioral', '--no-iac', '--no-data-flow-lite']);
+      expect(`${disabled.stdout}\n${disabled.stderr}`).toContain('No compliance findings detected');
       expect(disabled.code).toBe(0);
     } finally {
       await fs.rm(projectDir, { recursive: true, force: true });

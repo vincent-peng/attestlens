@@ -168,7 +168,7 @@ describe('SARIF formatter', () => {
         jurisdiction: 'au-privacy-act',
         packValidationStatus: 'internal_validated',
         reasons: ['Weakly validated pack should warn instead of block.'],
-        evidenceRefs: ['finding-1'],
+        evidenceRefs: ['ev-chain:finding:finding-1'],
         remediations: [],
       },
     });
@@ -187,7 +187,7 @@ describe('SARIF formatter', () => {
         jurisdiction: 'au-privacy-act',
         packValidationStatus: 'internal_validated',
         reasons: ['Contextual issue needs review.'],
-        evidenceRefs: ['finding-1'],
+        evidenceRefs: ['ev-chain:finding:finding-1'],
         remediations: [],
       },
     });
@@ -219,7 +219,7 @@ describe('SARIF formatter', () => {
         jurisdiction: 'au-privacy-act',
         packValidationStatus: 'external_reviewed',
         reasons: ['Blocking issue prevents deploy.'],
-        evidenceRefs: ['blocking-finding'],
+        evidenceRefs: ['ev-chain:finding:blocking-finding'],
         remediations: [],
       },
     });
@@ -263,7 +263,7 @@ describe('SARIF formatter', () => {
         jurisdiction: 'au-privacy-act',
         packValidationStatus: 'internal_validated',
         reasons: ['Outside selected pack coverage.'],
-        evidenceRefs: ['finding-1'],
+        evidenceRefs: ['ev-chain:finding:finding-1'],
         remediations: [],
       },
     });

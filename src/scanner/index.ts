@@ -3,6 +3,7 @@ export { McpScanAdapter } from './mcp-scan.js';
 export { BehavioralAdapter } from './behavioral.js';
 export { GitleaksAdapter } from './gitleaks.js';
 export { IacAdapter } from './iac.js';
+export { DataFlowLiteAdapter } from './data-flow-lite.js';
 export { ScannerOrchestrator } from './orchestrator.js';
 export {
   buildEmbeddedRulePack,
@@ -16,4 +17,5 @@ export type { ScannerAdapter, ScannerResult, ScannerError, GuardVibeFinding, Gua
 export type { BehavioralAdapterOptions } from './behavioral.js';
 export type { GitleaksAdapterOptions } from './gitleaks.js';
 export type { IacAdapterOptions } from './iac.js';
+export type { DataFlowLiteAdapterOptions } from './data-flow-lite.js';
 export type { LoadedRulePack, RulePackLoadOptions, RulePackUpdateOptions } from './rules/index.js';

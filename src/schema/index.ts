@@ -51,6 +51,7 @@ export const ScanSource = z.enum([
   'behavioral',
   'gitleaks',
   'iac',
+  'data-flow-lite',
   'url-scan',
   'manual',
   'questionnaire',
@@ -387,6 +388,7 @@ export const APPControl = z.object({
     info: z.number(),
   }),
   findings: z.array(z.string()), // Finding IDs
+  evidenceRefs: z.array(z.string()).optional(), // EvidenceChain IDs
   questionnaireRequired: z.boolean(),
   lastAssessed: z.string().datetime(),
 });
@@ -407,6 +409,7 @@ export const RegulationControl = z.object({
     info: z.number().int().nonnegative(),
   }),
   findings: z.array(z.string()),
+  evidenceRefs: z.array(z.string()).optional(), // EvidenceChain IDs
   questionnaireRequired: z.boolean(),
   lastAssessed: z.string(),
   citation: z.string().optional(),
@@ -504,6 +507,34 @@ export type ScopeQualifiedVerdict = z.infer<typeof ScopeQualifiedVerdict>;
 export const OpinionConfidence = z.enum(['HIGH', 'MODERATE', 'LOW']);
 export type OpinionConfidence = z.infer<typeof OpinionConfidence>;
 
+export const EvidenceNode = z.object({
+  id: z.string(),
+  type: z.enum([
+    'finding',
+    'questionnaire',
+    'source_file',
+    'url',
+    'dependency',
+    'manual_attestation',
+    'pack_rule',
+  ]),
+  title: z.string(),
+  location: z.string().optional(),
+  hash: z.string().optional(),
+  metadata: z.record(z.unknown()).default({}),
+});
+export type EvidenceNode = z.infer<typeof EvidenceNode>;
+
+export const EvidenceChain = z.object({
+  id: z.string(),
+  claim: z.string(),
+  nodes: z.array(EvidenceNode),
+  controls: z.array(RegulationPrinciple),
+  jurisdiction: Jurisdiction,
+  confidence: OpinionConfidence,
+});
+export type EvidenceChain = z.infer<typeof EvidenceChain>;
+
 export const PrincipleOpinion = z.object({
   principle: RegulationPrinciple,
   verdict: ComplianceVerdict,
@@ -513,6 +544,7 @@ export const PrincipleOpinion = z.object({
   evidenceCount: z.number().int().nonnegative(),
   corroboratedCount: z.number().int().nonnegative(),
   keyFindings: z.array(z.string()),
+  evidenceRefs: z.array(z.string()).optional(), // EvidenceChain IDs
 });
 export type PrincipleOpinion = z.infer<typeof PrincipleOpinion>;
 
@@ -526,6 +558,7 @@ export const ComplianceOpinion = z.object({
   principles: z.array(PrincipleOpinion),
   riskLevel: z.enum(['low', 'medium', 'high', 'critical']),
   score: z.number().min(0).max(100),
+  evidenceRefs: z.array(z.string()).optional(), // EvidenceChain IDs
   disclaimer: z.string(),
 });
 export type ComplianceOpinion = z.infer<typeof ComplianceOpinion>;
@@ -823,6 +856,7 @@ export const ComplianceReport = z.object({
   consultantNarrative: ConsultantNarrative.optional(),
   complianceOpinion: ComplianceOpinion.optional(),
   deployDecision: DeployDecision.optional(),
+  evidenceChains: z.array(EvidenceChain).optional(),
   reformImpactAssessment: reformImpactAssessmentSchema.optional(),
   remediation: z.array(RemediationItem),
   metadata: z.object({

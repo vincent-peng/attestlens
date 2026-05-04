@@ -24,6 +24,9 @@ import type {
   ControlStatus,
   DiffContext,
   DeployDecision,
+  EvidenceChain,
+  EvidenceNode,
+  OpinionConfidence,
   Severity,
   QuestionnaireSession,
   RuleFreshness,
@@ -198,16 +201,24 @@ export function buildComplianceReport(
     disclaimer,
   };
 
+  report.evidenceChains = buildEvidenceChains(report, {
+    jurisdiction,
+    questionnaireSession,
+  });
+  attachEvidenceRefsToControls(report);
+
   // Attach compliance opinion if requested
   if (options.includeOpinion) {
     report.complianceOpinion = buildComplianceOpinion(report, { strictMode: options.strictMode });
     applyPackTrustToOpinion(report, packMetadata.validationTrusted);
+    attachEvidenceRefsToOpinion(report);
   }
 
   if (options.includeOpinion || options.includeDeployDecision) {
     report.deployDecision = buildDeployDecision(report, {
       packValidationTrusted: packMetadata.validationTrusted,
     });
+    attachEvidenceRefsToDeployDecision(report);
   }
 
   if (options.formats.includes('smb') || options.includeSMB) {
@@ -328,20 +339,6 @@ export function buildDeployDecision(
   ));
 
   if (inScope.length === 0) {
-    if (outOfScope.length > 0) {
-      return {
-        verdict: 'OUT_OF_SCOPE',
-        blocking: false,
-        confidence: 0.5,
-        jurisdiction,
-        packValidationStatus,
-        reasons: ['Finding(s) map to obligations outside the selected jurisdiction pack coverage.'],
-        evidenceRefs: buildEvidenceRefs(outOfScope),
-        remediations: buildDeployRemediations(outOfScope.map(({ finding }) => finding)),
-        scopeNote: coverageTrusted ? coverage?.summary : undefined,
-      };
-    }
-
     if (unmapped.length > 0) {
       return {
         verdict: 'NEEDS_REVIEW',
@@ -354,6 +351,20 @@ export function buildDeployDecision(
         ]),
         evidenceRefs: buildEvidenceRefs(unmapped),
         remediations: buildDeployRemediations(unmapped.map(({ finding }) => finding)),
+        scopeNote: coverageTrusted ? coverage?.summary : undefined,
+      };
+    }
+
+    if (outOfScope.length > 0) {
+      return {
+        verdict: 'OUT_OF_SCOPE',
+        blocking: false,
+        confidence: 0.5,
+        jurisdiction,
+        packValidationStatus,
+        reasons: ['Finding(s) map to obligations outside the selected jurisdiction pack coverage.'],
+        evidenceRefs: buildEvidenceRefs(outOfScope),
+        remediations: buildDeployRemediations(outOfScope.map(({ finding }) => finding)),
         scopeNote: coverageTrusted ? coverage?.summary : undefined,
       };
     }
@@ -517,6 +528,413 @@ function buildDeployRemediations(findings: AttestLensFinding[]): string[] {
     .slice(0, 5);
 }
 
+function buildEvidenceChains(
+  report: ComplianceReport,
+  options: {
+    jurisdiction: Jurisdiction;
+    questionnaireSession?: QuestionnaireSession;
+  },
+): EvidenceChain[] {
+  const chains: EvidenceChain[] = [
+    buildPackEvidenceChain(report, options.jurisdiction),
+  ];
+
+  for (const finding of report.findings) {
+    chains.push(buildFindingEvidenceChain(finding, options.jurisdiction));
+  }
+
+  if (report.questionnaire) {
+    for (const response of report.questionnaire) {
+      chains.push(buildQuestionnaireEvidenceChain(response, options));
+    }
+  }
+
+  return chains;
+}
+
+function buildPackEvidenceChain(report: ComplianceReport, jurisdiction: Jurisdiction): EvidenceChain {
+  const coverage = report.metadata.packCoverage;
+  const validation = report.metadata.packValidation;
+  const controls = coverage?.includedPrinciples ?? getReportControls(report).map((control) => control.principle);
+
+  return {
+    id: getPackEvidenceChainId(jurisdiction),
+    claim: `Selected ${jurisdiction} jurisdiction pack defines the in-scope deploy gate coverage.`,
+    nodes: [{
+      id: `ev-node:pack:${jurisdiction}`,
+      type: 'pack_rule',
+      title: `${jurisdiction} pack coverage`,
+      hash: stableEvidenceHash({
+        jurisdiction,
+        coverageSummary: coverage?.summary,
+        validationStatus: validation?.status,
+        includedPrinciples: coverage?.includedPrinciples,
+        excludedPrinciples: coverage?.excludedPrinciples,
+      }),
+      metadata: {
+        jurisdiction,
+        validationStatus: validation?.status,
+        includedPrincipleCount: coverage?.includedPrinciples.length ?? controls.length,
+        excludedPrincipleCount: coverage?.excludedPrinciples.length ?? 0,
+        knownGapCount: coverage?.knownGaps.length ?? 0,
+        evidenceTypes: coverage?.evidenceTypes ?? [],
+      },
+    }],
+    controls,
+    jurisdiction,
+    confidence: getPackEvidenceConfidence(validation?.status),
+  };
+}
+
+function buildFindingEvidenceChain(finding: AttestLensFinding, fallbackJurisdiction: Jurisdiction): EvidenceChain {
+  const jurisdiction = finding.regulationMappings[0]?.jurisdiction ?? fallbackJurisdiction;
+  const controls = uniqueStrings(finding.regulationMappings.map((mapping) => mapping.principle));
+  const nodes: EvidenceNode[] = [
+    {
+      id: `ev-node:finding:${finding.id}`,
+      type: 'finding',
+      title: redactEvidenceText(finding.title),
+      location: getFindingLocation(finding),
+      hash: stableEvidenceHash({
+        id: finding.id,
+        source: finding.source,
+        sourceRule: finding.sourceRule,
+        severity: finding.severity,
+        title: redactEvidenceText(finding.title),
+        location: getFindingLocation(finding),
+      }),
+      metadata: {
+        findingId: finding.id,
+        source: finding.source,
+        sourceRule: finding.sourceRule,
+        severity: finding.severity,
+        category: finding.category,
+        introducedInDiff: finding.introducedInDiff === true,
+        mappingStatuses: finding.regulationMappings.map((mapping) => mapping.status),
+        codeExcerpt: finding.code ? redactEvidenceText(finding.code).slice(0, 160) : undefined,
+      },
+    },
+    {
+      id: `ev-node:pack-rule:${finding.sourceRule}`,
+      type: 'pack_rule',
+      title: `Rule ${finding.sourceRule}`,
+      hash: stableEvidenceHash({
+        sourceRule: finding.sourceRule,
+        title: finding.title,
+        controls,
+      }),
+      metadata: {
+        sourceRule: finding.sourceRule,
+        source: finding.source,
+      },
+    },
+  ];
+
+  if (finding.file) {
+    nodes.push({
+      id: `ev-node:source-file:${stableEvidenceHash({ file: finding.file }).slice(0, 16)}`,
+      type: 'source_file',
+      title: 'Source file',
+      location: finding.line ? `${finding.file}:${finding.line}` : finding.file,
+      hash: stableEvidenceHash({ file: finding.file, line: finding.line }),
+      metadata: {
+        file: finding.file,
+        line: finding.line,
+      },
+    });
+  }
+
+  if (finding.url) {
+    const safeUrl = sanitizeTargetUrlForOutput(finding.url);
+    nodes.push({
+      id: `ev-node:url:${stableEvidenceHash({ url: safeUrl }).slice(0, 16)}`,
+      type: 'url',
+      title: 'Scanned URL',
+      location: safeUrl,
+      hash: stableEvidenceHash({ url: safeUrl }),
+      metadata: {
+        url: safeUrl,
+      },
+    });
+  }
+
+  const dependencyName = getFindingDependencyName(finding);
+  if (dependencyName) {
+    nodes.push({
+      id: `ev-node:dependency:${stableEvidenceHash({ dependencyName }).slice(0, 16)}`,
+      type: 'dependency',
+      title: dependencyName,
+      hash: stableEvidenceHash({ dependencyName, sourceRule: finding.sourceRule }),
+      metadata: {
+        packageName: dependencyName,
+      },
+    });
+  }
+
+  return {
+    id: getFindingEvidenceChainId(finding.id),
+    claim: redactEvidenceText(finding.description || finding.title),
+    nodes,
+    controls,
+    jurisdiction,
+    confidence: getEvidenceConfidenceFromMappings(finding.regulationMappings),
+  };
+}
+
+function buildQuestionnaireEvidenceChain(
+  response: NonNullable<ComplianceReport['questionnaire']>[number],
+  options: {
+    jurisdiction: Jurisdiction;
+    questionnaireSession?: QuestionnaireSession;
+  },
+): EvidenceChain {
+  const question = resolveQuestionForEvidence(response.questionId, options.questionnaireSession);
+  const principle = question?.regulationPrinciple ?? question?.appPrinciple;
+  const controls = principle ? [principle] : [];
+  const nodes: EvidenceNode[] = [{
+    id: `ev-node:questionnaire:${response.questionId}`,
+    type: 'questionnaire',
+    title: question?.question ?? `Questionnaire response ${response.questionId}`,
+    hash: stableEvidenceHash({
+      questionId: response.questionId,
+      timestamp: response.timestamp,
+      evaluationStatus: response.evaluation?.status,
+      evaluationConfidence: response.evaluation?.confidence,
+      evidenceRefs: (response.evidenceRefs ?? []).map(sanitizeEvidenceReference),
+    }),
+    metadata: {
+      questionId: response.questionId,
+      answerType: Array.isArray(response.answer) ? 'array' : typeof response.answer,
+      answerCount: Array.isArray(response.answer) ? response.answer.length : 1,
+      hasNote: Boolean(response.note),
+      evidenceRefCount: response.evidenceRefs?.length ?? 0,
+      evaluationStatus: response.evaluation?.status,
+      evaluationConfidence: response.evaluation?.confidence,
+    },
+  }];
+
+  for (const evidenceRef of response.evidenceRefs ?? []) {
+    const sanitizedRef = sanitizeEvidenceReference(evidenceRef);
+    nodes.push({
+      id: `ev-node:manual-attestation:${stableEvidenceHash({ response: response.questionId, evidenceRef: sanitizedRef }).slice(0, 16)}`,
+      type: 'manual_attestation',
+      title: 'Manual attestation evidence reference',
+      location: sanitizedRef,
+      hash: stableEvidenceHash({ response: response.questionId, evidenceRef: sanitizedRef }),
+      metadata: {
+        questionId: response.questionId,
+      },
+    });
+  }
+
+  return {
+    id: getQuestionnaireEvidenceChainId(response.questionId),
+    claim: response.evaluation?.rationale ?? `Questionnaire response captured for ${response.questionId}.`,
+    nodes,
+    controls,
+    jurisdiction: question?.jurisdiction ?? options.jurisdiction,
+    confidence: response.evaluation
+      ? numberToOpinionConfidence(response.evaluation.confidence)
+      : 'LOW',
+  };
+}
+
+function attachEvidenceRefsToControls(report: ComplianceReport): void {
+  const questionnaireRefsByPrinciple = buildQuestionnaireEvidenceRefsByPrinciple(report);
+  const packChainId = getPackEvidenceChainId(getReportJurisdiction(report));
+
+  for (const control of report.regulationControls ?? []) {
+    const refs = uniqueStrings([
+      ...control.findings.map(getFindingEvidenceChainId),
+      ...(questionnaireRefsByPrinciple.get(control.principle) ?? []),
+    ]);
+    control.evidenceRefs = refs.length > 0 || !isControlCoveredByPack(report, control.principle)
+      ? refs
+      : [packChainId];
+  }
+
+  for (const control of report.appControls) {
+    const refs = uniqueStrings([
+      ...control.findings.map(getFindingEvidenceChainId),
+      ...(questionnaireRefsByPrinciple.get(control.principle) ?? []),
+    ]);
+    control.evidenceRefs = refs.length > 0 || !isControlCoveredByPack(report, control.principle)
+      ? refs
+      : [packChainId];
+  }
+}
+
+function isControlCoveredByPack(report: ComplianceReport, principle: RegulationControl['principle']): boolean {
+  const coverage = report.metadata.packCoverage;
+  if (!coverage) {
+    return true;
+  }
+  if (coverage.excludedPrinciples.includes(principle)) {
+    return false;
+  }
+  return coverage.includedPrinciples.length === 0 || coverage.includedPrinciples.includes(principle);
+}
+
+function attachEvidenceRefsToOpinion(report: ComplianceReport): void {
+  if (!report.complianceOpinion) {
+    return;
+  }
+  const controlRefs = new Map<string, string[]>(
+    getReportControls(report).map((control) => [control.principle, control.evidenceRefs ?? []]),
+  );
+
+  for (const principleOpinion of report.complianceOpinion.principles) {
+    principleOpinion.evidenceRefs = uniqueStrings(controlRefs.get(principleOpinion.principle) ?? []);
+  }
+
+  report.complianceOpinion.evidenceRefs = uniqueStrings(
+    report.complianceOpinion.principles.flatMap((principle) => principle.evidenceRefs ?? []),
+  );
+  if (report.complianceOpinion.evidenceRefs.length === 0) {
+    report.complianceOpinion.evidenceRefs = [getPackEvidenceChainId(getReportJurisdiction(report))];
+  }
+}
+
+function attachEvidenceRefsToDeployDecision(report: ComplianceReport): void {
+  if (!report.deployDecision) {
+    return;
+  }
+  const mappedRefs = report.deployDecision.evidenceRefs
+    .map((ref) => getEvidenceChainIdForRef(report, ref))
+    .filter((ref): ref is string => Boolean(ref));
+
+  report.deployDecision.evidenceRefs = uniqueStrings(mappedRefs.length > 0
+    ? mappedRefs
+    : [getPackEvidenceChainId(report.deployDecision.jurisdiction)]);
+}
+
+function buildQuestionnaireEvidenceRefsByPrinciple(report: ComplianceReport): Map<string, string[]> {
+  const refsByPrinciple = new Map<string, string[]>();
+  if (!report.questionnaire || !report.questionnaireResults) {
+    return refsByPrinciple;
+  }
+
+  for (const result of report.questionnaireResults) {
+    refsByPrinciple.set(
+      result.principle,
+      result.answeredQuestionIds.map(getQuestionnaireEvidenceChainId),
+    );
+  }
+
+  return refsByPrinciple;
+}
+
+function getEvidenceChainIdForRef(report: ComplianceReport, ref: string): string | undefined {
+  if (report.evidenceChains?.some((chain) => chain.id === ref)) {
+    return ref;
+  }
+  if (report.findings.some((finding) => finding.id === ref)) {
+    return getFindingEvidenceChainId(ref);
+  }
+  if (report.questionnaire?.some((response) => response.questionId === ref)) {
+    return getQuestionnaireEvidenceChainId(ref);
+  }
+  return undefined;
+}
+
+function getFindingEvidenceChainId(findingId: string): string {
+  return `ev-chain:finding:${findingId}`;
+}
+
+function getQuestionnaireEvidenceChainId(questionId: string): string {
+  return `ev-chain:questionnaire:${questionId}`;
+}
+
+function getPackEvidenceChainId(jurisdiction: Jurisdiction): string {
+  return `ev-chain:pack:${jurisdiction}`;
+}
+
+function getFindingLocation(finding: AttestLensFinding): string | undefined {
+  if (finding.file) {
+    return finding.line ? `${finding.file}:${finding.line}` : finding.file;
+  }
+  return finding.url ? sanitizeTargetUrlForOutput(finding.url) : undefined;
+}
+
+function getFindingDependencyName(finding: AttestLensFinding): string | undefined {
+  const rawOutput = finding.evidence.rawOutput as Record<string, unknown> | undefined;
+  return typeof rawOutput?.packageName === 'string' ? rawOutput.packageName : undefined;
+}
+
+function getEvidenceConfidenceFromMappings(mappings: RegulationMapping[]): OpinionConfidence {
+  if (mappings.length === 0) {
+    return 'LOW';
+  }
+  return numberToOpinionConfidence(Math.max(...mappings.map((mapping) => mapping.confidence)));
+}
+
+function numberToOpinionConfidence(confidence: number): OpinionConfidence {
+  if (confidence >= 0.85) {
+    return 'HIGH';
+  }
+  if (confidence >= 0.6) {
+    return 'MODERATE';
+  }
+  return 'LOW';
+}
+
+function getPackEvidenceConfidence(status: PackValidationStatus | undefined): OpinionConfidence {
+  if (status === 'external_reviewed' || status === 'customer_validated' || status === 'legal_partner_validated') {
+    return 'HIGH';
+  }
+  if (status === 'internal_validated') {
+    return 'MODERATE';
+  }
+  return 'LOW';
+}
+
+function stableEvidenceHash(value: unknown): string {
+  return crypto
+    .createHash('sha256')
+    .update(JSON.stringify(value))
+    .digest('hex')
+    .slice(0, 32);
+}
+
+function redactEvidenceText(value: string): string {
+  return value
+    .replace(/[A-Za-z0-9_+/=.-]{20,}/g, '[REDACTED]')
+    .replace(/(['"])[^'"]{8,}\1/g, '$1[REDACTED]$1');
+}
+
+function sanitizeEvidenceReference(value: string): string {
+  try {
+    const parsed = new URL(value);
+    return sanitizeEvidenceUrl(parsed);
+  } catch {
+    // Continue with path/text sanitization.
+  }
+
+  if (/[\\/]/.test(value)) {
+    return redactEvidenceText(sanitizeTargetPathForOutput(value) ?? '[REDACTED]');
+  }
+
+  return redactEvidenceText(value.split('#', 1)[0]?.split('?', 1)[0] || value);
+}
+
+function sanitizeEvidenceUrl(parsed: URL): string {
+  const sanitized = sanitizeTargetUrlForOutput(parsed.toString());
+  if (!sanitized) {
+    return parsed.origin;
+  }
+
+  try {
+    const safeUrl = new URL(sanitized);
+    safeUrl.pathname = safeUrl.pathname
+      .split('/')
+      .map((segment) => (segment.length > 32 ? '[REDACTED]' : redactEvidenceText(segment)))
+      .join('/');
+    return safeUrl.toString();
+  } catch {
+    return sanitized;
+  }
+}
+
 function uniqueStrings(values: string[]): string[] {
   return [...new Set(values)];
 }
@@ -629,6 +1047,7 @@ function regulationControlToAPPControl(
     score: control.score,
     findingCount: control.findingCount,
     findings: control.findings,
+    evidenceRefs: control.evidenceRefs,
     questionnaireRequired: control.questionnaireRequired,
     lastAssessed: control.lastAssessed,
   };
@@ -645,6 +1064,7 @@ function appControlToRegulationControl(control: APPControl): RegulationControl {
     score: control.score,
     findingCount: control.findingCount,
     findings: control.findings,
+    evidenceRefs: control.evidenceRefs,
     questionnaireRequired: control.questionnaireRequired,
     lastAssessed: control.lastAssessed,
   };
@@ -2051,6 +2471,12 @@ export function generateAgentReport(
   const result = {
     schema: 'attestlens-agent-v1',
     deployDecision: report.deployDecision,
+    deployDecisionReasons: report.deployDecision
+      ? report.deployDecision.reasons.map((reason) => ({
+        reason,
+        evidenceRefs: report.deployDecision?.evidenceRefs ?? [],
+      }))
+      : undefined,
     verdict: opinion?.overallVerdict ?? 'UNKNOWN',
     scopedVerdict: opinion?.scopedVerdict,
     scopeReason: opinion?.scopeReason,
@@ -2087,8 +2513,10 @@ export function generateAgentReport(
       title: finding.title,
       file: finding.file,
       introducedInDiff: finding.introducedInDiff === true,
+      evidenceRefs: [getFindingEvidenceChainId(finding.id)],
       fix: finding.fix,
     })),
+    evidenceChains: compactEvidenceChains(report),
     actions,
     summary: report.deployDecision
       ? `${report.deployDecision.verdict} - ${report.deployDecision.reasons[0] ?? 'No deploy decision reason available'}`
@@ -2098,6 +2526,49 @@ export function generateAgentReport(
   };
 
   return JSON.stringify(result, null, 2);
+}
+
+function compactEvidenceChains(report: ComplianceReport): Array<{
+  id: string;
+  claim: string;
+  controls: string[];
+  jurisdiction: Jurisdiction;
+  confidence: OpinionConfidence;
+  nodes: Array<{
+    id: string;
+    type: EvidenceNode['type'];
+    title: string;
+    location?: string;
+  }>;
+}> {
+  const chains = report.evidenceChains ?? [];
+  const chainById = new Map(chains.map((chain) => [chain.id, chain]));
+  const prioritizedIds = uniqueStrings([
+    ...(report.deployDecision?.evidenceRefs ?? []),
+    ...(report.complianceOpinion?.evidenceRefs ?? []),
+    ...(report.complianceOpinion?.principles.flatMap((principle) => principle.evidenceRefs ?? []) ?? []),
+    ...report.findings.map((finding) => getFindingEvidenceChainId(finding.id)),
+  ]);
+  const prioritizedChains = prioritizedIds
+    .map((id) => chainById.get(id))
+    .filter((chain): chain is EvidenceChain => Boolean(chain));
+  const remainingChains = chains.filter((chain) => !prioritizedIds.includes(chain.id));
+
+  return [...prioritizedChains, ...remainingChains]
+    .slice(0, 20)
+    .map((chain) => ({
+      id: chain.id,
+      claim: chain.claim,
+      controls: chain.controls,
+      jurisdiction: chain.jurisdiction,
+      confidence: chain.confidence,
+      nodes: chain.nodes.slice(0, 5).map((node) => ({
+        id: node.id,
+        type: node.type,
+        title: node.title,
+        location: node.location,
+      })),
+    }));
 }
 
 function sortFindingsForAgent(findings: AttestLensFinding[]): AttestLensFinding[] {

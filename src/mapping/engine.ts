@@ -1224,6 +1224,115 @@ export const GDPR_MAPPING_RULES: MappingRule[] = [
   },
 ];
 
+export const DATA_FLOW_LITE_MAPPING_RULES: MappingRule[] = [
+  {
+    id: 'MAP-DF-AU-001',
+    name: 'Data Flow Lite personal-data sink → APP 11.1',
+    sourcePatterns: {
+      ruleId: /^DATAFLOW-PII-(LOG|ANALYTICS|EXTERNAL|LLM)$/,
+      category: /^Data Flow Lite$/i,
+      severity: ['critical', 'high', 'medium'],
+    },
+    matchMode: 'and',
+    jurisdiction: 'au-privacy-act',
+    regulationPrinciple: 'APP_11',
+    status: 'fail',
+    confidence: 0.82,
+    rationale: 'A deterministic same-file personal-data flow into logs, analytics, external requests, or LLM prompts indicates a security-of-personal-information control gap requiring review before deployment.',
+    citation: 'APP Guidelines Chapter 11.6',
+  },
+  {
+    id: 'MAP-DF-AU-002',
+    name: 'Data Flow Lite disclosure sink → APP 6',
+    sourcePatterns: {
+      ruleId: /^DATAFLOW-PII-(ANALYTICS|EXTERNAL|LLM)$/,
+      category: /^Data Flow Lite$/i,
+    },
+    matchMode: 'and',
+    jurisdiction: 'au-privacy-act',
+    regulationPrinciple: 'APP_6',
+    status: 'unknown',
+    confidence: 0.64,
+    rationale: 'Personal data sent to an analytics, external, or LLM destination may be a use or disclosure outside the primary purpose; the scanner cannot determine purpose, notice, or consent context.',
+    citation: 'APP Guidelines Chapter 6',
+  },
+  {
+    id: 'MAP-DF-AU-003',
+    name: 'Data Flow Lite external destination → APP 8',
+    sourcePatterns: {
+      ruleId: /^DATAFLOW-PII-(EXTERNAL|LLM)$/,
+      category: /^Data Flow Lite$/i,
+    },
+    matchMode: 'and',
+    jurisdiction: 'au-privacy-act',
+    regulationPrinciple: 'APP_8',
+    status: 'unknown',
+    confidence: 0.58,
+    rationale: 'External or LLM destinations can create overseas disclosure questions, but code alone does not identify hosting region, recipient controls, or APP 8 exceptions.',
+    citation: 'APP Guidelines Chapter 8',
+  },
+  {
+    id: 'MAP-DF-AU-004',
+    name: 'Data Flow Lite exposure pathway → NDB',
+    sourcePatterns: {
+      ruleId: /^DATAFLOW-PII-(LOG|ANALYTICS|EXTERNAL|LLM)$/,
+      category: /^Data Flow Lite$/i,
+    },
+    matchMode: 'and',
+    jurisdiction: 'au-privacy-act',
+    regulationPrinciple: 'NDB',
+    status: 'unknown',
+    confidence: 0.55,
+    rationale: 'A personal-data exposure pathway may require breach-readiness review if exploited or released, but eligible data breach notification depends on actual access, harm, and remediation facts.',
+    citation: 'Privacy Act 1988 (Cth), Part IIIC',
+  },
+  {
+    id: 'MAP-DF-CCPA-001',
+    name: 'Data Flow Lite personal information sink → CCPA_100',
+    sourcePatterns: {
+      ruleId: /^DATAFLOW-PII-(LOG|ANALYTICS|EXTERNAL|LLM)$/,
+      category: /^Data Flow Lite$/i,
+    },
+    matchMode: 'and',
+    jurisdiction: 'us-ccpa',
+    regulationPrinciple: 'CCPA_100',
+    status: 'unknown',
+    confidence: 0.62,
+    rationale: 'A same-file flow of personal information to logs, analytics, external requests, or LLM prompts requires review against notice, purpose, retention, and disclosure limits; code alone cannot prove CCPA/CPRA compliance.',
+    citation: 'Cal. Civ. Code §1798.100',
+  },
+  {
+    id: 'MAP-DF-GDPR-001',
+    name: 'Data Flow Lite personal data sink → GDPR_Art32',
+    sourcePatterns: {
+      ruleId: /^DATAFLOW-PII-(LOG|ANALYTICS|EXTERNAL|LLM)$/,
+      category: /^Data Flow Lite$/i,
+    },
+    matchMode: 'and',
+    jurisdiction: 'eu-gdpr',
+    regulationPrinciple: 'GDPR_Art32',
+    status: 'fail',
+    confidence: 0.80,
+    rationale: 'A deterministic same-file personal-data flow into logs, analytics, external requests, or LLM prompts indicates a security-of-processing control gap requiring review before deployment.',
+    citation: 'GDPR Art. 32(1)',
+  },
+  {
+    id: 'MAP-DF-GDPR-002',
+    name: 'Data Flow Lite external personal data destination → GDPR_Art44',
+    sourcePatterns: {
+      ruleId: /^DATAFLOW-PII-(EXTERNAL|LLM)$/,
+      category: /^Data Flow Lite$/i,
+    },
+    matchMode: 'and',
+    jurisdiction: 'eu-gdpr',
+    regulationPrinciple: 'GDPR_Art44',
+    status: 'unknown',
+    confidence: 0.58,
+    rationale: 'External or LLM destinations may involve international transfers, but code alone cannot establish destination geography or transfer mechanism.',
+    citation: 'GDPR Art. 44',
+  },
+];
+
 // ─── All Rules ───────────────────────────────────────────────────────────────
 
 export const ALL_MAPPING_RULES: MappingRule[] = [
@@ -1235,6 +1344,7 @@ export const ALL_MAPPING_RULES: MappingRule[] = [
   ...NDB_RULES,
   ...CCPA_MAPPING_RULES,
   ...GDPR_MAPPING_RULES,
+  ...DATA_FLOW_LITE_MAPPING_RULES,
 ];
 
 // ─── Mapping Engine ──────────────────────────────────────────────────────────
@@ -1636,6 +1746,7 @@ export default {
   ALL_MAPPING_RULES,
   CCPA_MAPPING_RULES,
   GDPR_MAPPING_RULES,
+  DATA_FLOW_LITE_MAPPING_RULES,
   mapFindingToAPP,
   mapFindingToRegulation,
   mapAllFindings,

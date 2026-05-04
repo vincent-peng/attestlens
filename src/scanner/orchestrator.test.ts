@@ -30,12 +30,13 @@ describe('ScannerOrchestrator', { timeout: 20000 }, () => {
   it('should register guardvibe and mcp-scan adapters by default', () => {
     const orchestrator = new ScannerOrchestrator();
     const registry = orchestrator.getRegistry();
-    expect(registry.length).toBe(8);
+    expect(registry.length).toBe(9);
     expect(registry.some(r => r.adapter.name === 'guardvibe')).toBe(true);
     expect(registry.some(r => r.adapter.name === 'mcp-scan')).toBe(true);
     expect(registry.some(r => r.adapter.name === 'supply-chain')).toBe(true);
     expect(registry.some(r => r.adapter.name === 'behavioral')).toBe(true);
     expect(registry.some(r => r.adapter.name === 'iac')).toBe(true);
+    expect(registry.some(r => r.adapter.name === 'data-flow-lite')).toBe(true);
     expect(registry.some(r => r.adapter.name === 'url-scan')).toBe(true);
     expect(registry.some(r => r.adapter.name === 'reform-2026')).toBe(true);
     expect(registry.find(r => r.adapter.name === 'gitleaks')?.enabled).toBe(false);

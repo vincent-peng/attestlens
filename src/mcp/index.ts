@@ -163,6 +163,7 @@ const pathScanOptionsInputSchema = {
   includeTyposquat: z.boolean().describe('Enable experimental typosquatting detection (VS-SC-004)').default(false),
   behavioral: z.boolean().describe('Enable behavioral supply-chain analysis').default(true),
   iac: z.boolean().describe('Enable infrastructure-as-code misconfiguration scanning').default(true),
+  dataFlowLite: z.boolean().describe('Enable Data Flow Lite source-to-sink privacy scanning').default(true),
   includeGitleaks: z.boolean().describe('Enable opt-in git history secret scanning via gitleaks').default(false),
   scannerTimeoutMs: scannerTimeoutMsInputSchema,
   diffBase: z.string().describe('Git base ref for PR diff mode').optional(),
@@ -579,6 +580,7 @@ function createOrchestrator(
     includeTyposquat?: boolean;
     behavioral?: boolean;
     iac?: boolean;
+    dataFlowLite?: boolean;
     includeGitleaks?: boolean;
     scannerTimeoutMs?: number;
     reform?: boolean;
@@ -600,6 +602,9 @@ function createOrchestrator(
     iac: {
       enabled: targetKind === 'path' && options.iac !== false,
     },
+    dataFlowLite: {
+      enabled: targetKind === 'path' && options.dataFlowLite !== false,
+    },
     gitleaks: {
       enabled: targetKind === 'path' && options.includeGitleaks === true,
       path: getServerConfiguredGitleaksPath(),
@@ -613,6 +618,7 @@ function createOrchestrator(
     orchestrator.disable('guardvibe');
     orchestrator.disable('mcp-scan');
     orchestrator.disable('supply-chain');
+    orchestrator.disable('data-flow-lite');
   }
   return orchestrator;
 }
@@ -846,11 +852,14 @@ async function resolveMcpDiffContext(
   }
 
   try {
+    const trustedChangedFiles = args?.changedFilesOnly === true
+      ? undefined
+      : changedFiles;
     return await buildDiffContext({
       cwd,
       baseRef: diffBase,
       headRef: diffHead,
-      changedFiles,
+      changedFiles: trustedChangedFiles,
       signal: options.signal,
       timeoutMs: options.timeoutMs,
     });
@@ -915,6 +924,7 @@ export async function handleToolCall(name: string, args: Record<string, unknown>
       const includeTyposquat = args?.includeTyposquat === true;
       const behavioral = args?.behavioral !== false;
       const iac = args?.iac !== false;
+      const dataFlowLite = args?.dataFlowLite !== false;
       const includeGitleaks = args?.includeGitleaks === true;
       const scannerTimeoutMs = parseScannerTimeoutMs(args?.scannerTimeoutMs);
       if (isToolError(scannerTimeoutMs)) {
@@ -936,7 +946,7 @@ export async function handleToolCall(name: string, args: Record<string, unknown>
         return diffContext;
       }
 
-      const orchestrator = createOrchestrator('path', { externalEnrichment, includeTyposquat, behavioral, iac, includeGitleaks, scannerTimeoutMs, jurisdiction });
+      const orchestrator = createOrchestrator('path', { externalEnrichment, includeTyposquat, behavioral, iac, dataFlowLite, includeGitleaks, scannerTimeoutMs, jurisdiction });
       const result = await runScan(orchestrator, scanPath, extra.signal, {
         diffContext,
         changedFilesOnly: args?.changedFilesOnly === true,
@@ -1001,6 +1011,7 @@ export async function handleToolCall(name: string, args: Record<string, unknown>
       const includeTyposquat = args?.includeTyposquat === true;
       const behavioral = args?.behavioral !== false;
       const iac = args?.iac !== false;
+      const dataFlowLite = args?.dataFlowLite !== false;
       const includeGitleaks = args?.includeGitleaks === true;
       const scannerTimeoutMs = parseScannerTimeoutMs(args?.scannerTimeoutMs);
       if (isToolError(scannerTimeoutMs)) {
@@ -1022,7 +1033,7 @@ export async function handleToolCall(name: string, args: Record<string, unknown>
         return diffContext;
       }
 
-      const orchestrator = createOrchestrator('path', { externalEnrichment, includeTyposquat, behavioral, iac, includeGitleaks, scannerTimeoutMs, jurisdiction });
+      const orchestrator = createOrchestrator('path', { externalEnrichment, includeTyposquat, behavioral, iac, dataFlowLite, includeGitleaks, scannerTimeoutMs, jurisdiction });
       const startTime = Date.now();
       const scanResult = await runScan(orchestrator, scanPath, extra.signal, {
         diffContext,
@@ -1303,6 +1314,7 @@ export async function handleToolCall(name: string, args: Record<string, unknown>
         includeTyposquat: false,
         behavioral: true,
         iac: true,
+        dataFlowLite: true,
         includeGitleaks: false,
         reform,
         jurisdiction,

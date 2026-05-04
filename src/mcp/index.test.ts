@@ -1,7 +1,9 @@
 import { symlinkSync } from 'node:fs';
+import { execFile } from 'node:child_process';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+import { promisify } from 'node:util';
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -16,6 +18,8 @@ import { GuardVibeAdapter } from '../scanner/guardvibe.js';
 import { McpScanAdapter } from '../scanner/mcp-scan.js';
 import { ScannerOrchestrator } from '../scanner/orchestrator.js';
 import { TOOL_DEFINITIONS, createServer, handleToolCall, validatePath, validateUrl } from '../mcp/index.js';
+
+const execFileAsync = promisify(execFile);
 
 function makeRuleFreshness() {
   return {
@@ -1096,6 +1100,40 @@ describe('MCP Server', () => {
       expect(scanSpy).not.toHaveBeenCalled();
     });
 
+    it('ignores caller-supplied changed files when changedFilesOnly has server refs', async () => {
+      await execFileAsync('git', ['init'], { cwd: tempDir });
+      await execFileAsync('git', ['config', 'user.email', 'test@example.com'], { cwd: tempDir });
+      await execFileAsync('git', ['config', 'user.name', 'Test User'], { cwd: tempDir });
+      await fs.writeFile(path.join(tempDir, 'README.md'), '# baseline\n');
+      await execFileAsync('git', ['add', '.'], { cwd: tempDir });
+      await execFileAsync('git', ['commit', '-m', 'baseline'], { cwd: tempDir });
+
+      await fs.writeFile(
+        path.join(tempDir, 'route.ts'),
+        [
+          'export async function POST(request: Request) {',
+          '  const body = await request.json();',
+          '  console.info("signup", body.email);',
+          '  return Response.json({ ok: true });',
+          '}',
+        ].join('\n'),
+      );
+      await execFileAsync('git', ['add', '.'], { cwd: tempDir });
+      await execFileAsync('git', ['commit', '-m', 'add route'], { cwd: tempDir });
+
+      const response = await handleToolCall('attestlens_scan', {
+        path: tempDir,
+        diffBase: 'HEAD~1',
+        diffHead: 'HEAD',
+        changedFiles: ['README.md'],
+        changedFilesOnly: true,
+      });
+      const payload = expectJsonStructuredPayload(response);
+
+      expect(payload.diffContext.changedFiles).toEqual(['route.ts']);
+      expect(payload.findings.some((finding: { sourceRule: string }) => finding.sourceRule === 'DATAFLOW-PII-LOG')).toBe(true);
+    });
+
     it('keeps MCP scan external enrichment disabled by default', async () => {
       await writeMcpPackageProject(tempDir, 'external-only');
       const fetchMock = vi.fn(async () => {
@@ -1217,6 +1255,18 @@ describe('MCP Server', () => {
       const disabledResponse = await handleToolCall('attestlens_scan', { path: tempDir, behavioral: false });
       const disabledPayload = expectJsonStructuredPayload(disabledResponse);
       expect(disabledPayload.findings.some((finding: { sourceRule: string }) => finding.sourceRule === 'VS-BH-001')).toBe(false);
+    });
+
+    it('enables MCP Data Flow Lite findings by default and allows explicit disable', async () => {
+      await writeMcpDataFlowProject(tempDir);
+
+      const enabledResponse = await handleToolCall('attestlens_scan', { path: tempDir });
+      const enabledPayload = expectJsonStructuredPayload(enabledResponse);
+      expect(enabledPayload.findings.some((finding: { sourceRule: string }) => finding.sourceRule === 'DATAFLOW-PII-LOG')).toBe(true);
+
+      const disabledResponse = await handleToolCall('attestlens_scan', { path: tempDir, dataFlowLite: false });
+      const disabledPayload = expectJsonStructuredPayload(disabledResponse);
+      expect(disabledPayload.findings.some((finding: { sourceRule: string }) => finding.sourceRule === 'DATAFLOW-PII-LOG')).toBe(false);
     });
 
     it('accepts MCP gitleaks opt-in and uses server-side binary configuration only', async () => {
@@ -1661,4 +1711,17 @@ async function writeMcpBehavioralProject(projectDir: string): Promise<void> {
     version: '1.0.0',
   }, null, 2));
   await fs.writeFile(path.join(projectDir, 'node_modules', 'behavior-pkg', 'index.js'), 'export const run = (code) => eval(code);');
+}
+
+async function writeMcpDataFlowProject(projectDir: string): Promise<void> {
+  await fs.writeFile(
+    path.join(projectDir, 'route.ts'),
+    [
+      'export async function POST(request: Request) {',
+      '  const body = await request.json();',
+      '  console.debug("contact", body.email);',
+      '  return Response.json({ ok: true });',
+      '}',
+    ].join('\n'),
+  );
 }

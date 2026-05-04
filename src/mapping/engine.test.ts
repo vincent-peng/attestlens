@@ -441,6 +441,30 @@ describe('mapFindingToAPP', () => {
     expect(mapFindingToAPP(envFinding).map(mapping => mapping.principle)).toEqual(['APP_11', 'NDB']);
   });
 
+  it('should map Data Flow Lite findings to scoped privacy obligations', () => {
+    const logFinding = makeFinding({
+      source: 'data-flow-lite',
+      sourceRule: 'DATAFLOW-PII-LOG',
+      severity: 'medium',
+      category: 'Data Flow Lite',
+      title: 'Personal data flows into application logs',
+      description: 'email reaches console logging',
+    });
+    const llmFinding = makeFinding({
+      source: 'data-flow-lite',
+      sourceRule: 'DATAFLOW-PII-LLM',
+      severity: 'high',
+      category: 'Data Flow Lite',
+      title: 'Personal data flows into an LLM prompt or message',
+      description: 'health reaches an LLM prompt',
+    });
+
+    expect(mapFindingToAPP(logFinding).map(mapping => mapping.principle)).toEqual(['APP_11', 'NDB']);
+    expect(mapFindingToAPP(llmFinding).map(mapping => mapping.principle)).toEqual(['APP_11', 'APP_6', 'APP_8', 'NDB']);
+    expect(mapFindingToRegulation(llmFinding, ['eu-gdpr']).map(mapping => mapping.principle)).toEqual(['GDPR_Art32', 'GDPR_Art44']);
+    expect(mapFindingToRegulation(llmFinding, ['us-ccpa']).map(mapping => mapping.principle)).toEqual(['CCPA_100']);
+  });
+
   it('should map gitleaks findings to APP_11 and NDB', () => {
     const finding = makeFinding({
       source: 'gitleaks',
